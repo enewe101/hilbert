@@ -37,7 +37,7 @@ class TestCorpusStats(TestCase):
 
 
     def test_PMI(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         N_x = np.sum(N_xx, axis=1)
         N = np.sum(N_x)
         with np.errstate(divide='ignore'):
@@ -48,25 +48,25 @@ class TestCorpusStats(TestCase):
                 ] 
                 for i in range(N_xx.shape[0])
             ])
-        found_PMI = h.corpus_stats.calc_PMI(N_xx)
+        found_PMI = h.corpus_stats.calc_PMI(N_xx, N_x)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
 
     def test_calc_postive_PMI(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
             log_N_xx = np.log(N_xx)
             log_N_x = np.log(np.sum(N_xx, axis=1).reshape((-1,1)))
             log_N = np.log(np.sum(N_xx))
         PMI = log_N + log_N_xx - log_N_x - log_N_x.T
-        positive_PMI = h.corpus_stats.calc_positive_PMI(N_xx)
+        positive_PMI = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
         for pmi, ppmi in zip(np.nditer(PMI), np.nditer(positive_PMI)):
             self.assertTrue(pmi == ppmi or (pmi < 0 and ppmi == 0))
 
 
 
     def test_calc_shifted_PMI(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         N_x = np.sum(N_xx, axis=1)
         N = np.sum(N_x)
         k = 15.0
@@ -77,13 +77,13 @@ class TestCorpusStats(TestCase):
                 ]
                 for i in range(N_xx.shape[0])
             ])
-        found = h.corpus_stats.calc_shifted_w2v_PMI(k, N_xx)
+        found = h.corpus_stats.calc_shifted_w2v_PMI(k, N_xx, N_x)
         self.assertTrue(np.allclose(found, expected))
 
 
     def test_get_stats(self):
         # First, test with a cooccurrence window of +/-2
-        dictionary, N_xx = stats = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         for i, token1 in enumerate(dictionary):
             cache_idx1 = self.UNIQUE_TOKENS[token1]
             for j, token2 in enumerate(dictionary):
@@ -94,7 +94,7 @@ class TestCorpusStats(TestCase):
                 )
 
         # Next, test with a cooccurrence window of +/-3
-        dictionary, N_xx = stats = h.corpus_stats.get_test_stats(3)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(3)
         for i, token1 in enumerate(dictionary):
             cache_idx1 = self.UNIQUE_TOKENS[token1]
             for j, token2 in enumerate(dictionary):
@@ -113,8 +113,8 @@ class TestFDeltas(TestCase):
 
 
     def test_sigmoid(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        PMI = h.corpus_stats.calc_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        PMI = h.corpus_stats.calc_PMI(N_xx, N_x)
         expected = np.array([
             [1/(1+np.e**(-pmi)) for pmi in row]
             for row in PMI
@@ -126,7 +126,7 @@ class TestFDeltas(TestCase):
 
     def test_N_xx_neg(self):
         k = 15.0
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         N_x = np.sum(N_xx, axis=1)
         N = np.sum(N_x)
         expected = np.array([
@@ -150,9 +150,9 @@ class TestFDeltas(TestCase):
 
     def test_f_w2v(self):
         k = 15
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
 
-        M = h.corpus_stats.calc_PMI(N_xx) - np.log(k)
+        M = h.corpus_stats.calc_PMI(N_xx, N_x) - np.log(k)
         M_hat = M + 1
         N_x = np.sum(N_xx, axis=1).reshape((-1,1))
         N_neg_xx = h.embedder.calc_N_neg_xx(k, N_x)
@@ -161,14 +161,15 @@ class TestFDeltas(TestCase):
         multiplier = N_neg_xx + N_xx
         expected = multiplier * difference
 
-        f_w2v = h.embedder.get_f_w2v(N_xx, k)
-        found = f_w2v(M, M_hat)
+        delta = np.zeros(M.shape)
+        f_w2v = h.embedder.get_f_w2v(N_xx, N_x, k)
+        found = f_w2v(M, M_hat, delta)
 
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_glove(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
             M = np.log(N_xx)
         M_hat = M_hat = M - 1
@@ -179,11 +180,15 @@ class TestFDeltas(TestCase):
             ]
             for i in range(N_xx.shape[0])
         ])
+
+        delta = np.zeros(M.shape)
         f_glove = h.embedder.get_f_glove(N_xx)
-        found = f_glove(M, M_hat)
+        found = f_glove(M, M_hat, delta)
+
         self.assertTrue(np.allclose(expected, found))
         f_glove = h.embedder.get_f_glove(N_xx, 10)
-        found2 = f_glove(M, M_hat)
+        found2 = f_glove(M, M_hat, delta)
+
         expected2 = np.array([
             [
                 2 * h.embedder.g_glove(N_xx[i,j], 10) * (M[i,j] - M_hat[i,j])
@@ -196,17 +201,18 @@ class TestFDeltas(TestCase):
 
 
     def test_f_mse(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
         M_hat = M + 1
         expected = M - M_hat
-        found = h.embedder.f_mse(M, M_hat)
+        delta = np.zeros(M.shape)
+        found = h.embedder.f_mse(M, M_hat, delta)
         np.testing.assert_equal(expected, found)
 
 
 
     def test_calc_M_swivel(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
             log_N_xx = np.log(N_xx)
             log_N_x = np.log(np.sum(N_xx, axis=1))
@@ -224,7 +230,7 @@ class TestFDeltas(TestCase):
 
 
     def test_f_swivel(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
         M = h.embedder.calc_M_swivel(N_xx)
         M_hat = M + 1
         expected = np.array([
@@ -237,14 +243,15 @@ class TestFDeltas(TestCase):
             ]
             for i in range(M.shape[0])
         ])
-        f_swivel = h.embedder.get_f_swivel(N_xx)
-        found = f_swivel(M, M_hat)
+        delta = np.zeros(M.shape)
+        f_swivel = h.embedder.get_f_swivel(N_xx, N_x)
+        found = f_swivel(M, M_hat, delta)
         self.assertTrue(np.allclose(found, expected))
 
 
     def test_f_MLE(self):
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_PMI(N_xx, N_x)
         M_hat = M + 1
 
         N_x = np.sum(N_xx, axis=1).reshape((-1,1))
@@ -253,8 +260,9 @@ class TestFDeltas(TestCase):
 
         expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
-        f_MLE = h.embedder.get_f_MLE(N_xx)
-        found = f_MLE(M, M_hat)
+        delta = np.zeros(M.shape)
+        f_MLE = h.embedder.get_f_MLE(N_xx, N_x)
+        found = f_MLE(M, M_hat, delta)
 
 
 
@@ -262,12 +270,7 @@ class TestConstrainer(TestCase):
 
     def test_glove_constrainer(self):
         W, V = np.zeros((3,3)), np.zeros((3,3))
-
-        W, V = h.embedder.glove_constrainer(W, V, update_complete=False)
-        self.assertTrue(np.allclose(W, np.zeros((3,3))))
-        self.assertTrue(np.allclose(V, np.array([[1,0,0]]*3).T))
-
-        W, V = h.embedder.glove_constrainer(W, V, update_complete=True)
+        W, V = h.embedder.glove_constrainer(W, V)
         self.assertTrue(np.allclose(W, np.array([[0,1,0]]*3)))
         self.assertTrue(np.allclose(V, np.array([[1,0,0]]*3).T))
 
@@ -281,8 +284,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
 
         # Define an arbitrary f_delta
         # First make a non-one-sided embedder.
@@ -296,20 +299,16 @@ class TestHilbertEmbedder(TestCase):
 
         embedder.cycle(print_badness=False)
 
-        # Check that the update was performed.  Notice that the update of W
-        # uses the old value of V, hence a synchronous update.
+        # Check that the update was performed, and constraints applied.
         new_V = old_V + learning_rate * np.dot(old_W.T, M - embedder.M_hat)
-        _, new_V = h.embedder.glove_constrainer(old_W, new_V, False)
-
-        new_W = old_W + learning_rate * np.dot(M - embedder.M_hat, new_V.T)
-        new_W, _ = h.embedder.glove_constrainer(new_W, new_V, True)
-
+        new_W = old_W + learning_rate * np.dot(M - embedder.M_hat, old_V.T)
+        new_W, new_V = h.embedder.glove_constrainer(new_W, new_V)
         self.assertTrue(np.allclose(embedder.V, new_V))
         self.assertTrue(np.allclose(embedder.W, new_W))
 
-
         # Check that the badness is correct 
         # (badness is based on the error before last update)
+        embedder.calc_badness()
         badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
         self.assertEqual(badness, embedder.badness)
 
@@ -319,14 +318,14 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
         pass_args = {'a':True, 'b':False}
 
-        def mock_f_delta(M_, M_hat_, **kwargs):
+        def mock_f_delta(M_, M_hat_, delta_, **kwargs):
             self.assertTrue(M_ is M)
             self.assertEqual(kwargs, {'a':True, 'b':False})
-            return M_ - M_hat_
+            return np.subtract(M_, M_hat_, delta_)
 
         embedder = h.embedder.HilbertEmbedder(
             M, d, mock_f_delta, learning_rate, pass_args=pass_args)
@@ -342,12 +341,13 @@ class TestHilbertEmbedder(TestCase):
 
         # Check that the update was performed
         new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
-        new_W = old_W + learning_rate * np.dot(embedder.delta, new_V.T)
+        new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
         self.assertTrue(np.allclose(embedder.V, new_V))
         self.assertTrue(np.allclose(embedder.W, new_W))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
+        embedder.calc_badness()
         badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
         self.assertEqual(badness, embedder.badness)
 
@@ -355,13 +355,15 @@ class TestHilbertEmbedder(TestCase):
     def test_arbitrary_f_delta(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
 
         # Define an arbitrary f_delta
-        delta_always = np.zeros(M.shape) + 0.1
-        def f_delta(M, M_hat):
-            return delta_always
+        delta_amount = 0.1
+        delta_always = np.zeros(M.shape) + delta_amount
+        def f_delta(M, M_hat, delta):
+            delta[:,:] = delta_amount
+            return delta
 
         # First make a non-one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(M, d, f_delta, learning_rate)
@@ -374,12 +376,13 @@ class TestHilbertEmbedder(TestCase):
         # Check that the update was performed.  Notice that the update of W
         # uses the old value of V, hence a synchronous update.
         new_V = old_V + learning_rate * np.dot(old_W.T, delta_always)
-        new_W = old_W + learning_rate * np.dot(delta_always, new_V.T)
+        new_W = old_W + learning_rate * np.dot(delta_always, old_V.T)
         self.assertTrue(np.allclose(embedder.V, new_V))
         self.assertTrue(np.allclose(embedder.W, new_W))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
+        embedder.calc_badness()
         badness = np.sum(delta_always) / (d*d)
         self.assertEqual(badness, embedder.badness)
 
@@ -387,8 +390,8 @@ class TestHilbertEmbedder(TestCase):
     def test_one_sided(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
 
         # First make a non-one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
@@ -409,8 +412,7 @@ class TestHilbertEmbedder(TestCase):
         old_V = embedder.V.copy()
         embedder.cycle(print_badness=False)
 
-        # Check that the update was performed.  Notice that the update of W
-        # uses the old value of V, hence a synchronous update.
+        # Check that the update was performed.
         new_V = old_V + learning_rate * np.dot(old_V, embedder.delta)
         self.assertTrue(np.allclose(embedder.V, new_V))
 
@@ -420,44 +422,45 @@ class TestHilbertEmbedder(TestCase):
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
+        embedder.calc_badness()
         badness = np.sum(abs(M - np.dot(old_V.T, old_V))) / (d*d)
         self.assertEqual(badness, embedder.badness)
 
 
 
-    def test_synchronous(self):
+    #def test_synchronous(self):
 
-        d = 11
-        learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+    #    d = 11
+    #    learning_rate = 0.01
+    #    dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+    #    M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
 
-        embedder = h.embedder.HilbertEmbedder(
-            M, d, h.embedder.f_mse, learning_rate, synchronous=True
-        )
+    #    embedder = h.embedder.HilbertEmbedder(
+    #        M, d, h.embedder.f_mse, learning_rate, synchronous=True
+    #    )
 
-        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-        embedder.cycle(print_badness=False)
+    #    old_W, old_V = embedder.W.copy(), embedder.V.copy()
+    #    embedder.cycle(print_badness=False)
 
-        # Check that the update was performed.  Notice that the update of W
-        # uses the old value of V, hence a synchronous update.
-        new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
-        new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
-        self.assertTrue(np.allclose(embedder.V, new_V))
-        self.assertTrue(np.allclose(embedder.W, new_W))
+    #    # Check that the update was performed.  Notice that the update of W
+    #    # uses the old value of V, hence a synchronous update.
+    #    new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
+    #    new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
+    #    self.assertTrue(np.allclose(embedder.V, new_V))
+    #    self.assertTrue(np.allclose(embedder.W, new_W))
 
-        # Check that the badness is correct 
-        # (badness is based on the error before last update)
-        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-        self.assertEqual(badness, embedder.badness)
+    #    # Check that the badness is correct 
+    #    # (badness is based on the error before last update)
+    #    badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
+    #    self.assertEqual(badness, embedder.badness)
 
 
 
     def test_mse_embedder(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx)
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
 
         mse_embedder = h.embedder.HilbertEmbedder(
             M, d, h.embedder.f_mse, learning_rate)
@@ -466,8 +469,11 @@ class TestHilbertEmbedder(TestCase):
         self.assertEqual(mse_embedder.V.shape, (M.shape[1],d))
         self.assertEqual(mse_embedder.W.shape, (d,M.shape[0]))
 
-        residual = h.embedder.f_mse(M, mse_embedder.M_hat)
-        self.assertTrue(np.allclose(residual, np.zeros(M.shape)))
+        delta = np.zeros(M.shape, dtype='float64')
+        residual = h.embedder.f_mse(M, mse_embedder.M_hat, delta)
+
+        self.assertTrue(np.allclose(
+            residual, np.zeros(M.shape,dtype='float64')))
         
 
 
