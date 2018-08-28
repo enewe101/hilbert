@@ -1,27 +1,37 @@
 import numpy as np
+from scipy import sparse
 
 
 def f_mse(M, M_hat, delta):
     return np.subtract(M, M_hat, delta)
 
 
-def calc_N_neg_xx(k, N_x, N=None):
-    N = N if N is not None else np.sum(N_x)
-    return float(k) * N_x * N_x.T / N
+def calc_N_neg_xx(k, N_x):
+    N_x = N_x.reshape((-1,1))
+    N = float(np.sum(N_x))
+    return k * N_x * N_x.T / N
 
 
 def get_f_w2v(N_xx, N_x, k):
     N_x = N_x.reshape((-1,1))
     N_neg_xx = calc_N_neg_xx(k, N_x)
     multiplier = N_xx + N_neg_xx
+    sigmoid_M = np.zeros(N_xx.shape)
+    sigmoid_M_hat = np.zeros(N_xx.shape)
     def f_w2v(M, M_hat, delta):
-        np.subtract(sigmoid(M), sigmoid(M_hat), delta)
+        sigmoid(M, sigmoid_M)
+        sigmoid(M_hat, sigmoid_M_hat)
+        np.subtract(sigmoid_M, sigmoid_M_hat, delta)
         return np.multiply(multiplier, delta, delta)
     return f_w2v
 
 
-def sigmoid(a):
-    return 1 / (1 + np.e**(-a))
+def sigmoid(M, sigmoid_M=None):
+    if sigmoid_M is None:
+        return 1 / (1 + np.e**(-M))
+    np.power(np.e, -M, sigmoid_M)
+    np.add(1, sigmoid_M, sigmoid_M)
+    return np.divide(1, sigmoid_M, sigmoid_M)
     
 
 @np.vectorize
@@ -29,100 +39,107 @@ def g_glove(N_ij, X_max=100):
     return min(1, (float(N_ij) / X_max)**0.75)
 
 
-def get_f_glove(N_xx,X_max=100):
+def get_f_glove(N_xx, X_max=100.0):
+    X_max = float(X_max)
+    if sparse.issparse(N_xx):
+        multiplier = N_xx.todense() / X_max
+    else:
+        multiplier = N_xx / X_max
+    np.power(multiplier, 0.75, multiplier)
+    multiplier[multiplier>1] = 1
+    np.multiply(multiplier, 2, multiplier)
     def f_glove(M, M_hat, delta):
-        return np.array([
-            [ 
-                2 * g_glove(N_xx[i,j], X_max) * (M[i,j] - M_hat[i,j]) 
-                if N_xx[i,j] > 0 else 0
-                for j in range(N_xx.shape[1])
-            ]
-            for i in range(N_xx.shape[0])
-        ])
+        with np.errstate(invalid='ignore'):
+            np.subtract(M, M_hat, delta)
+        delta[multiplier==0] = 0
+        return np.multiply(multiplier, delta, delta)
     return f_glove
 
 
 def get_f_MLE(N_xx, N_x):
 
-    N_x = N_x.reshape((-1,1))
-    N_xx_ind = N_x * N_x.T
-    N_xx_ind_max = np.max(N_xx_ind)
-
-    def f_MLE(M, M_hat, delta, t=1):
-
-        multiplier = (N_xx_ind / float(N_xx_ind_max))**(1/float(t))
-        difference = (np.e**M - np.e**M_hat)
-        return multiplier * difference
-
-    return f_MLE
-
-
-def get_f_MLE_fast(N_xx, N_x, delta):
-
     N_x = N_x.reshape((-1,1)).astype('float64')
-    N_xx_ind = N_x * N_x.T
-    N_xx_ind_max = np.max(N_xx_ind)
-    np.divide(N_xx_ind, N_xx_ind_max, N_xx_ind)
+    multiplier = N_x * N_x.T
+    multiplier_max = np.max(multiplier)
+    np.divide(multiplier, multiplier_max, multiplier)
 
-    tempered_N_xx_ind = np.zeros(N_xx.shape)
+    tempered_multiplier = np.zeros(N_xx.shape)
     exp_M = np.zeros(N_xx.shape)
     exp_M_hat = np.zeros(N_xx.shape)
 
     def f_MLE(M, M_hat, delta, t=1):
 
-        np.power(N_xx_ind, 1.0/t, tempered_N_xx_ind)
         np.power(np.e, M, exp_M)
         np.power(np.e, M_hat, exp_M_hat)
         np.subtract(exp_M, exp_M_hat, delta)
-        np.multiply(tempered_N_xx_ind, delta, delta)
+        np.power(multiplier, 1.0/t, tempered_multiplier)
+        np.multiply(tempered_multiplier, delta, delta)
 
         return delta
 
     return f_MLE
 
 
-def calc_M_swivel(N_xx):
+def calc_M_swivel(N_xx, N_x):
+
+    if sparse.issparse(N_xx):
+        use_N_xx = N_xx.todense()
+    else:
+        use_N_xx = N_xx
 
     with np.errstate(divide='ignore'):
-        log_N_xx = np.log(N_xx)
-        log_N_x = np.log(np.sum(N_xx, axis=1))
-        log_N = np.log(np.sum(N_xx))
+        log_N_xx = np.log(use_N_xx)
+        log_N_x = np.log(N_x)
+        log_N = np.log(np.sum(N_x))
 
     return np.array([
         [
             log_N + log_N_xx[i,j] - log_N_x[i] - log_N_x[j]
-            if N_xx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j]
-            for j in range(N_xx.shape[1])
+            if use_N_xx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j]
+            for j in range(use_N_xx.shape[1])
         ]
-        for i in range(N_xx.shape[0])
+        for i in range(use_N_xx.shape[0])
     ])
 
-# TODO: Why is this here?  Redundant with calc_M_swivel?
-def get_f_swivel(N_xx, N_x):
-    #N_x = np.sum(N_xx, axis=1)
 
-    with np.errstate(divide='ignore'):
-        log_N_x = np.log(N_x)
-        log_N = np.log(np.sum(N_x))
+def get_f_swivel(N_xx, N_x):
+
+    if sparse.issparse(N_xx):
+        use_N_xx = N_xx.todense()
+    else:
+        use_N_xx = N_xx
+    N_xx_sqrt = np.sqrt(use_N_xx)
+    selector = use_N_xx==0
+    exp_delta = np.zeros(N_xx.shape)
+    exp_delta_p1 = np.zeros(N_xx.shape)
+    temp_result_1 = np.zeros(N_xx.shape)
+    temp_result_2 = np.zeros(N_xx.shape)
 
     def f_swivel(M, M_hat, delta):
-        return np.array([
-            [
-                np.sqrt(N_xx[i,j]) * (M[i,j] - M_hat[i,j])
-                if N_xx[i,j] > 0 else
-                (np.e**(M[i,j] - M_hat[i,j]) / 
-                    (1 + np.e**(M[i,j] - M_hat[i,j])))
-                for j in range(M.shape[1])
-            ]
-            for i in range(M.shape[0])
-        ])
+
+        # Calculate cases where N_xx > 0
+        np.subtract(M, M_hat, temp_result_1)
+        np.multiply(temp_result_1, N_xx_sqrt, delta)
+
+        # Calculate cases where N_xx == 0
+        np.power(np.e, temp_result_1, exp_delta)
+        np.add(1, exp_delta, exp_delta_p1)
+        np.divide(exp_delta, exp_delta_p1, temp_result_2)
+
+        # Combine the results
+        delta[selector] = temp_result_2[selector]
+
+        return delta
+
     return f_swivel
+
 
 
 def glove_constrainer(W, V):
     W[:,1] = 1
     V[0,:] = 1
     return W,V
+
 
 
 class HilbertEmbedder(object):

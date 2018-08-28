@@ -119,8 +119,9 @@ class TestFDeltas(TestCase):
             [1/(1+np.e**(-pmi)) for pmi in row]
             for row in PMI
         ])
-        found = h.embedder.sigmoid(PMI)
-        self.assertTrue(np.allclose(expected, found))
+        result = np.zeros(PMI.shape)
+        h.embedder.sigmoid(PMI, result)
+        self.assertTrue(np.allclose(expected, result))
 
 
 
@@ -137,14 +138,6 @@ class TestFDeltas(TestCase):
         # Compare to manually calculated value above
         found = h.embedder.calc_N_neg_xx(k, N_x.reshape((-1,1)))
         self.assertTrue(np.allclose(expected, found))
-
-        # Providing precalculated N works as expected
-        found = h.embedder.calc_N_neg_xx(k, N_x.reshape((-1,1)), N)
-        self.assertTrue(np.allclose(expected, found))
-
-        # Test that optional N is consequential
-        found = h.embedder.calc_N_neg_xx(k, N_x.reshape((-1,1)), N+1)
-        self.assertFalse(np.allclose(expected, found))
 
 
 
@@ -225,13 +218,13 @@ class TestFDeltas(TestCase):
             ]
             for i in range(N_xx.shape[0])
         ])
-        found = h.embedder.calc_M_swivel(N_xx)
+        found = h.embedder.calc_M_swivel(N_xx, N_x)
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_swivel(self):
         dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.embedder.calc_M_swivel(N_xx)
+        M = h.embedder.calc_M_swivel(N_xx, N_x)
         M_hat = M + 1
         expected = np.array([
             [
