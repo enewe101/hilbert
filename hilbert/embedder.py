@@ -1,158 +1,18 @@
+import hilbert as h
 import numpy as np
-from scipy import sparse
 
 
-def f_mse(M, M_hat, delta):
-    return np.subtract(M, M_hat, delta)
-
-
-def calc_N_neg_xx(k, N_x):
-    N_x = N_x.reshape((-1,1))
-    N = float(np.sum(N_x))
-    return k * N_x * N_x.T / N
-
-
-def get_f_w2v(N_xx, N_x, k):
-    N_x = N_x.reshape((-1,1))
-    N_neg_xx = calc_N_neg_xx(k, N_x)
-    multiplier = N_xx + N_neg_xx
-    sigmoid_M = np.zeros(N_xx.shape)
-    sigmoid_M_hat = np.zeros(N_xx.shape)
-    def f_w2v(M, M_hat, delta):
-        sigmoid(M, sigmoid_M)
-        sigmoid(M_hat, sigmoid_M_hat)
-        np.subtract(sigmoid_M, sigmoid_M_hat, delta)
-        return np.multiply(multiplier, delta, delta)
-    return f_w2v
-
-
-def sigmoid(M, sigmoid_M=None):
-    if sigmoid_M is None:
-        return 1 / (1 + np.e**(-M))
-    np.power(np.e, -M, sigmoid_M)
-    np.add(1, sigmoid_M, sigmoid_M)
-    return np.divide(1, sigmoid_M, sigmoid_M)
-    
-
-@np.vectorize
-def g_glove(N_ij, X_max=100):
-    return min(1, (float(N_ij) / X_max)**0.75)
-
-
-def get_f_glove(N_xx, X_max=100.0):
-    X_max = float(X_max)
-    if sparse.issparse(N_xx):
-        multiplier = N_xx.todense() / X_max
-    else:
-        multiplier = N_xx / X_max
-    np.power(multiplier, 0.75, multiplier)
-    multiplier[multiplier>1] = 1
-    np.multiply(multiplier, 2, multiplier)
-    def f_glove(M, M_hat, delta):
-        with np.errstate(invalid='ignore'):
-            np.subtract(M, M_hat, delta)
-        delta[multiplier==0] = 0
-        return np.multiply(multiplier, delta, delta)
-    return f_glove
-
-
-def get_f_MLE(N_xx, N_x):
-
-    N_x = N_x.reshape((-1,1)).astype('float64')
-    multiplier = N_x * N_x.T
-    multiplier_max = np.max(multiplier)
-    np.divide(multiplier, multiplier_max, multiplier)
-
-    tempered_multiplier = np.zeros(N_xx.shape)
-    exp_M = np.zeros(N_xx.shape)
-    exp_M_hat = np.zeros(N_xx.shape)
-
-    def f_MLE(M, M_hat, delta, t=1):
-
-        np.power(np.e, M, exp_M)
-        np.power(np.e, M_hat, exp_M_hat)
-        np.subtract(exp_M, exp_M_hat, delta)
-        np.power(multiplier, 1.0/t, tempered_multiplier)
-        np.multiply(tempered_multiplier, delta, delta)
-
-        return delta
-
-    return f_MLE
-
-
-def calc_M_swivel(N_xx, N_x):
-
-    if sparse.issparse(N_xx):
-        use_N_xx = N_xx.todense()
-    else:
-        use_N_xx = N_xx
-
-    with np.errstate(divide='ignore'):
-        log_N_xx = np.log(use_N_xx)
-        log_N_x = np.log(N_x)
-        log_N = np.log(np.sum(N_x))
-
-    return np.array([
-        [
-            log_N + log_N_xx[i,j] - log_N_x[i] - log_N_x[j]
-            if use_N_xx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j]
-            for j in range(use_N_xx.shape[1])
-        ]
-        for i in range(use_N_xx.shape[0])
-    ])
-
-
-def get_f_swivel(N_xx, N_x):
-
-    if sparse.issparse(N_xx):
-        use_N_xx = N_xx.todense()
-    else:
-        use_N_xx = N_xx
-    N_xx_sqrt = np.sqrt(use_N_xx)
-    selector = use_N_xx==0
-    exp_delta = np.zeros(N_xx.shape)
-    exp_delta_p1 = np.zeros(N_xx.shape)
-    temp_result_1 = np.zeros(N_xx.shape)
-    temp_result_2 = np.zeros(N_xx.shape)
-
-    def f_swivel(M, M_hat, delta):
-
-        # Calculate cases where N_xx > 0
-        np.subtract(M, M_hat, temp_result_1)
-        np.multiply(temp_result_1, N_xx_sqrt, delta)
-
-        # Calculate cases where N_xx == 0
-        np.power(np.e, temp_result_1, exp_delta)
-        np.add(1, exp_delta, exp_delta_p1)
-        np.divide(exp_delta, exp_delta_p1, temp_result_2)
-
-        # Combine the results
-        delta[selector] = temp_result_2[selector]
-
-        return delta
-
-    return f_swivel
-
-
-
-def glove_constrainer(W, V):
-    W[:,1] = 1
-    V[0,:] = 1
-    return W,V
-
-
-
+# TODO: enable sharding
 class HilbertEmbedder(object):
 
     def __init__(
         self,
         M,
         d=300,
-        f_delta=f_mse,
+        f_delta=h.f_delta.f_mse,
         learning_rate=0.001,
         one_sided=False,
         constrainer=None,
-        #synchronous=False,
         pass_args={}
     ):
         self.M = M
@@ -161,24 +21,36 @@ class HilbertEmbedder(object):
         self.learning_rate = learning_rate
         self.one_sided = one_sided
         self.constrainer = constrainer
-        #self.synchronous = synchronous
+
         self.num_covecs, self.num_vecs = self.M.shape
+        self.num_pairs = self.num_covecs * self.num_vecs
         if self.one_sided and self.num_covecs != self.num_vecs:
             raise ValueError('M must be square for a A one-sided embedder.')
         self.reset()
         #self.measure(**pass_args)
 
 
+    def sample_sphere(self):
+        sample = np.random.random((self.d, self.num_vecs)) * 2 - 1
+        norms = np.linalg.norm(sample, axis=1).reshape((-1,1))
+        return np.divide(sample, norms, sample)
+
+
     def reset(self):
-        self.V = np.random.random((self.d, self.num_vecs)) * 2 - 1
-        norms = np.linalg.norm(self.V, axis=1).reshape((-1,1))
-        self.V = self.V / norms
+        self.V = self.sample_sphere()
+        self.temp_V = np.zeros(self.V.shape)
+        self.nabla_V = np.zeros(self.V.shape)
+        self.update_V = np.zeros(self.V.shape)
         if self.one_sided:
             self.W = self.V.T
+            self.temp_W = self.temp_V.T
+            self.nabla_W = self.nabla_V.T
+            self.update_W = self.update_V.T
         else:
-            self.W = np.random.random((self.num_covecs, self.d)) * 2 - 1
-            norms = np.linalg.norm(self.W, axis=0).reshape((1,-1))
-            self.W = self.W / norms
+            self.W = self.sample_sphere().T
+            self.temp_W = np.zeros(self.W.shape)
+            self.nabla_W = np.zeros(self.W.shape)
+            self.update_W = np.zeros(self.W.shape)
         self.M_hat = np.zeros(self.M.shape, dtype='float64')
         self.delta = np.zeros(self.M.shape, dtype='float64')
         self.badness = None
@@ -198,10 +70,7 @@ class HilbertEmbedder(object):
     #    self.calc_badness()
 
 
-    # TODO: make this work for:
-    #   - one_sided
-    #   - synchronous
-    #   - shard
+    # TODO: Test. (esp. that offsets work.)
     def get_gradient(self, offsets=None, pass_args=None):
         """ 
         Calculate and return the current gradient.  
@@ -219,38 +88,62 @@ class HilbertEmbedder(object):
         # Determine the prediction for current embeddings.  Allow an offset to
         # be specified for solvers like Nesterov Accelerated Gradient.
         if offsets is not None:
-            dW, dV = offsets
-            np.dot(self.W + dW, self.V + dV, out=self.M_hat)
+            use_V, use_W = self.temp_V, self.temp_W
+            if not self.one_sided:
+                dW, dV = offsets
+                np.add(self.V, dV, use_V)
+                np.add(self.W, dW, use_W)
+            else:
+                dV = offsets
+                np.add(self.V, dV, use_V)
         else:
-            np.dot(self.W, self.V, out=self.M_hat)
+            use_V, use_W = self.V, self.W
+
+        np.dot(use_W, use_V, self.M_hat)
 
         # Determine the errors.
         self.f_delta(self.M, self.M_hat, self.delta, **pass_args)
 
         # Determine the gradient
-        nabla_W = np.dot(self.delta, self.V.T)
-        nabla_V = np.dot(self.W.T, self.delta)
-
-        return nabla_W, nabla_V
-
-
-
-    def update(self, pass_args=None):
-        nabla_W, nabla_V = self.get_gradient(pass_args=pass_args)
-        self.V += self.learning_rate * nabla_V
+        np.dot(use_W.T, self.delta, self.nabla_V)
         if not self.one_sided:
-            self.W += self.learning_rate * nabla_W
+            np.dot(self.delta, use_V.T, self.nabla_W)
+
+        return self.nabla_W, self.nabla_V
+
+
+
+    def update(self, delta_V=None, delta_W=None):
+        if self.one_sided and delta_W is not None:
+            raise ValueError(
+                "Cannot update covector embeddings (W) for a one-sided model. "
+                "Update V instead."
+            )
+        if delta_V is not None:
+            np.add(delta_V, self.V, self.V)
+        if delta_W is not None:
+            np.add(delta_W, self.W, self.W)
+        self.apply_constraints()
+
+
+    def update_self(self, pass_args=None):
+        self.get_gradient(pass_args=pass_args)
+        np.multiply(self.learning_rate, self.nabla_V, self.update_V)
+        np.add(self.V, self.update_V, self.V)
+        if not self.one_sided:
+            np.multiply(self.learning_rate, self.nabla_W, self.update_W)
+            np.add(self.W, self.update_W, self.W)
 
 
     def apply_constraints(self):
         if self.constrainer is not None:
-            self.W, self.V = self.constrainer(self.W,self.V)
+            self.constrainer(self.W, self.V)
 
 
     def cycle(self, times=1, print_badness=True, pass_args=None):
         pass_args = pass_args or {}
         for i in range(times):
-            self.update(pass_args)
+            self.update_self(pass_args)
             self.apply_constraints()
             if print_badness:
                 print(self.calc_badness())
