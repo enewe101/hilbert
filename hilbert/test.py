@@ -651,6 +651,270 @@ class TestHilbertEmbedder(TestCase):
 
 
 
+class MockObjective(object):
+
+    def __init__(self, *param_shapes):
+        self.param_shapes = param_shapes
+        self.updates = []
+        self.passed_args = []
+        self.params = []
+        self.initialize_params()
+
+
+    def initialize_params(self):
+        initial_params = []
+        for shape in self.param_shapes:
+            np.random.seed(0)
+            initial_params.append(np.random.random(shape))
+        self.params.append(initial_params)
+
+
+    def get_gradient(self, offsets=None, pass_args=None):
+        self.passed_args.append(pass_args)
+        curr_gradient = []
+        for i in range(len(self.param_shapes)):
+            curr_gradient.append(
+                self.params[-1][i] + 0.1 
+                + (offsets[i] if offsets is not None else 0)
+            )
+        return curr_gradient
+
+
+    def update(self, *updates):
+        new_params = []
+        for i in range(len(self.param_shapes)):
+            new_params.append(self.params[-1][i] + updates[i])
+        self.params.append(new_params)
+
+        copied_updates = [a if np.isscalar(a) else a.copy() for a in updates]
+        self.updates.append(copied_updates)
+
+
+
+class TestSolvers(TestCase):
+
+    def test_momentum_solver(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+        mock_objective = MockObjective((1,), (3,3))
+        solver = h.solver.MomentumSolver(
+            mock_objective, learning_rate, momentum_decay)
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        expected_params = []
+        np.random.seed(0)
+        initial_params_0 = np.random.random((1,))
+        np.random.seed(0)
+        initial_params_1 = np.random.random((3,3))
+        expected_params.append((initial_params_0, initial_params_1))
+
+        # Initialize the momentum at zero
+        expected_momenta = [(np.zeros((1,)), np.zeros((3,3)))]
+
+        # Compute successive updates
+        for i in range(times):
+            update_0 = (
+                expected_momenta[-1][0] * momentum_decay
+                + (expected_params[-1][0] + 0.1) * learning_rate
+            )
+            update_1 = (
+                expected_momenta[-1][1] * momentum_decay
+                + (expected_params[-1][1] + 0.1) * learning_rate
+            )
+            expected_momenta.append((update_0, update_1))
+
+            expected_params.append((
+                expected_params[-1][0] + expected_momenta[-1][0],
+                expected_params[-1][1] + expected_momenta[-1][1]
+            ))
+
+        # Updates should be the successive momenta (excluding the first zero
+        # value)
+        for expected,found in zip(expected_momenta[1:], mock_objective.updates):
+            for e, f in zip(expected, found):
+                self.assertTrue(np.allclose(e, f))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mock_objective.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+    def compare_nesterov_momentum_solver_to_optimized(self):
+
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        mock_objective_1 = MockObjective((1,), (3,3))
+        nesterov_solver = h.solver.NesterovSolver(
+            mock_objective_1, learning_rate, momentum_decay)
+
+        mock_objective_2 = MockObjective((1,), (3,3))
+        nesterov_solver_optimized = h.solver.NesterovSolver(
+            mock_objective_2, learning_rate, momentum_decay)
+
+        for i in range(times):
+
+            nesterov_solver.cycle()
+            nesterov_solver_optimized.cycle()
+
+            gradient_1 = nesterov_solver.gradient_steps
+            gradient_2 = nesterov_solver_optimized.gradient_steps
+
+            for param_1, param_2 in zip(gradient_1, gradient_2):
+                self.assertTrue(np.allclose(param_1, param_2))
+
+
+    def test_nesterov_momentum_solver(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.NesterovSolver(
+            mo, learning_rate, momentum_decay)
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        params_expected = self.calculate_expected_nesterov_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+
+    def test_nesterov_momentum_solver_optimized(self):
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        times = 3
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.NesterovSolverOptimized(
+            mo, learning_rate, momentum_decay)
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        params_expected = self.calculate_expected_nesterov_optimized_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+    def calculate_expected_nesterov_params(
+        self, times, learning_rate, momentum_decay
+    ):
+
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        params_expected = [[]]
+        np.random.seed(0)
+        params_expected[0].append(np.random.random((1,)))
+        np.random.seed(0)
+        params_expected[0].append(np.random.random((3,3)))
+
+        # Solver starts with zero momentum
+        momentum_expected = [[np.zeros((1,)), np.zeros((3,3))]]
+
+        # Compute successive updates
+        gradient_steps = []
+        for i in range(times):
+
+            # In this test, the gradient is always equal to `params + 0.1`
+            # Nesterov adds momentum to parameters before taking gradient.
+            gradient_steps.append((
+                learning_rate * (
+                    params_expected[-1][0] + 0.1
+                    + momentum_expected[-1][0] * momentum_decay),
+                learning_rate * (
+                    params_expected[-1][1] + 0.1
+                    + momentum_expected[-1][1] * momentum_decay),
+            ))
+
+            momentum_expected.append((
+                momentum_decay * momentum_expected[-1][0] 
+                    + gradient_steps[-1][0],
+                momentum_decay * momentum_expected[-1][1]
+                    + gradient_steps[-1][1]
+            ))
+
+            # Do the accellerated update
+            params_expected.append((
+                params_expected[-1][0] + momentum_expected[-1][0],
+                params_expected[-1][1] + momentum_expected[-1][1],
+            ))
+
+        return params_expected
+            
+
+
+    def calculate_expected_nesterov_optimized_params(
+        self, times, learning_rate, momentum_decay
+    ):
+
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        params_expected = [[]]
+        np.random.seed(0)
+        params_expected[0].append(np.random.random((1,)))
+        np.random.seed(0)
+        params_expected[0].append(np.random.random((3,3)))
+
+        # Solver starts with zero momentum
+        momentum_expected = [[np.zeros((1,)), np.zeros((3,3))]]
+
+        # Compute successive updates
+        gradient_steps = []
+        for i in range(times):
+
+            # In this test, the gradient is always equal to `params + 0.1`
+            gradient_steps.append((
+                (params_expected[-1][0] + 0.1) * learning_rate,
+                (params_expected[-1][1] + 0.1) * learning_rate
+            ))
+
+            momentum_expected.append((
+                momentum_decay * momentum_expected[-1][0] 
+                    + gradient_steps[-1][0],
+                momentum_decay * momentum_expected[-1][1]
+                    + gradient_steps[-1][1]
+            ))
+
+            # Do the accellerated update
+            params_expected.append((
+                params_expected[-1][0] + gradient_steps[-1][0] 
+                    + momentum_decay * momentum_expected[-1][0],
+                params_expected[-1][1] + gradient_steps[-1][1] 
+                    + momentum_decay * momentum_expected[-1][1]
+            ))
+
+        return params_expected
+            
+
+
 if __name__ == '__main__':
     main()
 
