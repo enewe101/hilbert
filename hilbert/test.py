@@ -328,7 +328,7 @@ class TestHilbertEmbedder(TestCase):
         expected_nabla_W = np.dot(delta, V.T)
         expected_nabla_V = np.dot(W.T, delta)
 
-        nabla_W, nabla_V = embedder.get_gradient()
+        nabla_V, nabla_W = embedder.get_gradient()
 
         self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
         self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
@@ -353,7 +353,7 @@ class TestHilbertEmbedder(TestCase):
         expected_nabla_W = np.dot(delta, V.T)
         expected_nabla_V = np.dot(W.T, delta)
 
-        nabla_W, nabla_V = embedder.get_gradient(offsets=(offset_W, offset_V))
+        nabla_V, nabla_W = embedder.get_gradient(offsets=(offset_V, offset_W))
 
         self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
         self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
@@ -379,7 +379,7 @@ class TestHilbertEmbedder(TestCase):
         delta = M - M_hat
         expected_nabla_V = np.dot(V, delta)
 
-        nabla_W, nabla_V = embedder.get_gradient()
+        nabla_V, nabla_W = embedder.get_gradient()
 
         self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
         self.assertTrue(np.allclose(nabla_W, expected_nabla_V.T))
@@ -406,7 +406,7 @@ class TestHilbertEmbedder(TestCase):
         delta = M - M_hat
         expected_nabla_V = np.dot(V, delta)
 
-        nabla_W, nabla_V = embedder.get_gradient(offsets=offset_V)
+        nabla_V, nabla_W = embedder.get_gradient(offsets=offset_V)
 
         self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
         self.assertTrue(np.allclose(nabla_W, expected_nabla_V.T))
@@ -913,6 +913,63 @@ class TestSolvers(TestCase):
 
         return params_expected
             
+
+
+class TestEmbedderSolverIntegration(TestCase):
+
+    def test_embedder_solver_integration(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        embedder = h.embedder.HilbertEmbedder(
+            M, d, h.f_delta.f_mse, learning_rate)
+        solver = h.solver.NesterovSolver(
+            embedder, learning_rate, momentum_decay)
+        solver.cycle(times=times)
+
+
+    def test_embedder_nesterov_solver_optimized_integration(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        embedder = h.embedder.HilbertEmbedder(
+            M, d, h.f_delta.f_mse, learning_rate)
+        solver = h.solver.NesterovSolverOptimized(
+            embedder, learning_rate, momentum_decay)
+        solver.cycle(times=times)
+
+
+    def test_embedder_momentum_solver_integration(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        embedder = h.embedder.HilbertEmbedder(
+            M, d, h.f_delta.f_mse, learning_rate)
+        solver = h.solver.MomentumSolver(
+            embedder, learning_rate, momentum_decay)
+        solver.cycle(times=times)
+
 
 
 if __name__ == '__main__':

@@ -1,6 +1,15 @@
 import hilbert as h
 import numpy as np
 
+def sim(word, context, embedder, dictionary):
+    word_id = dictionary.get_id(word)
+    context_id = dictionary.get_id(context)
+    word_vec, context_vec = embedder.W[word_id], embedder.W[context_id]
+    product = np.dot(word_vec, context_vec) 
+    word_norm = np.linalg.norm(word_vec)
+    context_norm =  np.linalg.norm(context_vec)
+    return product / (word_norm * context_norm)
+
 
 # TODO: enable sharding
 class HilbertEmbedder(object):
@@ -63,21 +72,14 @@ class HilbertEmbedder(object):
         return self.badness
 
 
-    #def measure(self, **pass_args):
-    #    """ Determine the current gradient """
-    #    self.M_hat = np.dot(self.W, self.V)
-    #    self.delta = self.f_delta(self.M, self.M_hat, **pass_args)
-    #    self.calc_badness()
-
-
     # TODO: Test. (esp. that offsets work.)
     def get_gradient(self, offsets=None, pass_args=None):
         """ 
         Calculate and return the current gradient.  
             offsets: 
-                Allowed values: None, (dW, dV)
-                    where dW and dV are is a W.shape and V.shape numpy arrays
-                Temporarily applies self.W += dW and self.V += dV before 
+                Allowed values: None, (dV, dW)
+                    where dV and dW are is a V.shape and W.shape numpy arrays
+                Temporarily applies self.V += dV and self.W += dW before 
                 calculating the gradient.
             pass_args:
                 Allowed values: dict of keyword arguments.
@@ -88,16 +90,16 @@ class HilbertEmbedder(object):
         # Determine the prediction for current embeddings.  Allow an offset to
         # be specified for solvers like Nesterov Accelerated Gradient.
         if offsets is not None:
-            use_V, use_W = self.temp_V, self.temp_W
+            use_W, use_V = self.temp_W, self.temp_V
             if not self.one_sided:
-                dW, dV = offsets
+                dV, dW = offsets
                 np.add(self.V, dV, use_V)
                 np.add(self.W, dW, use_W)
             else:
                 dV = offsets
                 np.add(self.V, dV, use_V)
         else:
-            use_V, use_W = self.V, self.W
+            use_W, use_V = self.W, self.V
 
         np.dot(use_W, use_V, self.M_hat)
 
@@ -109,7 +111,7 @@ class HilbertEmbedder(object):
         if not self.one_sided:
             np.dot(self.delta, use_V.T, self.nabla_W)
 
-        return self.nabla_W, self.nabla_V
+        return self.nabla_V, self.nabla_W
 
 
 
