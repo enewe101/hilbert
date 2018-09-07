@@ -253,7 +253,7 @@ class NesterovSolverCautious(object):
                 alignment = product / norms
             self.last_gradient = [
                 gradients[j].copy() for j in range(len(gradients))]
-            print 'alignment: %.2f %%' % (alignment * 100)
+            print('alignment: %.2f %%' % (alignment * 100))
 
             use_momentum_decay = max(0, alignment) * self.momentum_decay
 

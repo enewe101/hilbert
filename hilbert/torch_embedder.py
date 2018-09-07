@@ -1,6 +1,6 @@
+import torch
 import hilbert as h
 import numpy as np
-import torch
 
 def sim(word, context, embedder, dictionary):
     word_id = dictionary.get_id(word)
@@ -12,31 +12,9 @@ def sim(word, context, embedder, dictionary):
     return product / (word_norm * context_norm)
 
 
-def get_embedder(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_f_MLE(cooc_stats)
-    embedder = HilbertEmbedder(M, f_delta=f_MLE, learning_rate=1e-6)
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
-def get_torch_embedder(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M)
-    embedder = h.torch_embedder.TorchHilbertEmbedder(
-        M, f_delta=f_MLE, learning_rate=1e-6
-    )
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
 
 # TODO: enable sharding
-class HilbertEmbedder(object):
+class TorchHilbertEmbedder(object):
 
     def __init__(
         self,
@@ -46,14 +24,16 @@ class HilbertEmbedder(object):
         learning_rate=0.001,
         one_sided=False,
         constrainer=None,
+        device='cpu',
         pass_args={}
     ):
-        self.M = M
+        self.M = torch.tensor(M, device=device)
         self.d = d
         self.f_delta = f_delta
         self.learning_rate = learning_rate
         self.one_sided = one_sided
         self.constrainer = constrainer
+        self.device = device
 
         self.num_covecs, self.num_vecs = self.M.shape
         self.num_pairs = self.num_covecs * self.num_vecs
@@ -64,37 +44,19 @@ class HilbertEmbedder(object):
 
 
     def sample_sphere(self):
-        sample = np.random.random(
-            (self.d, self.num_vecs)) * 2 - 1
-        norms = np.linalg.norm(sample, axis=1).reshape((-1,1))
-        return np.divide(sample, norms, sample)
+        sample = torch.rand(
+            (self.d, self.num_vecs), device=self.device
+        ).mul_(2).sub_(1)
+        return sample.div_(torch.norm(sample, 2, dim=1).view(self.d, 1))
 
 
     def reset(self):
         self.V = self.sample_sphere()
-        self.temp_V = np.zeros(self.V.shape)
-        self.nabla_V = np.zeros(self.V.shape)
-        self.update_V = np.zeros(self.V.shape)
         if self.one_sided:
-            self.W = self.V.T
-            self.temp_W = self.temp_V.T
-            self.nabla_W = self.nabla_V.T
-            self.update_W = self.update_V.T
+            self.W = self.V.t()
         else:
-            self.W = self.sample_sphere().T
-            self.temp_W = np.zeros(self.W.shape)
-            self.nabla_W = np.zeros(self.W.shape)
-            self.update_W = np.zeros(self.W.shape)
-        self.M_hat = np.zeros(self.M.shape)
-        self.delta = np.zeros(self.M.shape)
+            self.W = self.sample_sphere().t()
         self.badness = None
-
-
-    def calc_badness(self):
-        total_absolute_error = np.sum(abs(self.delta))
-        num_cells = (self.M.shape[0] * self.M.shape[1])
-        self.badness = total_absolute_error / num_cells
-        return self.badness
 
 
     # TODO: Test. (esp. that offsets work.)
@@ -115,28 +77,28 @@ class HilbertEmbedder(object):
         # Determine the prediction for current embeddings.  Allow an offset to
         # be specified for solvers like Nesterov Accelerated Gradient.
         if offsets is not None:
-            use_W, use_V = self.temp_W, self.temp_V
             if not self.one_sided:
                 dV, dW = offsets
-                np.add(self.V, dV, use_V)
-                np.add(self.W, dW, use_W)
+                use_V = self.V + dV
+                use_W = self.W + dW
             else:
                 dV = offsets
-                np.add(self.V, dV, use_V)
+                use_V = self.V + dV
         else:
             use_W, use_V = self.W, self.V
 
-        np.dot(use_W, use_V, self.M_hat)
+        M_hat = torch.mm(use_W, use_V)
 
         # Determine the errors.
-        self.f_delta(self.M, self.M_hat, self.delta, **pass_args)
+        delta = self.f_delta(self.M, M_hat, **pass_args)
+        self.badness = torch.sum(delta) / (self.M.shape[0] * self.M.shape[1])
 
         # Determine the gradient
-        np.dot(use_W.T, self.delta, self.nabla_V)
+        nabla_V = torch.mm(use_W.t(), delta)
         if not self.one_sided:
-            np.dot(self.delta, use_V.T, self.nabla_W)
+            nabla_W = torch.mm(delta, use_V.t())
 
-        return self.nabla_V, self.nabla_W
+        return nabla_V, nabla_W
 
 
 
@@ -154,12 +116,10 @@ class HilbertEmbedder(object):
 
 
     def update_self(self, pass_args=None):
-        self.get_gradient(pass_args=pass_args)
-        np.multiply(self.learning_rate, self.nabla_V, self.update_V)
-        np.add(self.V, self.update_V, self.V)
+        nabla_V, nabla_W = self.get_gradient(pass_args=pass_args)
+        self.V += nabla_V * self.learning_rate
         if not self.one_sided:
-            np.multiply(self.learning_rate, self.nabla_W, self.update_W)
-            np.add(self.W, self.update_W, self.W)
+            self.W += nabla_W * self.learning_rate
 
 
     def apply_constraints(self):
@@ -173,7 +133,7 @@ class HilbertEmbedder(object):
             self.update_self(pass_args)
             self.apply_constraints()
             if print_badness:
-                print(self.calc_badness())
+                print(self.badness)
 
 
     def project(self, new_d):
@@ -199,6 +159,7 @@ class HilbertEmbedder(object):
             vector_extension = (np.random.random((
                 delta_dim, self.num_vecs)) * 2 - 1) * new_mass
             self.V = np.append(self.V * old_mass, vector_extension, axis=0)
+
 
 
 

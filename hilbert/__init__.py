@@ -3,4 +3,7 @@ import hilbert.corpus_stats
 import hilbert.f_delta
 import hilbert.constrainer
 import hilbert.embedder
+import hilbert.torch_embedder
 import hilbert.solver
+import hilbert.cooc_stats
+import hilbert.dictionary

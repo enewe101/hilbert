@@ -37,74 +37,75 @@ class TestCorpusStats(TestCase):
 
 
     def test_PMI(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        N_x = np.sum(N_xx, axis=1)
-        N = np.sum(N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
             expected_PMI = np.array([
                 [
-                    np.log(N * N_xx[i,j] / (N_x[i] * N_x[j])) 
-                    for j in range(N_xx.shape[1])
+                    np.log(cooc_stats.N * cooc_stats.Nxx[i,j] / 
+                        (cooc_stats.Nx[i] * cooc_stats.Nx[j])) 
+                    for j in range(cooc_stats.Nxx.shape[1])
                 ] 
-                for i in range(N_xx.shape[0])
+                for i in range(cooc_stats.Nxx.shape[0])
             ])
-        found_PMI = h.corpus_stats.calc_PMI(N_xx, N_x)
+        found_PMI = h.corpus_stats.calc_PMI(cooc_stats)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
 
     def test_calc_postive_PMI(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            log_N_xx = np.log(N_xx)
-            log_N_x = np.log(np.sum(N_xx, axis=1).reshape((-1,1)))
-            log_N = np.log(np.sum(N_xx))
+            log_N_xx = np.log(cooc_stats.denseNxx)
+            log_N_x = np.log(cooc_stats.Nx).reshape((-1,1))
+            log_N = np.log(cooc_stats.N)
         PMI = log_N + log_N_xx - log_N_x - log_N_x.T
-        positive_PMI = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        positive_PMI = h.corpus_stats.calc_positive_PMI(cooc_stats)
         for pmi, ppmi in zip(np.nditer(PMI), np.nditer(positive_PMI)):
             self.assertTrue(pmi == ppmi or (pmi < 0 and ppmi == 0))
 
 
 
     def test_calc_shifted_PMI(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        N_x = np.sum(N_xx, axis=1)
-        N = np.sum(N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         k = 15.0
         with np.errstate(divide='ignore'):
             expected = np.array([
-                [ np.log(N * N_xx[i,j] / (k * N_x[i] * N_x[j])) 
-                    for j in range(N_xx.shape[1])
+                [ np.log(cooc_stats.N * cooc_stats.Nxx[i,j] / (
+                    k * cooc_stats.Nx[i] * cooc_stats.Nx[j])) 
+                    for j in range(cooc_stats.Nxx.shape[1])
                 ]
-                for i in range(N_xx.shape[0])
+                for i in range(cooc_stats.Nxx.shape[0])
             ])
-        found = h.corpus_stats.calc_shifted_w2v_PMI(k, N_xx, N_x)
+        found = h.corpus_stats.calc_shifted_w2v_PMI(k, cooc_stats)
         self.assertTrue(np.allclose(found, expected))
 
 
     def test_get_stats(self):
         # First, test with a cooccurrence window of +/-2
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        for i, token1 in enumerate(dictionary):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        for token1 in cooc_stats.dictionary.tokens:
+            idx1 = cooc_stats.dictionary.get_id(token1)
             cache_idx1 = self.UNIQUE_TOKENS[token1]
-            for j, token2 in enumerate(dictionary):
+            for token2 in cooc_stats.dictionary.tokens:
+                idx2 = cooc_stats.dictionary.get_id(token2)
                 cache_idx2 = self.UNIQUE_TOKENS[token2]
                 self.assertEqual(
                     self.N_XX_2[cache_idx1, cache_idx2],
-                    N_xx[i,j]
+                    cooc_stats.Nxx[idx1, idx2]
                 )
 
+
         # Next, test with a cooccurrence window of +/-3
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(3)
-        for i, token1 in enumerate(dictionary):
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+        for token1 in cooc_stats.dictionary.tokens:
+            idx1 = cooc_stats.dictionary.get_id(token1)
             cache_idx1 = self.UNIQUE_TOKENS[token1]
-            for j, token2 in enumerate(dictionary):
+            for token2 in cooc_stats.dictionary.tokens:
+                idx2 = cooc_stats.dictionary.get_id(token2)
                 cache_idx2 = self.UNIQUE_TOKENS[token2]
                 self.assertEqual(
                     self.N_XX_3[cache_idx1, cache_idx2],
-                    N_xx[i,j]
+                    cooc_stats.Nxx[idx1,idx2]
                 )
-
-
 
 
 
@@ -113,8 +114,8 @@ class TestFDeltas(TestCase):
 
 
     def test_sigmoid(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        PMI = h.corpus_stats.calc_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        PMI = h.corpus_stats.calc_PMI(cooc_stats)
         expected = np.array([
             [1/(1+np.e**(-pmi)) for pmi in row]
             for row in PMI
@@ -127,75 +128,77 @@ class TestFDeltas(TestCase):
 
     def test_N_xx_neg(self):
         k = 15.0
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        N_x = np.sum(N_xx, axis=1)
-        N = np.sum(N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         expected = np.array([
-            [ k * N_x[i] * N_x[j] / N for j in range(N_xx.shape[1])]
-            for i in range(N_xx.shape[0])
+            [ k * cooc_stats.Nx[i] * cooc_stats.Nx[j] /
+                cooc_stats.N for j in range(cooc_stats.Nxx.shape[1])]
+            for i in range(cooc_stats.Nxx.shape[0])
         ])
 
         # Compare to manually calculated value above
-        found = h.f_delta.calc_N_neg_xx(k, N_x.reshape((-1,1)))
+        found = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx.reshape((-1,1)))
         self.assertTrue(np.allclose(expected, found))
 
 
 
     def test_f_w2v(self):
         k = 15
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.corpus_stats.calc_PMI(N_xx, N_x) - np.log(k)
+        M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
         M_hat = M + 1
-        N_x = np.sum(N_xx, axis=1).reshape((-1,1))
-        N_neg_xx = h.f_delta.calc_N_neg_xx(k, N_x)
+        N_neg_xx = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx)
 
         difference = h.f_delta.sigmoid(M) - h.f_delta.sigmoid(M_hat)
-        multiplier = N_neg_xx + N_xx
+        multiplier = N_neg_xx + cooc_stats.Nxx
         expected = multiplier * difference
 
         delta = np.zeros(M.shape)
-        f_w2v = h.f_delta.get_f_w2v(N_xx, N_x, k)
+        f_w2v = h.f_delta.get_f_w2v(cooc_stats, k)
         found = f_w2v(M, M_hat, delta)
 
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_glove(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            M = np.log(N_xx)
+            M = np.log(cooc_stats.denseNxx)
         M_hat = M_hat = M - 1
         expected = np.array([
             [
-                2 * min(1, (N_xx[i,j] / 100.0)**0.75) * (M[i,j] - M_hat[i,j])
-                if N_xx[i,j] > 0 else 0 for j in range(N_xx.shape[1])
+                2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
+                    * (M[i,j] - M_hat[i,j])
+                if cooc_stats.Nxx[i,j] > 0 else 0 
+                for j in range(cooc_stats.Nxx.shape[1])
             ]
-            for i in range(N_xx.shape[0])
+            for i in range(cooc_stats.Nxx.shape[0])
         ])
 
         delta = np.zeros(M.shape)
-        f_glove = h.f_delta.get_f_glove(N_xx)
+        f_glove = h.f_delta.get_f_glove(cooc_stats.Nxx)
         found = f_glove(M, M_hat, delta)
 
         self.assertTrue(np.allclose(expected, found))
-        f_glove = h.f_delta.get_f_glove(N_xx, 10)
+        f_glove = h.f_delta.get_f_glove(cooc_stats.Nxx, 10)
         found2 = f_glove(M, M_hat, delta)
 
         expected2 = np.array([
             [
-                2 * min(1, (N_xx[i,j] / 10.0)**0.75) * (M[i,j] - M_hat[i,j])
-                if N_xx[i,j] > 0 else 0 for j in range(N_xx.shape[1])
+                2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
+                    * (M[i,j] - M_hat[i,j])
+                if cooc_stats.Nxx[i,j] > 0 else 0 
+                for j in range(cooc_stats.Nxx.shape[1])
             ]
-            for i in range(N_xx.shape[0])
+            for i in range(cooc_stats.Nxx.shape[0])
         ])
         self.assertTrue(np.allclose(expected2, found2))
         self.assertFalse(np.allclose(expected2, expected))
 
 
     def test_f_mse(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
         M_hat = M + 1
         expected = M - M_hat
         delta = np.zeros(M.shape)
@@ -204,31 +207,32 @@ class TestFDeltas(TestCase):
 
 
     def test_calc_M_swivel(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            log_N_xx = np.log(N_xx)
-            log_N_x = np.log(np.sum(N_xx, axis=1))
-            log_N = np.log(np.sum(N_xx))
+            log_N_xx = np.log(cooc_stats.denseNxx)
+            log_N_x = np.log(cooc_stats.Nx)
+            log_N = np.log(cooc_stats.N)
         expected = np.array([
             [
                 log_N + log_N_xx[i,j] - log_N_x[i] - log_N_x[j] 
-                if N_xx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j] 
-                for j in range(N_xx.shape[1])
+                if cooc_stats.Nxx[i,j] > 0 else 
+                log_N - log_N_x[i] - log_N_x[j] 
+                for j in range(cooc_stats.Nxx.shape[1])
             ]
-            for i in range(N_xx.shape[0])
+            for i in range(cooc_stats.Nxx.shape[0])
         ])
-        found = h.f_delta.calc_M_swivel(N_xx, N_x)
+        found = h.f_delta.calc_M_swivel(cooc_stats)
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_swivel(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.f_delta.calc_M_swivel(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.f_delta.calc_M_swivel(cooc_stats)
         M_hat = M + 1
         expected = np.array([
             [
-                np.sqrt(N_xx[i,j]) * (M[i,j] - M_hat[i,j]) 
-                if N_xx[i,j] > 0 else
+                np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
+                if cooc_stats.Nxx[i,j] > 0 else
                 (np.e**(M[i,j] - M_hat[i,j]) /
                     (1 + np.e**(M[i,j] - M_hat[i,j])))
                 for j in range(M.shape[1])
@@ -236,30 +240,52 @@ class TestFDeltas(TestCase):
             for i in range(M.shape[0])
         ])
         delta = np.zeros(M.shape)
-        f_swivel = h.f_delta.get_f_swivel(N_xx, N_x)
+        f_swivel = h.f_delta.get_f_swivel(cooc_stats)
         found = f_swivel(M, M_hat, delta)
         self.assertTrue(np.allclose(found, expected))
 
 
     def test_f_MLE(self):
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_PMI(cooc_stats)
         M_hat = M + 1
 
-        N_x = np.sum(N_xx, axis=1).reshape((-1,1))
-        N_indep_xx = N_x * N_x.T
+        N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
         N_indep_max = np.max(N_indep_xx)
 
         expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
         delta = np.zeros(M.shape)
-        f_MLE = h.f_delta.get_f_MLE(N_xx, N_x)
+        f_MLE = h.f_delta.get_f_MLE(cooc_stats)
         found = f_MLE(M, M_hat, delta)
         self.assertTrue(np.allclose(found, expected))
 
         t = 10
-        expected = (N_indep_xx / N_indep_max)**(1.0/t) * (np.e**M - np.e**M_hat)
+        expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
+            np.e**M - np.e**M_hat)
         found = f_MLE(M, M_hat, delta, t=t)
+        self.assertTrue(np.allclose(found, expected))
+
+
+    def test_f_MLE(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_PMI(cooc_stats)
+        M_hat = M + 1
+
+        N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
+        N_indep_max = np.max(N_indep_xx)
+
+        expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
+
+        delta = np.zeros(M.shape)
+        f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M)
+        found = f_MLE(M, M_hat)
+        self.assertTrue(np.allclose(found, expected))
+
+        t = 10
+        expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
+            np.e**M - np.e**M_hat)
+        found = f_MLE(M, M_hat, t=t)
         self.assertTrue(np.allclose(found, expected))
 
 
@@ -282,8 +308,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # Define an arbitrary f_delta
         # First make a non-one-sided embedder.
@@ -316,8 +342,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate)
@@ -338,10 +364,10 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
-        offset_W = np.random.random(N_xx.shape)
-        offset_V = np.random.random(N_xx.shape)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        offset_W = np.random.random(cooc_stats.Nxx.shape)
+        offset_V = np.random.random(cooc_stats.Nxx.shape)
         
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate)
@@ -367,8 +393,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
         
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
@@ -393,9 +419,9 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
-        offset_V = np.random.random(N_xx.shape)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        offset_V = np.random.random(cooc_stats.Nxx.shape)
         
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
@@ -421,8 +447,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
         pass_args = {'a':True, 'b':False}
 
         def mock_f_delta(M_, M_hat_, delta_, **kwargs):
@@ -458,8 +484,8 @@ class TestHilbertEmbedder(TestCase):
     def test_arbitrary_f_delta(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # Define an arbitrary f_delta
         delta_amount = 0.1
@@ -493,8 +519,8 @@ class TestHilbertEmbedder(TestCase):
     def test_one_sided(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # First make a non-one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
@@ -562,8 +588,8 @@ class TestHilbertEmbedder(TestCase):
     def test_mse_embedder(self):
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         mse_embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate)
@@ -583,8 +609,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats= h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate)
@@ -603,8 +629,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate,
@@ -631,8 +657,8 @@ class TestHilbertEmbedder(TestCase):
 
         d = 11
         learning_rate = 0.01
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         embedder = h.embedder.HilbertEmbedder(
             M, d, h.f_delta.f_mse, learning_rate)
@@ -923,8 +949,8 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -941,8 +967,8 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -959,8 +985,8 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.

@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import sparse
+import torch
 
 
 def f_mse(M, M_hat, delta):
@@ -12,12 +13,11 @@ def calc_N_neg_xx(k, N_x):
     return k * N_x * N_x.T / N
 
 
-def get_f_w2v(N_xx, N_x, k):
-    N_x = N_x.reshape((-1,1))
-    N_neg_xx = calc_N_neg_xx(k, N_x)
-    multiplier = N_xx + N_neg_xx
-    sigmoid_M = np.zeros(N_xx.shape)
-    sigmoid_M_hat = np.zeros(N_xx.shape)
+def get_f_w2v(cooc_stats, k):
+    N_neg_xx = calc_N_neg_xx(k, cooc_stats.Nx)
+    multiplier = cooc_stats.Nxx + N_neg_xx
+    sigmoid_M = np.zeros(cooc_stats.Nxx.shape)
+    sigmoid_M_hat = np.zeros(cooc_stats.Nxx.shape)
     def f_w2v(M, M_hat, delta):
         sigmoid(M, sigmoid_M)
         sigmoid(M_hat, sigmoid_M_hat)
@@ -51,16 +51,16 @@ def get_f_glove(N_xx, X_max=100.0):
     return f_glove
 
 
-def get_f_MLE(N_xx, N_x):
+def get_f_MLE(cooc_stats):
 
-    N_x = N_x.reshape((-1,1)).astype('float64')
-    multiplier = N_x * N_x.T
+    Nx = cooc_stats.Nx.reshape((-1,1)).astype('float64')
+    multiplier = Nx * Nx.T
     multiplier_max = np.max(multiplier)
     np.divide(multiplier, multiplier_max, multiplier)
 
-    tempered_multiplier = np.zeros(N_xx.shape)
-    exp_M = np.zeros(N_xx.shape)
-    exp_M_hat = np.zeros(N_xx.shape)
+    tempered_multiplier = np.zeros(cooc_stats.Nxx.shape)
+    exp_M = np.zeros(cooc_stats.Nxx.shape)
+    exp_M_hat = np.zeros(cooc_stats.Nxx.shape)
 
     def f_MLE(M, M_hat, delta, t=1):
 
@@ -75,40 +75,44 @@ def get_f_MLE(N_xx, N_x):
     return f_MLE
 
 
-def calc_M_swivel(N_xx, N_x):
 
-    if sparse.issparse(N_xx):
-        use_N_xx = N_xx.todense()
-    else:
-        use_N_xx = N_xx
+def get_torch_f_MLE(cooc_stats, M, device='cpu'):
+    Nx = torch.tensor(cooc_stats.Nx, dtype=torch.float32, device=device)
+    M = torch.tensor(M, dtype=torch.float32, device=device)
+    multiplier = Nx * Nx.view(Nx.shape[0], 1)
+    exp_M = np.e**M
+    def f_MLE(M, M_hat, t=1):
+        tempered_multiplier = multiplier**(1.0/t)
+        delta = (exp_M - np.e**M_hat)
+        return tempered_multiplier * delta
+    return f_MLE
+
+
+def calc_M_swivel(cooc_stats):
 
     with np.errstate(divide='ignore'):
-        log_N_xx = np.log(use_N_xx)
-        log_N_x = np.log(N_x)
-        log_N = np.log(np.sum(N_x))
+        log_N_xx = np.log(cooc_stats.denseNxx)
+        log_N_x = np.log(cooc_stats.Nx)
+        log_N = np.log(cooc_stats.N)
 
     return np.array([
         [
             log_N + log_N_xx[i,j] - log_N_x[i] - log_N_x[j]
-            if use_N_xx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j]
-            for j in range(use_N_xx.shape[1])
+            if cooc_stats.Nxx[i,j] > 0 else log_N - log_N_x[i] - log_N_x[j]
+            for j in range(cooc_stats.Nxx.shape[1])
         ]
-        for i in range(use_N_xx.shape[0])
+        for i in range(cooc_stats.Nxx.shape[1])
     ])
 
 
-def get_f_swivel(N_xx, N_x):
+def get_f_swivel(cooc_stats):
 
-    if sparse.issparse(N_xx):
-        use_N_xx = N_xx.todense()
-    else:
-        use_N_xx = N_xx
-    N_xx_sqrt = np.sqrt(use_N_xx)
-    selector = use_N_xx==0
-    exp_delta = np.zeros(N_xx.shape)
-    exp_delta_p1 = np.zeros(N_xx.shape)
-    temp_result_1 = np.zeros(N_xx.shape)
-    temp_result_2 = np.zeros(N_xx.shape)
+    N_xx_sqrt = np.sqrt(cooc_stats.Nxx)
+    selector = cooc_stats.Nxx==0
+    exp_delta = np.zeros(cooc_stats.Nxx.shape)
+    exp_delta_p1 = np.zeros(cooc_stats.Nxx.shape)
+    temp_result_1 = np.zeros(cooc_stats.Nxx.shape)
+    temp_result_2 = np.zeros(cooc_stats.Nxx.shape)
 
     def f_swivel(M, M_hat, delta):
 

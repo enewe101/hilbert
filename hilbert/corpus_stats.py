@@ -11,42 +11,41 @@ def load_tokens(path):
 
 
 def get_test_stats(window_size):
-    return get_stats(load_test_tokens(), window_size)
+    return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def calc_PMI(N_xx, N_x):
-    N_x = N_x.reshape((-1,1))
-    N = np.sum(N_x)
+def calc_PMI(cooc_stats):
+    Nx = cooc_stats.Nx.reshape((-1,1))
+    N = np.sum(Nx)
     with np.errstate(divide='ignore'):
-        return np.array(np.log(N) + np.log(N_xx) - np.log(N_x) - np.log(N_x.T))
+        return np.array(
+            np.log(N) + np.log(cooc_stats.denseNxx) 
+            - np.log(Nx) - np.log(Nx.T)
+        )
 
 
-def calc_positive_PMI(N_xx, N_x):
-    PMI = calc_PMI(N_xx, N_x)
+def calc_positive_PMI(cooc_stats):
+    PMI = calc_PMI(cooc_stats)
     PMI[PMI<0] = 0
     return PMI
 
 
-def calc_shifted_w2v_PMI(k, N_xx, N_x):
-    return calc_PMI(N_xx, N_x) - np.log(k)
+def calc_shifted_w2v_PMI(k, cooc_stats):
+    return calc_PMI(cooc_stats) - np.log(k)
 
 
-def get_stats(token_list, window_size):
-    unique_tokens = list(set(token_list))
-    token_lookup = {token:i for i,token in enumerate(unique_tokens)}
-    N_xx = np.zeros((len(unique_tokens), len(unique_tokens)))
+def get_stats(token_list, window_size, verbose=True):
+    cooc_stats = h.cooc_stats.CoocStats(verbose=verbose)
     for i in range(len(token_list)):
-        focal_word = token_lookup[token_list[i]]
+        focal_word = token_list[i]
         for j in range(i-window_size, i +window_size+1):
             if i==j or j < 0:
                 continue
             try:
-                context_word = token_lookup[token_list[j]]
+                context_word = token_list[j]
             except IndexError:
                 continue
-            N_xx[focal_word,context_word] += 1
-
-    N_x = np.sum(N_xx, axis=1)
-    return unique_tokens, N_xx, N_x
+            cooc_stats.add(focal_word, context_word)
+    return cooc_stats
 
 
