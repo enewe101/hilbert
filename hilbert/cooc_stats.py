@@ -8,10 +8,8 @@ import data_preparation as dp
 import hilbert as h
 
 
-def get_stats(name):
-    path = dp.path_iteration.get_cooccurrence_path(name)
+def load_stats(path):
     return CoocStats.load(path)
-
 
 
 class CoocStats(object):
@@ -66,7 +64,11 @@ class CoocStats(object):
         self._Nx = None
         self._N = None
         if Nxx is not None:
-            self._Nxx = np.array(Nxx)
+            if sparse.issparse(Nxx):
+                self._Nxx = Nxx.toarray()
+            else:
+                self._Nxx = np.array(Nxx)
+
             self._Nx = np.sum(self._Nxx, axis=1).reshape(-1,1)
             self._N = np.sum(self._Nx)
 
@@ -150,7 +152,7 @@ class CoocStats(object):
         if self.verbose:
             print('Decompiling cooccurrence stats...')
 
-        Nxx_coo = self.Nxx.tocoo()
+        Nxx_coo = sparse.coo_matrix(self.Nxx)
         self._counts = Counter()
         for i,j,v in zip(Nxx_coo.row, Nxx_coo.col, Nxx_coo.data):
             self._counts[i,j] = v
@@ -195,7 +197,7 @@ class CoocStats(object):
         self._counts = new_counts
 
 
-    def save(self, path):
+    def save(self, path, save_as_sparse=True):
         """
         Save the cooccurrence data to disk.  A new directory will be created
         at `path`, and two files will be created within it to store the 
@@ -203,7 +205,11 @@ class CoocStats(object):
         """
         if not os.path.exists(path):
             os.makedirs(path)
-        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx)
+        if save_as_sparse:
+            sparse.save_npz(
+                os.path.join(path, 'Nxx.npz'), sparse.coo_matrix(self.Nxx))
+        else:
+            np.savez(os.path.join(path, 'Nxx.npz'), self.Nxx)
         #np.savez(os.path.join(path, 'Nx.npz'), Nx)
         self.dictionary.save(os.path.join(path, 'dictionary'))
 
@@ -214,10 +220,7 @@ class CoocStats(object):
         `threshold_count`.
         """
         num_cells = np.prod(self.Nxx.shape)
-        num_filled = (
-            self.Nxx.getnnz() if threshold_count == 0 
-            else np.sum(self.Nxx>threshold_count)
-        )
+        num_filled = np.sum(self.Nxx>threshold_count)
         return float(num_filled) / num_cells
 
 
@@ -234,12 +237,10 @@ class CoocStats(object):
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        return CoocStats(
-            dictionary=h.dictionary.Dictionary.load(
-                os.path.join(path, 'dictionary')),
-            Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')),
-            verbose=verbose
-        )
+        dictionary = h.dictionary.Dictionary.load(
+            os.path.join(path, 'dictionary'))
+        Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz'))
+        return CoocStats(dictionary=dictionary, Nxx=Nxx, verbose=verbose)
 
 
 

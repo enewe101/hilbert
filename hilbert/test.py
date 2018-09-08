@@ -1,7 +1,12 @@
+import os
+import shutil
 from unittest import main, TestCase
+from scipy import sparse
+from collections import Counter
 import numpy as np
 import hilbert as h
 import torch
+
 
 class TestCorpusStats(TestCase):
 
@@ -238,6 +243,7 @@ class TestFDeltas(TestCase):
             np.e**M - np.e**M_hat)
         found = f_MLE(M, M_hat, t=t)
         self.assertTrue(np.allclose(found, expected))
+
 
 
 
@@ -503,35 +509,6 @@ class TestHilbertEmbedder(TestCase):
         embedder.calc_badness()
         badness = np.sum(abs(M - np.dot(old_V.T, old_V))) / (d*d)
         self.assertEqual(badness, embedder.badness)
-
-
-
-    #def test_synchronous(self):
-
-    #    d = 11
-    #    learning_rate = 0.01
-    #    dictionary, N_xx, N_x = h.corpus_stats.get_test_stats(2)
-    #    M = h.corpus_stats.calc_positive_PMI(N_xx, N_x)
-
-    #    embedder = h.embedder.HilbertEmbedder(
-    #        M, d, h.f_delta.f_mse, learning_rate, synchronous=True
-    #    )
-
-    #    old_W, old_V = embedder.W.copy(), embedder.V.copy()
-    #    embedder.cycle(print_badness=False)
-
-    #    # Check that the update was performed.  Notice that the update of W
-    #    # uses the old value of V, hence a synchronous update.
-    #    new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
-    #    new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
-    #    self.assertTrue(np.allclose(embedder.V, new_V))
-    #    self.assertTrue(np.allclose(embedder.W, new_W))
-
-    #    # Check that the badness is correct 
-    #    # (badness is based on the error before last update)
-    #    badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-    #    self.assertEqual(badness, embedder.badness)
-
 
 
     def test_mse_embedder(self):
@@ -975,8 +952,6 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V[0,:], torch.ones(d)))
 
 
-
-
     def test_update_one_sided_rejects_delta_W(self):
 
         # Set up conditions for test.
@@ -1045,7 +1020,6 @@ class TestTorchHilbertEmbedder(TestCase):
         # (badness is based on the error before last update)
         expected_badness = torch.sum(abs(delta)) / (d*d)
         self.assertEqual(expected_badness, embedder.badness)
-
 
 
     def test_mse_embedder(self):
@@ -1297,7 +1271,6 @@ class TestSolvers(TestCase):
         return params_expected
             
 
-
     def calculate_expected_nesterov_optimized_params(
         self, times, learning_rate, momentum_decay
     ):
@@ -1342,6 +1315,7 @@ class TestSolvers(TestCase):
             
 
 
+#TODO: add tests for torch embedder.
 class TestEmbedderSolverIntegration(TestCase):
 
     def test_embedder_solver_integration(self):
@@ -1396,6 +1370,331 @@ class TestEmbedderSolverIntegration(TestCase):
         solver = h.solver.MomentumSolver(
             embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
+
+
+# These functions came from hilbert-experiments, where they were only being
+# used to support testing.  Now that the Dictionary and it's testing have moved
+# here, I have copied these helper functions and changed them minimally.
+def iter_test_fnames():
+    for path in os.listdir(h.CONSTANTS.TEST_DOCS_DIR):
+        if not skip_file(path):
+            yield os.path.basename(path)
+def iter_test_paths():
+    for fname in iter_test_fnames():
+        yield get_test_path(fname)
+def get_test_tokens():
+    paths = iter_test_paths()
+    return read_tokens(paths)
+def read_tokens(paths):
+    tokens = []
+    for path in paths:
+        with open(path) as f:
+            tokens.extend([token for token in f.read().split()])
+    return tokens
+def skip_file(fname):
+    if fname.startswith('.'):
+        return True
+    if fname.endswith('.swp') or fname.endswith('.swo'):
+        return True
+    return False
+def get_test_path(fname):
+    return os.path.join(h.CONSTANTS.TEST_DOCS_DIR, fname)
+
+
+class TestDictionary(TestCase):
+
+    def get_test_dictionary(self):
+
+        tokens = get_test_tokens()
+        return tokens, h.dictionary.Dictionary(tokens)
+
+
+    def test_dictionary(self):
+        tokens, dictionary = self.get_test_dictionary()
+        for token in tokens:
+            dictionary.add_token(token)
+
+        self.assertEqual(set(tokens), set(dictionary.tokens))
+        expected_token_ids = {
+            token:idx for idx, token in enumerate(dictionary.tokens)}
+        self.assertEqual(expected_token_ids, dictionary.token_ids)
+
+
+    def test_save_load_dictionary(self):
+        write_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test.dictionary')
+
+        # Remove files that could be left from a previous test.
+        if os.path.exists(write_path):
+            os.remove(write_path)
+
+        tokens, dictionary = self.get_test_dictionary()
+        dictionary.save(write_path)
+        loaded_dictionary = h.dictionary.Dictionary.load(
+            write_path)
+
+        self.assertEqual(loaded_dictionary.tokens, dictionary.tokens)
+        self.assertEqual(loaded_dictionary.token_ids, dictionary.token_ids)
+
+        # Cleanup
+        os.remove(write_path)
+
+
+
+class TestCoocStats(TestCase):
+
+    def get_test_cooccurrence_stats(self):
+        DICTIONARY = h.dictionary.Dictionary([
+            'banana', 'socks', 'car', 'field'])
+        COUNTS = {
+            (0,1):3, (1,0):3,
+            (0,3):1, (3,0):1,
+            (2,1):1, (1,2):1,
+            (0,2):1, (2,0):1
+        }
+        DIJ = ([3,1,1,1,3,1,1,1], ([0,0,2,0,1,3,1,2], [1,3,1,2,0,0,2,0]))
+        ARRAY = np.array([[0,3,1,1],[3,0,1,0],[1,1,0,0],[1,0,0,0]])
+        return DICTIONARY, COUNTS, DIJ, ARRAY
+
+
+    def test_invalid_arguments(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+
+        # Can make an empty CoocStats instance.
+        h.cooc_stats.CoocStats()
+
+        # Can make a non-empty CoocStats instance using counts and
+        # a matching dictionary.
+        h.cooc_stats.CoocStats(dictionary, counts)
+
+        # Must supply a dictionary to make a  non-empty CoocStats
+        # instance when using counts.
+        with self.assertRaises(ValueError):
+            h.cooc_stats.CoocStats(
+                counts=counts)
+
+        # Can make a non-empty CoocStats instance using Nxx and
+        # a matching dictionary.
+        Nxx = sparse.coo_matrix(dij).tocsr()
+        h.cooc_stats.CoocStats(dictionary, counts)
+
+        # Must supply a dictionary to make a  non-empty CoocStats
+        # instance when using Nxx.
+        with self.assertRaises(ValueError):
+            h.cooc_stats.CoocStats(Nxx=Nxx)
+
+        # Cannot provide both an Nxx and counts
+        with self.assertRaises(ValueError):
+            h.cooc_stats.CoocStats(
+                dictionary, counts, Nxx=Nxx)
+
+
+    def test_add_when_basis_is_counts(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+        cooccurrence.add('banana', 'rice')
+        self.assertEqual(cooccurrence.dictionary.get_id('rice'), 4)
+        expected_counts = Counter(counts)
+        expected_counts[0,4] += 1
+        self.assertEqual(cooccurrence.counts, expected_counts)
+
+
+    def test_add_when_basis_is_Nxx(self):
+
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        Nxx = array
+
+        Nx = np.sum(Nxx, axis=1).reshape(-1,1)
+
+        # Create a cooccurrence instance using counts
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, Nxx=Nxx, verbose=False)
+
+        # Currently the cooccurrence instance has no internal counter for
+        # cooccurrences, because it is based on the cooccurrence_array
+        self.assertTrue(cooccurrence._counts is None)
+        self.assertTrue(np.allclose(cooccurrence._Nxx, Nxx))
+        self.assertTrue(np.allclose(cooccurrence._Nx, Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxx, Nxx))
+        self.assertTrue(np.allclose(cooccurrence.Nx, Nx))
+
+        # Adding more cooccurrence statistics will force it to "decompile" into
+        # a counter, then add to the counter.  This will cause the stale Nxx
+        # arrays to be dropped.
+        cooccurrence.add('banana', 'rice')
+        cooccurrence.add('rice', 'banana')
+        expected_counts = Counter(counts)
+        expected_counts[4,0] += 1
+        expected_counts[0,4] += 1
+        self.assertEqual(cooccurrence._counts, expected_counts)
+        self.assertEqual(cooccurrence._Nxx, None)
+        self.assertEqual(cooccurrence._Nx, None)
+
+        # Asking for Nxx forces it to sync itself.  
+        # Ensure it it obtains the correct cooccurrence matrix
+        expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
+        expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
+        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
+        self.assertTrue(np.allclose(cooccurrence.Nxx, expected_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+
+
+    def test_uncompile(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        Nxx = sparse.coo_matrix(dij)
+        Nx = np.array(np.sum(Nxx, axis=1)).reshape(-1)
+
+        # Create a cooccurrence instance using Nxx
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, Nxx=Nxx, verbose=False)
+        self.assertEqual(cooccurrence._counts, None)
+
+        cooccurrence.decompile()
+        self.assertEqual(cooccurrence._counts, counts)
+
+
+
+    def test_compile(self):
+
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+
+        # Create a cooccurrence instance using counts
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+
+        # The cooccurrence instance has no Nxx array, but it will be calculated
+        # when we try to access it directly.
+        self.assertEqual(cooccurrence._Nxx, None)
+        self.assertEqual(cooccurrence._Nx, None)
+        self.assertTrue(np.allclose(cooccurrence.Nxx, array))
+        self.assertTrue(np.allclose(
+            cooccurrence.Nx, np.sum(array, axis=1).reshape(-1,1)))
+
+        # We can still add more counts.  This causes it to drop the stale Nxx.
+        cooccurrence.add('banana', 'rice')
+        cooccurrence.add('rice', 'banana')
+        self.assertEqual(cooccurrence._Nxx, None)
+        self.assertEqual(cooccurrence._Nx, None)
+
+        # Asking for an array forces it to sync itself.  This time start with
+        # denseNxx.
+        expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
+        expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
+        self.assertTrue(np.allclose(cooccurrence.Nxx, expected_Nxx))
+        self.assertTrue(np.allclose(
+            cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
+
+        # Adding more counts once again causes it to drop the stale Nxx.
+        cooccurrence.add('banana', 'field')
+        cooccurrence.add('field', 'banana')
+        self.assertEqual(cooccurrence._Nxx, None)
+        self.assertEqual(cooccurrence._Nx, None)
+
+        # Asking for an array forces it to sync itself.  This time start with
+        # Nx.
+        expected_Nxx[0,3] += 1
+        expected_Nxx[3,0] += 1
+        self.assertTrue(np.allclose(cooccurrence.Nxx, expected_Nxx))
+        self.assertTrue(np.allclose(
+            cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
+
+
+
+    def test_sort(self):
+        unsorted_dictionary = h.dictionary.Dictionary([
+            'field', 'car', 'socks', 'banana'
+        ])
+        unsorted_counts = {
+            (0,3): 1, (3,0): 1,
+            (1,2): 1, (2,1): 1,
+            (1,3): 1, (3,1): 1,
+            (2,3): 3, (3,2): 3
+        }
+        unsorted_Nxx = np.array([
+            [0,0,0,1],
+            [0,0,1,1],
+            [0,1,0,3],
+            [1,1,3,0],
+        ])
+        sorted_dictionary = h.dictionary.Dictionary([
+            'banana', 'socks', 'car', 'field'])
+        sorted_counts = {
+            (0,1):3, (1,0):3,
+            (0,3):1, (3,0):1,
+            (2,1):1, (1,2):1,
+            (0,2):1, (2,0):1
+        }
+        sorted_array = np.array([
+            [0,3,1,1],
+            [3,0,1,0],
+            [1,1,0,0],
+            [1,0,0,0]
+        ])
+        cooccurrence = h.cooc_stats.CoocStats(
+            unsorted_dictionary, unsorted_counts, verbose=False
+        )
+        self.assertTrue(np.allclose(cooccurrence.Nxx, sorted_array))
+        self.assertEqual(cooccurrence.counts, sorted_counts)
+        self.assertEqual(
+            cooccurrence.dictionary.tokens, sorted_dictionary.tokens)
+
+
+    def test_save_load(self):
+
+        write_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-save-load-cooccurrences')
+        if os.path.exists(write_path):
+            shutil.rmtree(write_path)
+
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+
+        # Create a cooccurrence instance using counts
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+
+        # Save it, then load it
+        cooccurrence.save(write_path)
+        cooccurrence2 = h.cooc_stats.CoocStats.load(
+            write_path, verbose=False)
+
+        self.assertEqual(
+            cooccurrence2.dictionary.tokens, 
+            cooccurrence.dictionary.tokens
+        )
+        self.assertEqual(cooccurrence2.counts, cooccurrence.counts)
+        self.assertTrue(np.allclose(cooccurrence2.Nxx, cooccurrence.Nxx))
+        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence.Nx))
+
+        shutil.rmtree(write_path)
+
+
+    def test_density(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+        self.assertEqual(cooccurrence.density(), 0.5)
+        self.assertEqual(cooccurrence.density(2), 0.125)
+
+
+    def test_truncate(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+        cooccurrence.truncate(3)
+        truncated_array = np.array([
+            [0,3,1],
+            [3,0,1],
+            [1,1,0],
+        ])
+
+        self.assertTrue(np.allclose(cooccurrence.Nxx, truncated_array))
+
+
+    def test_dict_to_sparse(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        coo_matrix = h.cooc_stats.dict_to_sparse(counts)
+        self.assertTrue(isinstance(coo_matrix, sparse.coo_matrix))
+        self.assertTrue(np.allclose(coo_matrix.todense(), array))
 
 
 
