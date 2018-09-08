@@ -7,6 +7,10 @@ def f_mse(M, M_hat, delta):
     return np.subtract(M, M_hat, delta)
 
 
+def torch_f_mse(M, M_hat):
+    return M - M_hat
+
+
 def calc_N_neg_xx(k, N_x):
     N = float(np.sum(N_x))
     return k * N_x * N_x.T / N
@@ -75,11 +79,10 @@ def get_f_MLE(cooc_stats):
 def get_torch_f_MLE(cooc_stats, M, device='cpu'):
     Nx = torch.tensor(cooc_stats.Nx, dtype=torch.float32, device=device)
     M = torch.tensor(M, dtype=torch.float32, device=device)
-    multiplier = Nx * Nx.view(Nx.shape[0], 1)
+    multiplier = Nx * Nx.t()
+    multiplier = multiplier / torch.max(multiplier)
     exp_M = np.e**M
     def f_MLE(M, M_hat, t=1):
-        print(type(exp_M))
-        print(type(M_hat))
         delta = (exp_M - np.e**M_hat)
         tempered_multiplier = multiplier**(1.0/t)
         return tempered_multiplier * delta

@@ -133,9 +133,11 @@ class HilbertEmbedder(object):
 
         # Determine the gradient
         np.dot(use_W.T, self.delta, self.nabla_V)
-        if not self.one_sided:
-            np.dot(self.delta, use_V.T, self.nabla_W)
+        
+        if self.one_sided:
+            return self.nabla_V
 
+        np.dot(self.delta, use_V.T, self.nabla_W)
         return self.nabla_V, self.nabla_W
 
 

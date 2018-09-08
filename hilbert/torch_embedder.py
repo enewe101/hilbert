@@ -1,14 +1,13 @@
 import torch
 import hilbert as h
-import numpy as np
 
 def sim(word, context, embedder, dictionary):
     word_id = dictionary.get_id(word)
     context_id = dictionary.get_id(context)
     word_vec, context_vec = embedder.W[word_id], embedder.W[context_id]
-    product = np.dot(word_vec, context_vec) 
-    word_norm = np.linalg.norm(word_vec)
-    context_norm =  np.linalg.norm(context_vec)
+    product = torch.mm(word_vec, context_vec) 
+    word_norm = torch.norm(word_vec)
+    context_norm =  torch.norm(context_vec)
     return product / (word_norm * context_norm)
 
 
@@ -27,7 +26,7 @@ class TorchHilbertEmbedder(object):
         device='cpu',
         pass_args={}
     ):
-        self.M = torch.tensor(M, device=device)
+        self.M = torch.tensor(M, dtype=torch.float32, device=device)
         self.d = d
         self.f_delta = f_delta
         self.learning_rate = learning_rate
@@ -63,14 +62,13 @@ class TorchHilbertEmbedder(object):
     def get_gradient(self, offsets=None, pass_args=None):
         """ 
         Calculate and return the current gradient.  
-            offsets: 
-                Allowed values: None, (dV, dW)
-                    where dV and dW are is a V.shape and W.shape numpy arrays
-                Temporarily applies self.V += dV and self.W += dW before 
-                calculating the gradient.
-            pass_args:
-                Allowed values: dict of keyword arguments.
-                Supplies the keyword arguments to f_delta.
+            `offsets`: 
+                Allowed values: None, dV, (dV, dW) where dV and dW are are
+                V.shape and W.shape numpy arrays. Temporarily applies self.V +=
+                dV and self.W += dW before calculating the gradient.
+            `pass_args`:
+                Allowed values: dict of keyword arguments.  Supplies the
+                keyword arguments to f_delta.
         """
 
         pass_args = pass_args or {}
@@ -84,6 +82,7 @@ class TorchHilbertEmbedder(object):
             else:
                 dV = offsets
                 use_V = self.V + dV
+                use_W = use_V.t()
         else:
             use_W, use_V = self.W, self.V
 
@@ -91,13 +90,16 @@ class TorchHilbertEmbedder(object):
 
         # Determine the errors.
         delta = self.f_delta(self.M, M_hat, **pass_args)
-        self.badness = torch.sum(delta) / (self.M.shape[0] * self.M.shape[1])
+        self.badness = torch.sum(abs(delta)) / (
+            self.M.shape[0] * self.M.shape[1])
 
         # Determine the gradient
         nabla_V = torch.mm(use_W.t(), delta)
-        if not self.one_sided:
-            nabla_W = torch.mm(delta, use_V.t())
 
+        if self.one_sided:
+            return nabla_V
+
+        nabla_W = torch.mm(delta, use_V.t())
         return nabla_V, nabla_W
 
 
@@ -109,16 +111,19 @@ class TorchHilbertEmbedder(object):
                 "Update V instead."
             )
         if delta_V is not None:
-            np.add(delta_V, self.V, self.V)
+            self.V += delta_V
         if delta_W is not None:
-            np.add(delta_W, self.W, self.W)
+            self.W += delta_W
         self.apply_constraints()
 
 
     def update_self(self, pass_args=None):
-        nabla_V, nabla_W = self.get_gradient(pass_args=pass_args)
-        self.V += nabla_V * self.learning_rate
-        if not self.one_sided:
+        if self.one_sided:
+            nabla_V = self.get_gradient(pass_args=pass_args)
+            self.V += nabla_V * self.learning_rate
+        else:
+            nabla_V, nabla_W = self.get_gradient(pass_args=pass_args)
+            self.V += nabla_V * self.learning_rate
             self.W += nabla_W * self.learning_rate
 
 
@@ -134,32 +139,5 @@ class TorchHilbertEmbedder(object):
             self.apply_constraints()
             if print_badness:
                 print(self.badness)
-
-
-    def project(self, new_d):
-
-        delta_dim = abs(self.d - new_d)
-        if delta_dim == 0:
-            print('warning: no change during projection.')
-            return
-
-        elif new_d < self.d:
-            mass = 1.0 / new_d
-            random_projector = np.random.random((delta_dim, new_d)) * mass
-            downsampler = np.append(np.eye(new_d), random_projector, axis=0)
-            self.W = np.dot(self.W, downsampler)
-            self.V = np.dot(downsampler.T, self.V)
-
-        else:
-            old_mass = float(self.d) / new_d
-            new_mass = float(delta_dim) / new_d
-            covector_extension = (np.random.random((
-                self.num_covecs, delta_dim)) * 2 - 1) * new_mass
-            self.W = np.append(self.W * old_mass, covector_extension, axis=1)
-            vector_extension = (np.random.random((
-                delta_dim, self.num_vecs)) * 2 - 1) * new_mass
-            self.V = np.append(self.V * old_mass, vector_extension, axis=0)
-
-
 
 
