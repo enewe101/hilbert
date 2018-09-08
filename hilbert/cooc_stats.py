@@ -22,54 +22,59 @@ class CoocStats(object):
         dictionary=None,
         counts=None,
         Nxx=None,
-        verbose=True,
-        copy=True
+        verbose=True
     ):
         '''
-        Keeps track of token cooccurrences.  No arguments are needed to create
-        an empty instance.  To create an instance that already contains counts
-        supply (1) a dictionary and (2) either a 2-D numpy array of 
-        CoocStats or a collections.Counter instance.
+        `dictionary` -- A hilbert.dictionary.Dictionary instance mapping tokens
+            from/to integer IDs; 
+        `counts` -- A collections.Counter instance with token-IDs-2-tuple as
+            keys and number of cooccurrences as values; 
+        `Nxx` -- A 2D array-like instance (e.g. numpy.ndarray, scipy.sparse.csr
+            matrix, or a list of lists), in which the (i,j)th element contains
+            the number of cooccurrences for words having IDs i and j.
 
-        dictionary (data_preparation.dictionary.Dictionary):
-            A two-way mapping between tokens and ids.  Can be None if starting
-            an empty CoocStats instance, otherwise required.
+        Provide `counts` or `Nxx` or neither. Not both!
 
-        counts (collections.Counter):
-            Used to accumulates counts as a corpus is read.  Leave blank if
-            starting an empty CoocStats.  Otherwise, it should have
-            pairs (tuples) of token_ids as keys, and number of coocccurrences 
-            as values.
+        CoocStats Keeps track of token cooccurrences, and saves/loads from
+        disk.  Provide no arguments to create an empty instance, e.g. to
+        accumulate cooccurrence while reading through a corpus.
 
-        Nxx (numpy.array or scipy.sparse.csr matrix):
-            Represents counts in a sparse format that is efficient for
-            calculations, but not so convinient for accumulating counts as a
-            corpus is read.
+        Cooccurence statistics are represented in two ways:
+
+            (1) as a collections.Counter, whose keys are pairs of token
+                indices; and
+
+            (2) as a 2D numpy.ndarray, whose (i,j)th element contains the 
+                number of cooccurrences of the tokens with indices i and j.
+
+        This dual representation supports extending the vocabulary while 
+        accumulating statisitcs (using self.add method), and makes cooccurrence
+        matrix available as a numpy array for fast calculations.
+
+        Synchronization between these two representations is done
+        lazily when you access or call methods that rely on one representation.
         '''
 
         self.validate_args(dictionary, counts, Nxx)
         self._dictionary = dictionary or h.dictionary.Dictionary()
 
-        if counts is not None and copy:
+        self._counts = counts
+        if counts is not None:
             self._counts = Counter(counts)
-        else:
-            self._counts = counts
 
-        if Nxx is not None and copy:
-            self._Nxx = sparse.csr_matrix(Nxx)
-        else:
-            self._Nxx = Nxx
+        self._Nxx = Nxx
+        self._Nx = None
+        self._N = None
         if Nxx is not None:
-            self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1)
-        else:
-            self._Nx = None
+            self._Nxx = np.array(Nxx)
+            self._Nx = np.sum(self._Nxx, axis=1).reshape(-1,1)
+            self._N = np.sum(self._Nx)
 
         # If no prior cooccurrence stats are given, start as empty.
         if counts is None and Nxx is None:
             self._counts = Counter()
 
         self.verbose = verbose
-        self._denseNxx = None
 
 
     def validate_args(self, dictionary, counts, Nxx):
@@ -124,25 +129,21 @@ class CoocStats(object):
         return self._N
 
 
-    @property
-    def denseNxx(self):
-        if self._denseNxx is None:
-            self._denseNxx = self.Nxx.toarray()
-        return self._denseNxx
-
-
     def add(self, token1, token2):
         id1 = self._dictionary.add_token(token1)
         id2 = self._dictionary.add_token(token2)
         self.counts[id1, id2] += 1
 
-        # We are no longer synced with Nxx, Nx, and denseNxx.
+        # Nxx, Nx, and N are all stale, so set them to None.
         self._Nxx = None
         self._Nx = None
-        self._denseNxx = None
+        self._N = None
 
 
     def decompile(self, force=False):
+        """
+        Convert the cooccurrence data stored in `Nxx` into a counter.
+        """
         if self._counts is not None:
             raise ValueError(
                 'Cannot decompile CooccurrenceStats: already decompiled')
@@ -156,6 +157,9 @@ class CoocStats(object):
 
 
     def compile(self):
+        """
+        Convert the cooccurrence data stored in `counts` into a numpy array.
+        """
         if self._Nxx is not None:
             raise ValueError(
                 'Cannot compile CoocStats: already compiled.')
@@ -163,17 +167,20 @@ class CoocStats(object):
             print('Compiling cooccurrence stats...')
 
         vocab_size = len(self._dictionary)
-        self._Nxx = dict_to_sparse(self.counts, (vocab_size,vocab_size))
-        self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1)
+        self._Nxx = dict_to_sparse(
+            self.counts, (vocab_size,vocab_size)).toarray()
+        self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1,1)
         self._N = np.sum(self._Nx)
         self.sort(True)
 
-        self.synced = True
-        self._denseNxx = None
-
 
     def sort(self, force=False):
-        top_indices = np.argsort(-self.Nx.reshape((-1,)))
+        """
+        Re-assign token indices providing lower indices to more common words.
+        This affects the dictionary mapping, the IDs used in `counts`, and 
+        The indexing of Nxx and Nx.
+        """
+        top_indices = np.argsort(-self.Nx.reshape(-1))
         self._Nxx = self.Nxx[top_indices][:,top_indices]
         self._Nx = self.Nx[top_indices]
         self._dictionary = h.dictionary.Dictionary([
@@ -189,6 +196,11 @@ class CoocStats(object):
 
 
     def save(self, path):
+        """
+        Save the cooccurrence data to disk.  A new directory will be created
+        at `path`, and two files will be created within it to store the 
+        token-ID mapping and the cooccurrence data.
+        """
         if not os.path.exists(path):
             os.makedirs(path)
         sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx)
@@ -197,6 +209,10 @@ class CoocStats(object):
 
 
     def density(self, threshold_count=0):
+        """
+        Return the number of cells whose value is greater than
+        `threshold_count`.
+        """
         num_cells = np.prod(self.Nxx.shape)
         num_filled = (
             self.Nxx.getnnz() if threshold_count == 0 
@@ -206,6 +222,7 @@ class CoocStats(object):
 
 
     def truncate(self, k):
+        """Drop all but the `k` most common words."""
         self._Nxx = self.Nxx[:k][:,:k]
         self._Nx = self.Nx[:k]
         dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
@@ -213,6 +230,10 @@ class CoocStats(object):
 
     @staticmethod
     def load(path, verbose=True):
+        """
+        Load the token-ID mapping and cooccurrence data previously saved in
+        the directory at `path`.
+        """
         return CoocStats(
             dictionary=h.dictionary.Dictionary.load(
                 os.path.join(path, 'dictionary')),
@@ -223,13 +244,17 @@ class CoocStats(object):
 
 
 
-def dict_to_sparse(d, shape=None):
+def dict_to_sparse(counts, shape=None):
+    """
+    Given a dict-like `counts` whose keys are 2-tuples of token indices,
+    return a scipy.sparse.coo.coo_matrix containing the same values.
+    """
     I, J, V = [], [], []
-    for (idx1, idx2), value in d.items():
+    for (idx1, idx2), value in counts.items():
         I.append(idx1)
         J.append(idx2)
         V.append(value)
 
-    return sparse.coo_matrix((V,(I,J)), shape).tocsr()
+    return sparse.coo_matrix((V,(I,J)), shape)
 
 

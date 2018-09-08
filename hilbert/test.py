@@ -1,6 +1,7 @@
 from unittest import main, TestCase
 import numpy as np
 import hilbert as h
+import torch
 
 class TestCorpusStats(TestCase):
 
@@ -9,103 +10,66 @@ class TestCorpusStats(TestCase):
     'has': 8, 'sandwich': 9, 'spin': 4, 'the': 1, 'wheels': 2
     }
     N_XX_2 = np.array([
-        [ 0.,  4.,  0.,  1.,  0.,  8.,  0., 11.,  4.,  4.,  0.],
-        [ 4.,  0.,  0.,  4.,  0., 23.,  4.,  8.,  0.,  4.,  0.],
-        [ 0.,  0.,  0.,  0.,  4., 12.,  4.,  0.,  4.,  0.,  8.],
-        [ 1.,  4.,  0.,  0.,  3.,  4.,  4.,  0.,  0.,  0.,  0.],
-        [ 0.,  0.,  4.,  3.,  0.,  4.,  0.,  0.,  0.,  0.,  4.],
-        [ 8., 23., 12.,  4.,  4.,  0.,  8.,  7.,  8.,  8., 12.],
-        [ 0.,  4.,  4.,  4.,  0.,  8.,  0.,  0.,  4.,  0.,  8.],
-        [11.,  8.,  0.,  0.,  0.,  7.,  0.,  0.,  0.,  4.,  0.],
-        [ 4.,  0.,  4.,  0.,  0.,  8.,  4.,  0.,  0.,  4.,  8.],
-        [ 4.,  4.,  0.,  0.,  0.,  8.,  0.,  4.,  4.,  0.,  8.],
-        [ 0.,  0.,  8.,  0.,  4., 12.,  8.,  0.,  8.,  8.,  0.]
+		[0, 12, 23, 8, 8, 8, 8, 12, 7, 4, 4], 
+		[12, 0, 0, 8, 8, 0, 8, 8, 0, 0, 4], 
+		[23, 0, 0, 4, 0, 4, 4, 0, 8, 4, 0], 
+		[8, 8, 4, 0, 4, 4, 0, 0, 4, 0, 0], 
+		[8, 8, 0, 4, 0, 4, 4, 4, 0, 0, 0], 
+		[8, 0, 4, 4, 4, 0, 0, 0, 11, 1, 0], 
+		[8, 8, 4, 0, 4, 0, 0, 4, 0, 4, 0], 
+		[12, 8, 0, 0, 4, 0, 4, 0, 0, 0, 4], 
+		[7, 0, 8, 4, 0, 11, 0, 0, 0, 0, 0], 
+		[4, 0, 4, 0, 0, 1, 4, 0, 0, 0, 3], 
+		[4, 4, 0, 0, 0, 0, 0, 4, 0, 3, 0]
     ]) 
+
     N_XX_3 = np.array([
-        [ 0., 12.,  0.,  1.,  0., 12.,  0., 11.,  4.,  4.,  4.],
-        [12.,  0.,  0.,  5.,  3., 23.,  4., 11.,  0.,  4.,  8.],
-        [ 0.,  0.,  8.,  3.,  4., 12.,  4.,  0.,  4.,  0., 12.],
-        [ 1.,  5.,  3.,  0.,  3.,  8.,  4.,  0.,  0.,  0.,  0.],
-        [ 0.,  3.,  4.,  3.,  0.,  8.,  0.,  0.,  0.,  0.,  4.],
-        [12., 23., 12.,  8.,  8.,  0., 16., 15., 16., 15., 16.],
-        [ 0.,  4.,  4.,  4.,  0., 16.,  8.,  0.,  4.,  0.,  8.],
-        [11., 11.,  0.,  0.,  0., 15.,  0.,  0.,  4.,  4.,  0.],
-        [ 4.,  0.,  4.,  0.,  0., 16.,  4.,  4.,  0.,  4., 12.],
-        [ 4.,  4.,  0.,  0.,  0., 15.,  0.,  4.,  4.,  8.,  8.],
-        [ 4.,  8., 12.,  0.,  4., 16.,  8.,  0., 12.,  8.,  0.]
+        [0, 16, 23, 16, 12, 16, 15, 12, 15, 8, 8],
+        [16, 0, 8, 12, 4, 8, 8, 12, 0, 0, 4],
+        [23, 8, 0, 0, 12, 4, 4, 0, 11, 5, 3],
+        [16, 12, 0, 0, 4, 4, 4, 4, 4, 0, 0],
+        [12, 4, 12, 4, 0, 0, 4, 0, 11, 1, 0],
+        [16, 8, 4, 4, 0, 8, 0, 4, 0, 4, 0],
+        [15, 8, 4, 4, 4, 0, 8, 0, 4, 0, 0],
+        [12, 12, 0, 4, 0, 4, 0, 8, 0, 3, 4],
+        [15, 0, 11, 4, 11, 0, 4, 0, 0, 0, 0],
+        [8, 0, 5, 0, 1, 4, 0, 3, 0, 0, 3],
+        [8, 4, 3, 0, 0, 0, 0, 4, 0, 3, 0],
     ])
 
 
     def test_PMI(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        with np.errstate(divide='ignore'):
-            expected_PMI = np.array([
-                [
-                    np.log(cooc_stats.N * cooc_stats.Nxx[i,j] / 
-                        (cooc_stats.Nx[i] * cooc_stats.Nx[j])) 
-                    for j in range(cooc_stats.Nxx.shape[1])
-                ] 
-                for i in range(cooc_stats.Nxx.shape[0])
-            ])
+        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
         found_PMI = h.corpus_stats.calc_PMI(cooc_stats)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
 
-    def test_calc_postive_PMI(self):
+    def test_calc_positive_PMI(self):
+        expected_positive_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
+        expected_positive_PMI[expected_positive_PMI < 0] = 0
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        with np.errstate(divide='ignore'):
-            log_N_xx = np.log(cooc_stats.denseNxx)
-            log_N_x = np.log(cooc_stats.Nx).reshape((-1,1))
-            log_N = np.log(cooc_stats.N)
-        PMI = log_N + log_N_xx - log_N_x - log_N_x.T
-        positive_PMI = h.corpus_stats.calc_positive_PMI(cooc_stats)
-        for pmi, ppmi in zip(np.nditer(PMI), np.nditer(positive_PMI)):
-            self.assertTrue(pmi == ppmi or (pmi < 0 and ppmi == 0))
-
+        found_positive_PMI = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        self.assertTrue(np.allclose(found_positive_PMI, expected_positive_PMI))
 
 
     def test_calc_shifted_PMI(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
         k = 15.0
-        with np.errstate(divide='ignore'):
-            expected = np.array([
-                [ np.log(cooc_stats.N * cooc_stats.Nxx[i,j] / (
-                    k * cooc_stats.Nx[i] * cooc_stats.Nx[j])) 
-                    for j in range(cooc_stats.Nxx.shape[1])
-                ]
-                for i in range(cooc_stats.Nxx.shape[0])
-            ])
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
+        expected_shifted_PMI = expected_PMI - np.log(k)
         found = h.corpus_stats.calc_shifted_w2v_PMI(k, cooc_stats)
-        self.assertTrue(np.allclose(found, expected))
+        self.assertTrue(np.allclose(found, expected_shifted_PMI))
 
 
     def test_get_stats(self):
-        # First, test with a cooccurrence window of +/-2
+        # Next, test with a cooccurrence window of +/-2
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        for token1 in cooc_stats.dictionary.tokens:
-            idx1 = cooc_stats.dictionary.get_id(token1)
-            cache_idx1 = self.UNIQUE_TOKENS[token1]
-            for token2 in cooc_stats.dictionary.tokens:
-                idx2 = cooc_stats.dictionary.get_id(token2)
-                cache_idx2 = self.UNIQUE_TOKENS[token2]
-                self.assertEqual(
-                    self.N_XX_2[cache_idx1, cache_idx2],
-                    cooc_stats.Nxx[idx1, idx2]
-                )
-
+        self.assertTrue(np.allclose(cooc_stats.Nxx,self.N_XX_2))
 
         # Next, test with a cooccurrence window of +/-3
         cooc_stats = h.corpus_stats.get_test_stats(3)
-        for token1 in cooc_stats.dictionary.tokens:
-            idx1 = cooc_stats.dictionary.get_id(token1)
-            cache_idx1 = self.UNIQUE_TOKENS[token1]
-            for token2 in cooc_stats.dictionary.tokens:
-                idx2 = cooc_stats.dictionary.get_id(token2)
-                cache_idx2 = self.UNIQUE_TOKENS[token2]
-                self.assertEqual(
-                    self.N_XX_3[cache_idx1, cache_idx2],
-                    cooc_stats.Nxx[idx1,idx2]
-                )
+        self.assertTrue(np.allclose(cooc_stats.Nxx,self.N_XX_3))
 
 
 
@@ -129,14 +93,8 @@ class TestFDeltas(TestCase):
     def test_N_xx_neg(self):
         k = 15.0
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        expected = np.array([
-            [ k * cooc_stats.Nx[i] * cooc_stats.Nx[j] /
-                cooc_stats.N for j in range(cooc_stats.Nxx.shape[1])]
-            for i in range(cooc_stats.Nxx.shape[0])
-        ])
-
-        # Compare to manually calculated value above
-        found = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx.reshape((-1,1)))
+        expected = k * cooc_stats.Nx * cooc_stats.Nx.T / cooc_stats.N
+        found = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx)
         self.assertTrue(np.allclose(expected, found))
 
 
@@ -163,7 +121,7 @@ class TestFDeltas(TestCase):
     def test_f_glove(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            M = np.log(cooc_stats.denseNxx)
+            M = np.log(cooc_stats.Nxx)
         M_hat = M_hat = M - 1
         expected = np.array([
             [
@@ -208,21 +166,12 @@ class TestFDeltas(TestCase):
 
     def test_calc_M_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        with np.errstate(divide='ignore'):
-            log_N_xx = np.log(cooc_stats.denseNxx)
-            log_N_x = np.log(cooc_stats.Nx)
-            log_N = np.log(cooc_stats.N)
-        expected = np.array([
-            [
-                log_N + log_N_xx[i,j] - log_N_x[i] - log_N_x[j] 
-                if cooc_stats.Nxx[i,j] > 0 else 
-                log_N - log_N_x[i] - log_N_x[j] 
-                for j in range(cooc_stats.Nxx.shape[1])
-            ]
-            for i in range(cooc_stats.Nxx.shape[0])
-        ])
+        # Destructively put ones wherever Nxx is zero.  Don't try this at home.
+        # It's a hack to easily calculate the PMI-star
+        cooc_stats.Nxx[cooc_stats.Nxx == 0] = 1
+        PMI_star = h.corpus_stats.calc_PMI(cooc_stats)
         found = h.f_delta.calc_M_swivel(cooc_stats)
-        self.assertTrue(np.allclose(expected, found))
+        self.assertTrue(np.allclose(found, PMI_star))
 
 
     def test_f_swivel(self):
@@ -267,19 +216,23 @@ class TestFDeltas(TestCase):
         self.assertTrue(np.allclose(found, expected))
 
 
-    def test_f_MLE(self):
+    def test_torch_f_MLE(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_PMI(cooc_stats)
+        M = torch.tensor(
+            h.corpus_stats.calc_PMI(cooc_stats), dtype=torch.float32)
         M_hat = M + 1
 
-        N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
-        N_indep_max = np.max(N_indep_xx)
+        N_indep_xx = torch.tensor(
+            cooc_stats.Nx * cooc_stats.Nx.T, dtype=torch.float32)
+        N_indep_max = torch.max(N_indep_xx)
 
         expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
         delta = np.zeros(M.shape)
         f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M)
         found = f_MLE(M, M_hat)
+        print(found)
+        print(expected)
         self.assertTrue(np.allclose(found, expected))
 
         t = 10

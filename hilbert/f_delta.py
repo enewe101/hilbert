@@ -8,7 +8,6 @@ def f_mse(M, M_hat, delta):
 
 
 def calc_N_neg_xx(k, N_x):
-    N_x = N_x.reshape((-1,1))
     N = float(np.sum(N_x))
     return k * N_x * N_x.T / N
 
@@ -36,10 +35,7 @@ def sigmoid(M, sigmoid_M=None):
 
 def get_f_glove(N_xx, X_max=100.0):
     X_max = float(X_max)
-    if sparse.issparse(N_xx):
-        multiplier = N_xx.todense() / X_max
-    else:
-        multiplier = N_xx / X_max
+    multiplier = N_xx / X_max
     np.power(multiplier, 0.75, multiplier)
     multiplier[multiplier>1] = 1
     np.multiply(multiplier, 2, multiplier)
@@ -82,8 +78,10 @@ def get_torch_f_MLE(cooc_stats, M, device='cpu'):
     multiplier = Nx * Nx.view(Nx.shape[0], 1)
     exp_M = np.e**M
     def f_MLE(M, M_hat, t=1):
-        tempered_multiplier = multiplier**(1.0/t)
+        print(type(exp_M))
+        print(type(M_hat))
         delta = (exp_M - np.e**M_hat)
+        tempered_multiplier = multiplier**(1.0/t)
         return tempered_multiplier * delta
     return f_MLE
 
@@ -91,8 +89,8 @@ def get_torch_f_MLE(cooc_stats, M, device='cpu'):
 def calc_M_swivel(cooc_stats):
 
     with np.errstate(divide='ignore'):
-        log_N_xx = np.log(cooc_stats.denseNxx)
-        log_N_x = np.log(cooc_stats.Nx)
+        log_N_xx = np.log(cooc_stats.Nxx)
+        log_N_x = np.log(cooc_stats.Nx.reshape(-1))
         log_N = np.log(cooc_stats.N)
 
     return np.array([

@@ -15,12 +15,10 @@ def get_test_stats(window_size):
 
 
 def calc_PMI(cooc_stats):
-    Nx = cooc_stats.Nx.reshape((-1,1))
-    N = np.sum(Nx)
     with np.errstate(divide='ignore'):
         return np.array(
-            np.log(N) + np.log(cooc_stats.denseNxx) 
-            - np.log(Nx) - np.log(Nx.T)
+            np.log(cooc_stats.N) + np.log(cooc_stats.Nxx) 
+            - np.log(cooc_stats.Nx) - np.log(cooc_stats.Nx.T)
         )
 
 
