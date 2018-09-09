@@ -89,6 +89,22 @@ def get_torch_f_MLE(cooc_stats, M, device='cpu'):
     return f_MLE
 
 
+def get_torch_f_MLE_optimized(cooc_stats, M, device='cpu'):
+    Nx = torch.tensor(cooc_stats.Nx, dtype=torch.float32, device=device)
+    M = torch.tensor(M, dtype=torch.float32, device=device)
+    multiplier = Nx * Nx.t()
+    multiplier = multiplier / torch.max(multiplier)
+    exp_M = np.e**M
+    tempered_multiplier_ = torch.zeros(M.shape)
+    def f_MLE(M, M_hat, t=1):
+        M_hat_exp = torch.pow(np.e, M_hat, out=M_hat)
+        delta = torch.sub(exp_M, M_hat_exp, out=M_hat)
+        tempered_multiplier = torch.pow(
+            multiplier, 1.0/t, out=tempered_multiplier_)
+        return delta.mul_(tempered_multiplier)
+    return f_MLE
+
+
 def calc_M_swivel(cooc_stats):
 
     with np.errstate(divide='ignore'):

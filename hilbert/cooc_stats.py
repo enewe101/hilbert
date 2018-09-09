@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from collections import Counter
 
 import numpy as np
@@ -79,6 +80,49 @@ class CoocStats(object):
         self.verbose = verbose
 
 
+    def __copy__(self):
+        return deepcopy(self)
+
+
+    def __deepcopy__(self, memo):
+        result = CoocStats(
+            dictionary=deepcopy(self.dictionary),
+            counts=Counter(self.counts), 
+            verbose=self.verbose
+        )
+        memo[id(self)] = result
+        return result
+
+
+    def __radd__(self, other):
+        """
+        Create a new CoocStats that has counts from both operands.
+        """
+        return self + other
+
+
+    def __add__(self, other):
+        """
+        Create a new CoocStats that has counts from both operands.
+        """
+        result = deepcopy(self)
+        result += other
+        return result
+
+
+    def __iadd__(self, other):
+        """
+        Add counts from `other` to `self`, in place.
+        """
+        if not isinstance(other, CoocStats):
+            return NotImplemented
+        for (other_idx1, other_idx2), count in other.counts.items():
+            tok1 = other.dictionary.get_token(other_idx1)
+            tok2 = other.dictionary.get_token(other_idx2)
+            self.add(tok1,tok2,count)
+        return self
+
+
     def validate_args(self, dictionary, counts, Nxx):
 
         if counts is not None and Nxx is not None:
@@ -131,10 +175,10 @@ class CoocStats(object):
         return self._N
 
 
-    def add(self, token1, token2):
+    def add(self, token1, token2, count=1):
         id1 = self._dictionary.add_token(token1)
         id2 = self._dictionary.add_token(token2)
-        self.counts[id1, id2] += 1
+        self.counts[id1, id2] += count
 
         # Nxx, Nx, and N are all stale, so set them to None.
         self._Nxx = None

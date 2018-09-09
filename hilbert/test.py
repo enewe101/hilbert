@@ -1,6 +1,7 @@
 import os
 import shutil
 from unittest import main, TestCase
+from copy import copy, deepcopy
 from scipy import sparse
 from collections import Counter
 import numpy as np
@@ -1409,6 +1410,40 @@ class TestDictionary(TestCase):
         return tokens, h.dictionary.Dictionary(tokens)
 
 
+    def test_copy(self):
+
+        # NOTE: currently implementation of copy is simply deferred to deepcopy
+
+        tokens, dictionary1 = self.get_test_dictionary()
+        dictionary2 = copy(dictionary1)
+
+        # None of the obejects are the same
+        self.assertTrue(dictionary2 is not dictionary1)
+        self.assertTrue(dictionary2.tokens is not dictionary1.tokens)
+        self.assertTrue(dictionary2.token_ids is not dictionary1.token_ids)
+
+        # But they are equal
+        self.assertEqual(dictionary2.tokens, dictionary1.tokens)
+        self.assertEqual(dictionary2.token_ids, dictionary1.token_ids)
+
+
+    def test_deepcopy(self):
+
+        # NOTE: currently implementation of copy is simply deferred to deepcopy
+
+        tokens, dictionary1 = self.get_test_dictionary()
+        dictionary2 = deepcopy(dictionary1)
+
+        # None of the obejects are the same
+        self.assertTrue(dictionary2 is not dictionary1)
+        self.assertTrue(dictionary2.tokens is not dictionary1.tokens)
+        self.assertTrue(dictionary2.token_ids is not dictionary1.token_ids)
+
+        # But they are equal
+        self.assertEqual(dictionary2.tokens, dictionary1.tokens)
+        self.assertEqual(dictionary2.token_ids, dictionary1.token_ids)
+
+
     def test_dictionary(self):
         tokens, dictionary = self.get_test_dictionary()
         for token in tokens:
@@ -1441,6 +1476,7 @@ class TestDictionary(TestCase):
 
 
 class TestCoocStats(TestCase):
+
 
     def get_test_cooccurrence_stats(self):
         DICTIONARY = h.dictionary.Dictionary([
@@ -1696,6 +1732,135 @@ class TestCoocStats(TestCase):
         self.assertTrue(isinstance(coo_matrix, sparse.coo_matrix))
         self.assertTrue(np.allclose(coo_matrix.todense(), array))
 
+
+    def test_deepcopy(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence1 = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+
+        cooccurrence2 = deepcopy(cooccurrence1)
+
+        self.assertTrue(cooccurrence2 is not cooccurrence1)
+        self.assertTrue(
+            cooccurrence2.dictionary is not cooccurrence1.dictionary)
+        self.assertTrue(cooccurrence2.counts is not cooccurrence1.counts)
+        self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
+        self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
+
+        self.assertTrue(np.allclose(cooccurrence2.Nxx, cooccurrence1.Nxx))
+        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
+        self.assertEqual(cooccurrence2.N, cooccurrence1.N)
+        self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
+        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
+        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
+
+
+    def test_copy(self):
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence1 = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+
+        cooccurrence2 = copy(cooccurrence1)
+
+        self.assertTrue(cooccurrence2 is not cooccurrence1)
+        self.assertTrue(
+            cooccurrence2.dictionary is not cooccurrence1.dictionary)
+        self.assertTrue(cooccurrence2.counts is not cooccurrence1.counts)
+        self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
+        self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
+
+        self.assertTrue(np.allclose(cooccurrence2.Nxx, cooccurrence1.Nxx))
+        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
+        self.assertEqual(cooccurrence2.N, cooccurrence1.N)
+        self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
+        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
+        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
+
+
+    def test_add(self):
+        """
+        When CoocStats add, their counts add.
+        """
+
+        # Make one CoocStat instance to be added.
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        cooccurrence1 = h.cooc_stats.CoocStats(
+            dictionary, counts, verbose=False)
+
+        # Make another CoocStat instance to be added.
+        token_pairs2 = [
+            ('banana','car'), ('banana','car'), ('banana', 'banana'),
+            ('banana','socks'), ('cave','car'), ('cave','socks')
+        ]
+        dictionary2 = h.dictionary.Dictionary([
+            'banana', 'car', 'socks', 'cave'])
+        counts2 = {
+            (0,0):2,
+            (0,1):2, (0,2):1, (3,1):1, (3,2):1,
+            (1,0):2, (2,0):1, (1,3):1, (2,3):1
+        }
+        array2 = np.array([
+            [2,2,1,0],
+            [2,0,0,1],
+            [1,0,0,1],
+            [0,1,1,0],
+        ])
+        cooccurrence2 = h.cooc_stats.CoocStats(verbose=False)
+        for tok1, tok2 in token_pairs2:
+            cooccurrence2.add(tok1, tok2)
+            cooccurrence2.add(tok2, tok1)
+
+        cooccurrence_sum = cooccurrence2 + cooccurrence1
+
+        # Ensure that cooccurrence1 was not changed
+        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        self.assertEqual(cooccurrence1.counts, counts)
+        self.assertTrue(np.allclose(cooccurrence1.Nxx, array))
+        expected_Nx = np.sum(array, axis=1).reshape(-1,1)
+        self.assertTrue(np.allclose(cooccurrence1.Nx, expected_Nx))
+        self.assertEqual(cooccurrence1.N, np.sum(array))
+        self.assertEqual(cooccurrence1.dictionary.tokens, dictionary.tokens)
+        self.assertEqual(
+            cooccurrence1.dictionary.token_ids, dictionary.token_ids)
+        self.assertEqual(cooccurrence1.verbose, False)
+
+        # Ensure that cooccurrence2 was not changed
+        self.assertEqual(cooccurrence2.counts, counts2)
+
+        self.assertTrue(np.allclose(cooccurrence2.Nxx, array2))
+        expected_Nx2 = np.sum(array2, axis=1).reshape(-1,1)
+        self.assertTrue(np.allclose(cooccurrence2.Nx, expected_Nx2))
+        self.assertEqual(cooccurrence2.N, np.sum(array2))
+        self.assertEqual(cooccurrence2.dictionary.tokens, dictionary2.tokens)
+        self.assertEqual(
+            cooccurrence2.dictionary.token_ids, dictionary2.token_ids)
+        self.assertEqual(cooccurrence2.verbose, False)
+        
+
+        # Ensure that cooccurrence_sum is as desired
+        dictionary_sum = h.dictionary.Dictionary([
+            'banana', 'socks', 'car', 'cave', 'field'])
+        array_sum = np.array([
+            [2, 4, 3, 0, 1],
+            [4, 0, 1, 1, 0],
+            [3, 1, 0, 1, 0],
+            [0, 1, 1, 0, 0],
+            [1, 0, 0, 0, 0],
+        ])
+        Nx_sum = np.sum(array_sum, axis=1).reshape(-1,1)
+        counts_sum = Counter({
+            (0, 0): 2, 
+            (0, 1): 4, (1, 0): 4, (2, 0): 3, (0, 2): 3, (1, 2): 1, (3, 2): 1,
+            (3, 1): 1, (2, 1): 1, (1, 3): 1, (2, 3): 1, (0, 4): 1, (4, 0): 1
+        })
+        self.assertEqual(
+            cooccurrence_sum.dictionary.tokens, dictionary_sum.tokens)
+        self.assertEqual(
+            cooccurrence_sum.dictionary.token_ids, dictionary_sum.token_ids)
+        self.assertTrue(np.allclose(cooccurrence_sum.Nxx, array_sum))
+        self.assertTrue(np.allclose(cooccurrence_sum.Nx, Nx_sum))
+        self.assertTrue(cooccurrence_sum.N, cooccurrence1.N + cooccurrence2.N)
+        self.assertEqual(cooccurrence_sum.counts, counts_sum)
 
 
 if __name__ == '__main__':

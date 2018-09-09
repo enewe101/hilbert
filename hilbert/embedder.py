@@ -24,9 +24,21 @@ def get_embedder(cooc_stats):
 
 def get_torch_embedder(cooc_stats):
     M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M)
+    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device='cuda')
     embedder = h.torch_embedder.TorchHilbertEmbedder(
-        M, f_delta=f_MLE, learning_rate=1e-6
+        M, f_delta=f_MLE, learning_rate=1e-6, device='cuda'
+    )
+    return embedder
+
+    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
+    #return solver
+
+
+def get_torch_embedder_optimized(cooc_stats):
+    M = h.corpus_stats.calc_PMI(cooc_stats)
+    f_MLE = h.f_delta.get_torch_f_MLE_optimized(cooc_stats, M, device='cuda')
+    embedder = h.torch_embedder.TorchHilbertEmbedderOptimized(
+        M, f_delta=f_MLE, learning_rate=1e-6, device='cuda'
     )
     return embedder
 
