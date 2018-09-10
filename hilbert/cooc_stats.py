@@ -64,12 +64,9 @@ class CoocStats(object):
         self._Nxx = Nxx
         self._Nx = None
         self._N = None
+        self._denseNxx = None
         if Nxx is not None:
-            if sparse.issparse(Nxx):
-                self._Nxx = Nxx.toarray()
-            else:
-                self._Nxx = np.array(Nxx)
-
+            self._Nxx = sparse.csr_matrix(Nxx)
             self._Nx = np.sum(self._Nxx, axis=1).reshape(-1,1)
             self._N = np.sum(self._Nx)
 
@@ -94,19 +91,23 @@ class CoocStats(object):
         return result
 
 
-    def __radd__(self, other):
-        """
-        Create a new CoocStats that has counts from both operands.
-        """
-        return self + other
+    #def __radd__(self, other):
+    #    """
+    #    Create a new CoocStats that has counts from both operands.
+    #    """
+    #    # Just delegate to add.
+    #    return self.__add__(other)
 
 
     def __add__(self, other):
         """
         Create a new CoocStats that has counts from both operands.
         """
+        if not isinstance(other, CoocStats):
+            return NotImplemented
+
         result = deepcopy(self)
-        result += other
+        result.__iadd__(other)
         return result
 
 
@@ -114,12 +115,55 @@ class CoocStats(object):
         """
         Add counts from `other` to `self`, in place.
         """
+
+        # For better performance, this is implemented so as to avoid 
+        # decompiling the CoocStats instances.  Instead, we get ijv triples
+        # for non-zero elements in the other CoocStats, and then tack them
+        # on to ijv triples for self.  Conversion between the CSR and COO 
+        # sparse matrix formats is much faster than conversion between dict
+        # and sparse matrix format.
+
         if not isinstance(other, CoocStats):
             return NotImplemented
-        for (other_idx1, other_idx2), count in other.counts.items():
-            tok1 = other.dictionary.get_token(other_idx1)
-            tok2 = other.dictionary.get_token(other_idx2)
-            self.add(tok1,tok2,count)
+
+        # Avoid unnecessarily decompiling other's Nxx into counts: if it does
+        # not have its counts already in memory, use the coo-format of it's 
+        # Nxx array to more quickly provide the same info.
+        if other._counts is None:
+            other_Nxx_coo = other.Nxx.tocoo()
+            I, J, V = other_Nxx_coo.row, other_Nxx_coo.col, other_Nxx_coo.data
+        else:
+            I, J, V = dict_to_IJV(other.counts)
+
+        self_Nxx_coo = self.Nxx.tocoo()
+
+        self_row = list(self_Nxx_coo.row) 
+        self_col = list(self_Nxx_coo.col) 
+        self_data = list(self_Nxx_coo.data)
+
+        add_to_row = [
+            self.dictionary.add_token(other.dictionary.get_token(i))
+            for i in I
+        ]
+        self_row += add_to_row
+
+        add_to_col = [
+            self.dictionary.add_token(other.dictionary.get_token(j))
+            for j in J
+        ]
+        self_col += add_to_col
+
+        self_data += list(V) 
+
+        vocab_size = len(self._dictionary)
+        self._Nxx = sparse.coo_matrix(
+            (self_data, (self_row, self_col)),
+            (vocab_size,vocab_size)
+        ).tocsr()
+        self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1,1)
+        self._N = np.sum(self._Nx)
+        self.sort(True)
+
         return self
 
 
@@ -150,8 +194,12 @@ class CoocStats(object):
     def dictionary(self):
         # Use the existence of _Nxx as an indicator of whether we need to
         # compile before returning the dictionary.
-        if self._Nxx is None:
-            self.compile()
+        #
+        # TODO: why did I make this a property?  And why had I made it compile
+        #   first if Nxx is None?
+        #
+        #if self._Nxx is None:
+        #    self.compile()
         return self._dictionary
 
 
@@ -163,10 +211,18 @@ class CoocStats(object):
 
 
     @property
+    def denseNxx(self):
+        if self._denseNxx is None:
+            self._denseNxx = self.Nxx.toarray()
+        return self._denseNxx
+
+
+    @property
     def Nx(self):
         if self._Nx is None:
             self.compile()
         return self._Nx
+
 
     @property
     def N(self):
@@ -184,6 +240,7 @@ class CoocStats(object):
         self._Nxx = None
         self._Nx = None
         self._N = None
+        self._denseNxx = None
 
 
     def decompile(self, force=False):
@@ -196,8 +253,8 @@ class CoocStats(object):
         if self.verbose:
             print('Decompiling cooccurrence stats...')
 
-        Nxx_coo = sparse.coo_matrix(self.Nxx)
         self._counts = Counter()
+        Nxx_coo = self._Nxx.tocoo()
         for i,j,v in zip(Nxx_coo.row, Nxx_coo.col, Nxx_coo.data):
             self._counts[i,j] = v
 
@@ -214,7 +271,7 @@ class CoocStats(object):
 
         vocab_size = len(self._dictionary)
         self._Nxx = dict_to_sparse(
-            self.counts, (vocab_size,vocab_size)).toarray()
+            self.counts, (vocab_size,vocab_size))
         self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1,1)
         self._N = np.sum(self._Nx)
         self.sort(True)
@@ -224,10 +281,11 @@ class CoocStats(object):
         """
         Re-assign token indices providing lower indices to more common words.
         This affects the dictionary mapping, the IDs used in `counts`, and 
-        The indexing of Nxx and Nx.
+        The indexing of Nxx and Nx.  `counts` will simply be dropped, since it
+        can be calculated lazily later if needed.
         """
         top_indices = np.argsort(-self.Nx.reshape(-1))
-        self._Nxx = self.Nxx[top_indices][:,top_indices]
+        self._Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
         self._Nx = self.Nx[top_indices]
         self._dictionary = h.dictionary.Dictionary([
             self._dictionary.tokens[i] for i in top_indices])
@@ -235,10 +293,7 @@ class CoocStats(object):
             old_idx: new_idx 
             for new_idx, old_idx in enumerate(top_indices)
         }
-        new_counts = Counter()
-        for (i,j), count in self.counts.items():
-            new_counts[index_map[i], index_map[j]] = count
-        self._counts = new_counts
+        self._counts = None
 
 
     def save(self, path, save_as_sparse=True):
@@ -251,9 +306,9 @@ class CoocStats(object):
             os.makedirs(path)
         if save_as_sparse:
             sparse.save_npz(
-                os.path.join(path, 'Nxx.npz'), sparse.coo_matrix(self.Nxx))
+                os.path.join(path, 'Nxx.npz'), self.Nxx)
         else:
-            np.savez(os.path.join(path, 'Nxx.npz'), self.Nxx)
+            np.savez(os.path.join(path, 'Nxx.npz'), self.Nxx.todense())
         #np.savez(os.path.join(path, 'Nx.npz'), Nx)
         self.dictionary.save(os.path.join(path, 'dictionary'))
 
@@ -283,10 +338,23 @@ class CoocStats(object):
         """
         dictionary = h.dictionary.Dictionary.load(
             os.path.join(path, 'dictionary'))
-        Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz'))
+        Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tocsr()
         return CoocStats(dictionary=dictionary, Nxx=Nxx, verbose=verbose)
 
 
+
+def dict_to_IJV(counts):
+    """
+    Given a dict-like `counts` whose keys are 2-tuples of token indices,
+    return a the parallel arrays I, J, and V, where I contains all first-token
+    indices, J contains all second-token indices, and V contains all values.
+    """
+    I, J, V = [], [], []
+    for (idx1, idx2), value in counts.items():
+        I.append(idx1)
+        J.append(idx2)
+        V.append(value)
+    return I, J, V
 
 
 def dict_to_sparse(counts, shape=None):
@@ -294,12 +362,8 @@ def dict_to_sparse(counts, shape=None):
     Given a dict-like `counts` whose keys are 2-tuples of token indices,
     return a scipy.sparse.coo.coo_matrix containing the same values.
     """
-    I, J, V = [], [], []
-    for (idx1, idx2), value in counts.items():
-        I.append(idx1)
-        J.append(idx2)
-        V.append(value)
+    I, J, V = dict_to_IJV(counts)
 
-    return sparse.coo_matrix((V,(I,J)), shape)
+    return sparse.coo_matrix((V,(I,J)), shape).tocsr()
 
 

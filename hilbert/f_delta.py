@@ -37,9 +37,9 @@ def sigmoid(M, sigmoid_M=None):
     return np.divide(1, sigmoid_M, sigmoid_M)
     
 
-def get_f_glove(N_xx, X_max=100.0):
+def get_f_glove(cooc_stats, X_max=100.0):
     X_max = float(X_max)
-    multiplier = N_xx / X_max
+    multiplier = cooc_stats.Nxx.toarray() / X_max
     np.power(multiplier, 0.75, multiplier)
     multiplier[multiplier>1] = 1
     np.multiply(multiplier, 2, multiplier)
@@ -108,7 +108,7 @@ def get_torch_f_MLE_optimized(cooc_stats, M, device='cpu'):
 def calc_M_swivel(cooc_stats):
 
     with np.errstate(divide='ignore'):
-        log_N_xx = np.log(cooc_stats.Nxx)
+        log_N_xx = np.log(cooc_stats.Nxx.toarray())
         log_N_x = np.log(cooc_stats.Nx.reshape(-1))
         log_N = np.log(cooc_stats.N)
 
@@ -124,8 +124,9 @@ def calc_M_swivel(cooc_stats):
 
 def get_f_swivel(cooc_stats):
 
-    N_xx_sqrt = np.sqrt(cooc_stats.Nxx)
-    selector = cooc_stats.Nxx==0
+    Nxx = cooc_stats.Nxx.toarray()
+    N_xx_sqrt = np.sqrt(Nxx)
+    selector = Nxx==0
     exp_delta = np.zeros(cooc_stats.Nxx.shape)
     exp_delta_p1 = np.zeros(cooc_stats.Nxx.shape)
     temp_result_1 = np.zeros(cooc_stats.Nxx.shape)
@@ -135,6 +136,7 @@ def get_f_swivel(cooc_stats):
 
         # Calculate cases where N_xx > 0
         np.subtract(M, M_hat, temp_result_1)
+
         np.multiply(temp_result_1, N_xx_sqrt, delta)
 
         # Calculate cases where N_xx == 0
