@@ -12,7 +12,7 @@ def sim(word, context, embedder, dictionary):
     return product / (word_norm * context_norm)
 
 
-def get_embedder(cooc_stats):
+def get_MLE_embedder(cooc_stats):
     M = h.corpus_stats.calc_PMI(cooc_stats)
     f_MLE = h.f_delta.get_f_MLE(cooc_stats)
     embedder = HilbertEmbedder(M, f_delta=f_MLE, learning_rate=1e-6)
@@ -22,23 +22,37 @@ def get_embedder(cooc_stats):
     #return solver
 
 
-def get_torch_embedder(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device='cuda')
+def get_w2v_embedder(cooc_stats, k):
+    M = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
+    f_w2v = h.f_delta.get_f_w2v(cooc_stats, k)
+    embedder = HilbertEmbedder(M, f_delta=f_w2v, learning_rate=1e-6)
+    return embedder
+
+
+def get_torch_w2v_embedder(cooc_stats, k, device='cpu'):
+    M = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
+    f_w2v = h.f_delta.get_f_w2v_torch(cooc_stats, M, k, device=device)
     embedder = h.torch_embedder.TorchHilbertEmbedder(
-        M, f_delta=f_MLE, learning_rate=1e-6, device='cuda'
-    )
+        M, f_delta=f_w2v, learning_rate=1e-6, device=device)
+    return embedder
+
+
+def get_torch_MLE_embedder(cooc_stats):
+    M = h.corpus_stats.calc_PMI(cooc_stats)
+    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device='cpu')
+    embedder = h.torch_embedder.TorchHilbertEmbedder(
+        M, f_delta=f_MLE, learning_rate=1e-6, device='cpu')
     return embedder
 
     #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
     #return solver
 
 
-def get_torch_embedder_optimized(cooc_stats):
+def get_torch_MLE_embedder_optimized(cooc_stats):
     M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE_optimized(cooc_stats, M, device='cuda')
+    f_MLE = h.f_delta.get_torch_f_MLE_optimized(cooc_stats, M, device='cpu')
     embedder = h.torch_embedder.TorchHilbertEmbedderOptimized(
-        M, f_delta=f_MLE, learning_rate=1e-6, device='cuda'
+        M, f_delta=f_MLE, learning_rate=1e-6, device='cpu'
     )
     return embedder
 

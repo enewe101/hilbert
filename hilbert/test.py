@@ -64,18 +64,18 @@ class TestCorpusStats(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
         expected_shifted_PMI = expected_PMI - np.log(k)
-        found = h.corpus_stats.calc_shifted_w2v_PMI(k, cooc_stats)
+        found = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
         self.assertTrue(np.allclose(found, expected_shifted_PMI))
 
 
     def test_get_stats(self):
         # Next, test with a cooccurrence window of +/-2
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        self.assertTrue(np.allclose(cooc_stats.Nxx.toarray(),self.N_XX_2))
+        self.assertTrue(np.allclose(cooc_stats.denseNxx,self.N_XX_2))
 
         # Next, test with a cooccurrence window of +/-3
         cooc_stats = h.corpus_stats.get_test_stats(3)
-        self.assertTrue(np.allclose(cooc_stats.Nxx.toarray(),self.N_XX_3))
+        self.assertTrue(np.allclose(cooc_stats.denseNxx,self.N_XX_3))
 
 
 
@@ -83,7 +83,7 @@ class TestCorpusStats(TestCase):
 class TestFDeltas(TestCase):
 
 
-    def test_sigmoid(self):
+    def test_sigmoid_(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         PMI = h.corpus_stats.calc_PMI(cooc_stats)
         expected = np.array([
@@ -91,8 +91,29 @@ class TestFDeltas(TestCase):
             for row in PMI
         ])
         result = np.zeros(PMI.shape)
-        h.f_delta.sigmoid(PMI, result)
+        h.f_delta.sigmoid_(PMI, result)
         self.assertTrue(np.allclose(expected, result))
+
+
+    def test_sigmoid(self):
+        # This should work for np.array and torch.Tensor
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        PMI = h.corpus_stats.calc_PMI(cooc_stats)
+        expected = np.array([
+            [1/(1+np.e**(-pmi)) for pmi in row]
+            for row in PMI
+        ])
+        result = h.f_delta.sigmoid(PMI)
+        self.assertTrue(np.allclose(expected, result))
+
+        PMI = torch.tensor(PMI, dtype=torch.float32)
+        expected = torch.tensor([
+            [1/(1+np.e**(-pmi)) for pmi in row]
+            for row in PMI
+        ], dtype=torch.float32)
+        result = h.f_delta.sigmoid(PMI)
+        self.assertTrue(torch.allclose(expected, result))
+
 
 
 
@@ -100,9 +121,8 @@ class TestFDeltas(TestCase):
         k = 15.0
         cooc_stats = h.corpus_stats.get_test_stats(2)
         expected = k * cooc_stats.Nx * cooc_stats.Nx.T / cooc_stats.N
-        found = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx)
+        found = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
         self.assertTrue(np.allclose(expected, found))
-
 
 
     def test_f_w2v(self):
@@ -111,10 +131,10 @@ class TestFDeltas(TestCase):
 
         M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
         M_hat = M + 1
-        N_neg_xx = h.f_delta.calc_N_neg_xx(k, cooc_stats.Nx)
+        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
 
         difference = h.f_delta.sigmoid(M) - h.f_delta.sigmoid(M_hat)
-        multiplier = N_neg_xx + cooc_stats.Nxx.toarray()
+        multiplier = N_neg_xx + cooc_stats.denseNxx
         expected = multiplier * difference
 
         delta = np.zeros(M.shape)
@@ -124,10 +144,38 @@ class TestFDeltas(TestCase):
         self.assertTrue(np.allclose(expected, found))
 
 
+    def test_f_w2v_torch(self):
+        device = 'cpu'
+        k = 15
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+
+        M = torch.tensor(
+            h.corpus_stats.calc_shifted_PMI(cooc_stats, k),
+            dtype=torch.float32,
+            device=device
+        )
+        M_hat = M + 1
+        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
+        difference = h.f_delta.sigmoid(M) - h.f_delta.sigmoid(M_hat)
+        multiplier = torch.tensor(
+            N_neg_xx + cooc_stats.denseNxx,
+            dtype=torch.float32,
+            device=device
+        )
+        expected = multiplier * difference
+
+        f_w2v_torch = h.f_delta.get_f_w2v_torch(
+            cooc_stats, M, k, device=device)
+        found = f_w2v_torch(M, M_hat)
+
+        self.assertTrue(torch.allclose(expected, found))
+
+
+
     def test_f_glove(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            M = np.log(cooc_stats.Nxx.toarray())
+            M = np.log(cooc_stats.denseNxx)
         M_hat = M_hat = M - 1
         expected = np.array([
             [
@@ -172,9 +220,11 @@ class TestFDeltas(TestCase):
 
     def test_calc_M_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        # Destructively put ones wherever Nxx is zero.  Don't try this at home.
-        # It's a hack to easily calculate the PMI-star
-        cooc_stats.Nxx[cooc_stats.Nxx == 0] = 1
+
+        # This is a hack to calculate PMI_star (as defined in swivel paper).
+        cooc_stats.denseNxx[cooc_stats.denseNxx==0] = 1
+        cooc_stats._Nxx = sparse.csr_matrix(cooc_stats.denseNxx)
+
         PMI_star = h.corpus_stats.calc_PMI(cooc_stats)
         found = h.f_delta.calc_M_swivel(cooc_stats)
         self.assertTrue(np.allclose(found, PMI_star))
@@ -223,20 +273,22 @@ class TestFDeltas(TestCase):
 
 
     def test_torch_f_MLE(self):
+
+        device = 'cpu'
         cooc_stats = h.corpus_stats.get_test_stats(2)
+
         M = torch.tensor(
             h.corpus_stats.calc_PMI(cooc_stats), dtype=torch.float32)
         M_hat = M + 1
-
         N_indep_xx = torch.tensor(
             cooc_stats.Nx * cooc_stats.Nx.T, dtype=torch.float32)
         N_indep_max = torch.max(N_indep_xx)
-
         expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
         delta = np.zeros(M.shape)
-        f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M)
+        f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device=device)
         found = f_MLE(M, M_hat)
+
         self.assertTrue(np.allclose(found, expected))
 
         t = 10
@@ -1549,9 +1601,9 @@ class TestCoocStats(TestCase):
         # Currently the cooccurrence instance has no internal counter for
         # cooccurrences, because it is based on the cooccurrence_array
         self.assertTrue(cooccurrence._counts is None)
-        self.assertTrue(np.allclose(cooccurrence._Nxx.toarray(), Nxx))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, Nxx))
         self.assertTrue(np.allclose(cooccurrence._Nx, Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), Nxx))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, Nxx))
         self.assertTrue(np.allclose(cooccurrence.Nx, Nx))
 
         # Adding more cooccurrence statistics will force it to "decompile" into
@@ -1571,8 +1623,10 @@ class TestCoocStats(TestCase):
         expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
         expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
         expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
+        expected_N = np.sum(expected_Nx)
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
         self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+        self.assertEqual(cooccurrence.N, expected_N)
 
 
     def test_uncompile(self):
@@ -1605,12 +1659,16 @@ class TestCoocStats(TestCase):
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), array))
         self.assertTrue(np.allclose(
             cooccurrence.Nx, np.sum(array, axis=1).reshape(-1,1)))
+        self.assertEqual(cooccurrence.N, np.sum(array))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, array))
 
         # We can still add more counts.  This causes it to drop the stale Nxx.
         cooccurrence.add('banana', 'rice')
         cooccurrence.add('rice', 'banana')
         self.assertEqual(cooccurrence._Nxx, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._N, None)
+        self.assertEqual(cooccurrence._denseNxx, None)
 
         # Asking for an array forces it to sync itself.  This time start with
         # denseNxx.
@@ -1619,12 +1677,16 @@ class TestCoocStats(TestCase):
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
         self.assertTrue(np.allclose(
             cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
+        self.assertEqual(cooccurrence.N, np.sum(expected_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
 
         # Adding more counts once again causes it to drop the stale Nxx.
         cooccurrence.add('banana', 'field')
         cooccurrence.add('field', 'banana')
         self.assertEqual(cooccurrence._Nxx, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._N, None)
+        self.assertEqual(cooccurrence._denseNxx, None)
 
         # Asking for an array forces it to sync itself.  This time start with
         # Nx.
@@ -1633,6 +1695,8 @@ class TestCoocStats(TestCase):
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
         self.assertTrue(np.allclose(
             cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
+        self.assertEqual(cooccurrence.N, np.sum(expected_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
 
 
 
@@ -1669,7 +1733,7 @@ class TestCoocStats(TestCase):
         cooccurrence = h.cooc_stats.CoocStats(
             unsorted_dictionary, unsorted_counts, verbose=False
         )
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), sorted_array))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, sorted_array))
         self.assertEqual(cooccurrence.counts, sorted_counts)
         self.assertEqual(
             cooccurrence.dictionary.tokens, sorted_dictionary.tokens)
@@ -1699,7 +1763,7 @@ class TestCoocStats(TestCase):
         )
         self.assertEqual(cooccurrence2.counts, cooccurrence.counts)
         self.assertTrue(np.allclose(
-            cooccurrence2.Nxx.toarray(), cooccurrence.Nxx.toarray()))
+            cooccurrence2.denseNxx, cooccurrence.denseNxx))
         self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence.Nx))
 
         shutil.rmtree(write_path)
@@ -1725,7 +1789,7 @@ class TestCoocStats(TestCase):
         ])
 
         self.assertTrue(
-            np.allclose(cooccurrence.Nxx.toarray(), truncated_array))
+            np.allclose(cooccurrence.denseNxx, truncated_array))
 
 
     def test_dict_to_sparse(self):
@@ -1750,7 +1814,7 @@ class TestCoocStats(TestCase):
         self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
 
         self.assertTrue(np.allclose(
-            cooccurrence2.Nxx.toarray(), cooccurrence1.Nxx.toarray()))
+            cooccurrence2.denseNxx, cooccurrence1.denseNxx))
         self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
         self.assertEqual(cooccurrence2.N, cooccurrence1.N)
         self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
@@ -1773,7 +1837,7 @@ class TestCoocStats(TestCase):
         self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
 
         self.assertTrue(np.allclose(
-            cooccurrence2.Nxx.toarray(), cooccurrence1.Nxx.toarray()))
+            cooccurrence2.denseNxx, cooccurrence1.denseNxx))
         self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
         self.assertEqual(cooccurrence2.N, cooccurrence1.N)
         self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
@@ -1821,7 +1885,7 @@ class TestCoocStats(TestCase):
         # Ensure that cooccurrence1 was not changed
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
         self.assertEqual(cooccurrence1.counts, counts)
-        self.assertTrue(np.allclose(cooccurrence1.Nxx.toarray(), array))
+        self.assertTrue(np.allclose(cooccurrence1.denseNxx, array))
         expected_Nx = np.sum(array, axis=1).reshape(-1,1)
         self.assertTrue(np.allclose(cooccurrence1.Nx, expected_Nx))
         self.assertEqual(cooccurrence1.N, np.sum(array))
@@ -1833,7 +1897,7 @@ class TestCoocStats(TestCase):
         # Ensure that cooccurrence2 was not changed
         self.assertEqual(cooccurrence2.counts, counts2)
 
-        self.assertTrue(np.allclose(cooccurrence2.Nxx.toarray(), array2))
+        self.assertTrue(np.allclose(cooccurrence2.denseNxx, array2))
         expected_Nx2 = np.sum(array2, axis=1).reshape(-1,1)
         self.assertTrue(np.allclose(cooccurrence2.Nx, expected_Nx2))
         self.assertEqual(cooccurrence2.N, np.sum(array2))
@@ -1863,7 +1927,7 @@ class TestCoocStats(TestCase):
         #    cooccurrence_sum.dictionary.tokens, dictionary_sum.tokens)
         #self.assertEqual(
         #    cooccurrence_sum.dictionary.token_ids, dictionary_sum.token_ids)
-        self.assertTrue(np.allclose(cooccurrence_sum.Nxx.toarray(), array_sum))
+        self.assertTrue(np.allclose(cooccurrence_sum.denseNxx, array_sum))
         self.assertTrue(np.allclose(cooccurrence_sum.Nx, Nx_sum))
         self.assertTrue(cooccurrence_sum.N, cooccurrence1.N + cooccurrence2.N)
         self.assertEqual(cooccurrence_sum.counts, counts_sum)

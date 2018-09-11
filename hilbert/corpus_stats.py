@@ -17,7 +17,7 @@ def get_test_stats(window_size):
 def calc_PMI(cooc_stats):
     with np.errstate(divide='ignore'):
         return np.array(
-            np.log(cooc_stats.N) + np.log(cooc_stats.Nxx.toarray()) 
+            np.log(cooc_stats.N) + np.log(cooc_stats.denseNxx) 
             - np.log(cooc_stats.Nx) - np.log(cooc_stats.Nx.T)
         )
 
@@ -28,7 +28,7 @@ def calc_positive_PMI(cooc_stats):
     return PMI
 
 
-def calc_shifted_w2v_PMI(k, cooc_stats):
+def calc_shifted_PMI(cooc_stats, k):
     return calc_PMI(cooc_stats) - np.log(k)
 
 

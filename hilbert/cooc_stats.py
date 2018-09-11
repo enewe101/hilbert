@@ -5,7 +5,6 @@ from collections import Counter
 import numpy as np
 from scipy import sparse
 
-import data_preparation as dp
 import hilbert as h
 
 
@@ -192,14 +191,12 @@ class CoocStats(object):
 
     @property
     def dictionary(self):
-        # Use the existence of _Nxx as an indicator of whether we need to
-        # compile before returning the dictionary.
-        #
-        # TODO: why did I make this a property?  And why had I made it compile
-        #   first if Nxx is None?
-        #
-        #if self._Nxx is None:
-        #    self.compile()
+        # So that it always returns a consistent result, we want the 
+        # dictionary to undergo sorting, which happens during compilation.
+        # Testing whether self._Nxx is None here is a way to test if the
+        # correctness of the dictionary's ordering has gone stale.
+        if self._Nxx is None:
+            self.compile()
         return self._dictionary
 
 
