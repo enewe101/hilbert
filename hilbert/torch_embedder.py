@@ -23,8 +23,8 @@ class TorchHilbertEmbedder(object):
         learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
-        device='cpu',
-        pass_args={}
+        pass_args={},
+        device='cuda'
     ):
         self.M = torch.tensor(M, dtype=torch.float32, device=device)
         self.d = d
@@ -58,7 +58,6 @@ class TorchHilbertEmbedder(object):
         self.badness = None
 
 
-    # TODO: Test. (esp. that offsets work.)
     def get_gradient(self, offsets=None, pass_args=None):
         """ 
         Calculate and return the current gradient.  

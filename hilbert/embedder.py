@@ -14,124 +14,88 @@ def sim(word, context, embedder, dictionary):
 
 def get_embedder(
     cooc_stats,
-    embedder_type, 
-    **kwargs
+    f_delta,            # 'mse' | 'w2v' | 'glove' | 'swivel' | 'mse'
+    base,               # 'pmi' | 'logNxx' | 'swivel'
+
+    # Options for f_delta
+    k=None,             # weight of negative samples (w2v only)
+    X_max=None,         # denominator of multiplier (glove only)
+
+    # Options for M
+    shift=None,         # None | float -- shift all vals e.g. -np.log(k)
+    no_neg_inf=False,   # whether to set -np.inf values to zero.
+    positive=False,     # whether to clip negative values to zero.
+    diag=None,          # None | float -- set diagonals to this val
+
+    # Options for embedder
+    d=300,              # embedding dimension
+    learning_rate=1e-6,
+    one_sided=False,    # whether vectors share parameters with covectors
+    constrainer=None,   # constrainer instances can mutate values after update
+    pass_args={},       # kwargs to pass into f_delta when it is called
+
+    # Implementation details
+    implementation='torch',
+    device='cuda'
 ):
 
-    implementation = kwargs.pop('implementation', 'torch')
-    device = kwargs.pop('device', 'gpu')
-
-    if embedder_type == 'mle':
-        if implementation == 'numpy':
-            # kwargs has no options specific to numpy implementation of mle
-            return get_MLE_embedder(cooc_stats, **kwargs)
-        elif implementation == 'torch':
-            # kwargs has no special options, only 'device'
-            return get_MLE_embedder_torch(cooc_stats, **kwargs)
-
-    elif embedder_type == 'w2v':
-        if implementation == 'numpy':
-            # kwargs can contain 'k'.
-            return get_w2v_embedder(cooc_stats, **kwargs)
-        elif implementation == 'torch':
-            # kwargs can contain 'k'.
-            return get_w2v_embedder_torch(cooc_stats, **kwargs)
-
-    elif embedder_type == 'glove':
-        if implementation == 'numpy':
-            # kwargs can contain 'X_max'.
-            return get_glove_embedder(cooc_stats, **kwargs)
-        elif implementation == 'torch':
-            # kwargs can contain 'X_max' and 'device'.
-            return get_glove_embedder_torch(cooc_stats, **kwargs)
-
-    elif embedder_type == 'swivel':
-        if implementation == 'numpy':
-            # kwargs can contain 'X_max'.
-            return get_swivel_embedder(cooc_stats, **kwargs)
-        elif implementation == 'torch':
-            # kwargs can contain 'X_max' and 'device'.
-            return get_swivel_embedder_torch(cooc_stats, **kwargs)
-
-
-def get_swivel_embedder(cooc_stats):
-    f_swivel = get_f_swivel(cooc_stats)
-
-
-def get_swivel_embedder_torch(cooc_stats):
-    pass
-
-
-
-def get_glove_embedder(cooc_stats, X_max=100.0):
-    M = np.log(cooc_stats.denseNxx)
-    f_glove = h.f_delta.get_f_glove(cooc_stats, X_max)
-    embedder = HilbertEmbedder(M, f_delta=f_glove, learning_rate=1e-6)
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
-
-def get_glove_embedder_torch(cooc_stats, X_max=100.0, device='cuda'):
-    M = torch.tensor(
-        np.log(cooc_stats.denseNxx), dtype=torch.float32, device=device)
-    f_glove_torch = h.f_delta.get_f_glove_torch(cooc_stats, X_max)
-    embedder = TorchHilbertEmbedder(M, f_delta=f_glove, learning_rate=1e-6)
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
-
-def get_MLE_embedder(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_f_MLE(cooc_stats)
-    embedder = HilbertEmbedder(M, f_delta=f_MLE, learning_rate=1e-6)
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
-def get_w2v_embedder(cooc_stats, k):
-    M = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
-    f_w2v = h.f_delta.get_f_w2v(cooc_stats, k)
-    embedder = HilbertEmbedder(M, f_delta=f_w2v, learning_rate=1e-6)
-    return embedder
-
-
-def get_w2v_embedder_torch(cooc_stats, k, device='cpu'):
-    M = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
-    f_w2v = h.f_delta.get_f_w2v_torch(cooc_stats, M, k, device=device)
-    embedder = h.torch_embedder.TorchHilbertEmbedder(
-        M, f_delta=f_w2v, learning_rate=1e-6, device=device)
-    return embedder
-
-
-def get_torch_MLE_embedder(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device='cpu')
-    embedder = h.torch_embedder.TorchHilbertEmbedder(
-        M, f_delta=f_MLE, learning_rate=1e-6, device='cpu')
-    return embedder
-
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
-
-
-def get_torch_MLE_embedder_optimized(cooc_stats):
-    M = h.corpus_stats.calc_PMI(cooc_stats)
-    f_MLE = h.f_delta.get_torch_f_MLE_optimized(cooc_stats, M, device='cpu')
-    embedder = h.torch_embedder.TorchHilbertEmbedderOptimized(
-        M, f_delta=f_MLE, learning_rate=1e-6, device='cpu'
+    h.utils.ensure_implementation_valid(implementation)
+    M = h.M.calc_M(
+        cooc_stats, base, shift, no_neg_inf, positive, diag, 
+        implementation, device
     )
-    return embedder
+    f_getter = (
+        h.f_delta.get_f_MSE if f_delta=='mse' else
+        h.f_delta.get_f_w2v if f_delta=='w2v' else
+        h.f_delta.get_f_glove if f_delta=='glove' else
+        h.f_delta.get_f_swivel if f_delta=='swivel' else
+        h.f_delta.get_f_MLE if f_delta=='mle' else
+        None
+    )
 
-    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
-    #return solver
+    if f_getter is None: 
+        raise ValueError('Unexpected value for f_delta: %s' % repr(f_delta))
+
+    f_options = {}
+    if f_delta == 'w2v':
+        if k is None: 
+            raise ValueError(
+                'A negative sample weight `k` must be a given when f_delta is '
+                '"w2v".'
+            )
+        f_options['k'] = k
+    elif k is not None:
+        raise ValueError(
+            'Negative sample weight `k` can only be given when f_delta is '
+            '"w2v".'
+        )
+
+    if f_delta == 'glove':
+        if X_max is None: 
+            raise ValueError(
+                'Multiplier denominator `X_max` must be a given when f_delta '
+                'is "glove".'
+            )
+        f_options['X_max'] = X_max
+    elif X_max is not None:
+        raise ValueError(
+            'Multiplier denominator `X_max` can only be given when f_delta is '
+            '"glove".'
+        )
+
+    f_delta = f_getter(
+        cooc_stats, M, implementation=implementation,
+        device=device, **f_options
+    )
+
+    if implementation == 'torch':
+        return h.torch_embedder.TorchHilbertEmbedder(
+            M, f_delta, d, learning_rate, one_sided, constrainer, pass_args,
+            device,
+        )
+    return HilbertEmbedder(
+        M, f_delta, d, learning_rate, one_sided, constrainer, pass_args)
+
 
 
 

@@ -39,10 +39,9 @@ def calc_shifted_PMI_(Nxx, Nx, N, k):
 def calc_PMI_star(cooc_stats):
     return calc_PMI_star_(cooc_stats.denseNxx, cooc_stats.Nx, cooc_stats.N)
 def calc_PMI_star_(Nxx, Nx, N):
-    Nxx[Nxx==0] = 1
-    return calc_PMI_(Nxx, Nx, N)
-
-
+    useNxx = Nxx.copy()
+    useNxx[useNxx==0] = 1
+    return calc_PMI_(useNxx, Nx, N)
 
 
 

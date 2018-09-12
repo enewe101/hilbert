@@ -11,11 +11,11 @@ def calc_M(
     positive=False,
     diag=None,
     implementation='torch',
-    device='cpu'
+    device='cuda'
 ):
     """
     Get the matrix of target dot-products.
-    `base` ('PMI' | 'logNxx' | 'swivel'): 
+    `base` ('pmi' | 'logNxx' | 'swivel'): 
         Determines the type of cooccurrence statistic to use as a base for M.
     `shift` (None | float):
         If `shift` is not None, add `log(shift)` to all values
@@ -28,7 +28,7 @@ def calc_M(
     """
 
     # First, get the basic values for M
-    if base == 'PMI':
+    if base == 'pmi':
         M = h.corpus_stats.calc_PMI(cooc_stats)
     elif base == 'logNxx':
         with np.errstate(divide='ignore'):
@@ -48,7 +48,7 @@ def calc_M(
         M[M<0] = 0
 
     if diag is not None:
-        np.fill_diagnoal(M, diag)
+        np.fill_diagonal(M, diag)
 
     if implementation == 'torch':
         return torch.tensor(M, dtype=torch.float32, device=device)

@@ -290,21 +290,9 @@ class TestFDeltas(TestCase):
         np.testing.assert_equal(expected, found)
 
 
-    def test_calc_M_swivel(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-
-        # This is a hack to calculate PMI_star (as defined in swivel paper).
-        cooc_stats.denseNxx[cooc_stats.denseNxx==0] = 1
-        cooc_stats._Nxx = sparse.csr_matrix(cooc_stats.denseNxx)
-
-        PMI_star = h.corpus_stats.calc_PMI(cooc_stats)
-        found = h.f_delta.calc_M_swivel(cooc_stats)
-        self.assertTrue(np.allclose(found, PMI_star))
-
-
     def test_f_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.f_delta.calc_M_swivel(cooc_stats)
+        M = h.M.calc_M(cooc_stats, base='swivel', implementation='numpy')
         M_hat = M + 1
         expected = np.array([
             [
@@ -316,10 +304,35 @@ class TestFDeltas(TestCase):
             ]
             for i in range(M.shape[0])
         ])
-        delta = np.zeros(M.shape)
-        f_swivel = h.f_delta.get_f_swivel(cooc_stats, M)
+        f_swivel = h.f_delta.get_f_swivel(
+            cooc_stats, M, implementation='numpy')
         found = f_swivel(M_hat)
         self.assertTrue(np.allclose(found, expected))
+
+
+    def test_f_swivel_torch(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        device = 'cpu'
+        M = h.M.calc_M(
+            cooc_stats, base='swivel', implementation='torch', device=device)
+        M_hat = M + 1
+        expected = torch.tensor(np.array([
+            [
+                np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
+
+                if cooc_stats.Nxx[i,j] > 0 else
+
+                (np.e**(M[i,j] - M_hat[i,j]) /
+                    (1 + np.e**(M[i,j] - M_hat[i,j])))
+                for j in range(M.shape[1])
+            ]
+            for i in range(M.shape[0])
+        ]), dtype=torch.float32, device=device)
+        f_swivel = h.f_delta.get_f_swivel(
+            cooc_stats, M, implementation='torch', device=device)
+        found = f_swivel(M_hat)
+        self.assertTrue(torch.allclose(found, expected))
+        self.assertTrue(isinstance(found, torch.Tensor))
 
 
     def test_f_MLE(self):
@@ -345,7 +358,6 @@ class TestFDeltas(TestCase):
             np.e**expected_M - np.e**expected_M_hat)
 
         found = f_MLE(M_hat, t=t)
-
         self.assertTrue(np.allclose(found, expected))
 
 
