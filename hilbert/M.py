@@ -28,6 +28,7 @@ def calc_M(
     """
 
     # First, get the basic values for M
+    base = base.lower()
     if base == 'pmi':
         M = h.corpus_stats.calc_PMI(cooc_stats)
     elif base == 'logNxx':
