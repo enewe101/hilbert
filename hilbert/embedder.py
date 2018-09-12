@@ -12,6 +12,80 @@ def sim(word, context, embedder, dictionary):
     return product / (word_norm * context_norm)
 
 
+def get_embedder(
+    cooc_stats,
+    embedder_type, 
+    **kwargs
+):
+
+    implementation = kwargs.pop('implementation', 'torch')
+    device = kwargs.pop('device', 'gpu')
+
+    if embedder_type == 'mle':
+        if implementation == 'numpy':
+            # kwargs has no options specific to numpy implementation of mle
+            return get_MLE_embedder(cooc_stats, **kwargs)
+        elif implementation == 'torch':
+            # kwargs has no special options, only 'device'
+            return get_MLE_embedder_torch(cooc_stats, **kwargs)
+
+    elif embedder_type == 'w2v':
+        if implementation == 'numpy':
+            # kwargs can contain 'k'.
+            return get_w2v_embedder(cooc_stats, **kwargs)
+        elif implementation == 'torch':
+            # kwargs can contain 'k'.
+            return get_w2v_embedder_torch(cooc_stats, **kwargs)
+
+    elif embedder_type == 'glove':
+        if implementation == 'numpy':
+            # kwargs can contain 'X_max'.
+            return get_glove_embedder(cooc_stats, **kwargs)
+        elif implementation == 'torch':
+            # kwargs can contain 'X_max' and 'device'.
+            return get_glove_embedder_torch(cooc_stats, **kwargs)
+
+    elif embedder_type == 'swivel':
+        if implementation == 'numpy':
+            # kwargs can contain 'X_max'.
+            return get_swivel_embedder(cooc_stats, **kwargs)
+        elif implementation == 'torch':
+            # kwargs can contain 'X_max' and 'device'.
+            return get_swivel_embedder_torch(cooc_stats, **kwargs)
+
+
+def get_swivel_embedder(cooc_stats):
+    f_swivel = get_f_swivel(cooc_stats)
+
+
+def get_swivel_embedder_torch(cooc_stats):
+    pass
+
+
+
+def get_glove_embedder(cooc_stats, X_max=100.0):
+    M = np.log(cooc_stats.denseNxx)
+    f_glove = h.f_delta.get_f_glove(cooc_stats, X_max)
+    embedder = HilbertEmbedder(M, f_delta=f_glove, learning_rate=1e-6)
+    return embedder
+
+    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
+    #return solver
+
+
+
+def get_glove_embedder_torch(cooc_stats, X_max=100.0, device='cuda'):
+    M = torch.tensor(
+        np.log(cooc_stats.denseNxx), dtype=torch.float32, device=device)
+    f_glove_torch = h.f_delta.get_f_glove_torch(cooc_stats, X_max)
+    embedder = TorchHilbertEmbedder(M, f_delta=f_glove, learning_rate=1e-6)
+    return embedder
+
+    #solver = h.solver.NesterovSolverCautious(embedder, 1e-6)
+    #return solver
+
+
+
 def get_MLE_embedder(cooc_stats):
     M = h.corpus_stats.calc_PMI(cooc_stats)
     f_MLE = h.f_delta.get_f_MLE(cooc_stats)
@@ -29,7 +103,7 @@ def get_w2v_embedder(cooc_stats, k):
     return embedder
 
 
-def get_torch_w2v_embedder(cooc_stats, k, device='cpu'):
+def get_w2v_embedder_torch(cooc_stats, k, device='cpu'):
     M = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
     f_w2v = h.f_delta.get_f_w2v_torch(cooc_stats, M, k, device=device)
     embedder = h.torch_embedder.TorchHilbertEmbedder(
@@ -67,9 +141,9 @@ class HilbertEmbedder(object):
     def __init__(
         self,
         M,
+        f_delta,
         d=300,
-        f_delta=h.f_delta.f_mse,
-        learning_rate=0.001,
+        learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
         pass_args={}
@@ -155,7 +229,7 @@ class HilbertEmbedder(object):
         np.dot(use_W, use_V, self.M_hat)
 
         # Determine the errors.
-        self.f_delta(self.M, self.M_hat, self.delta, **pass_args)
+        self.delta = self.f_delta(self.M_hat, **pass_args)
 
         # Determine the gradient
         np.dot(use_W.T, self.delta, self.nabla_V)

@@ -8,7 +8,7 @@ from scipy import sparse
 import hilbert as h
 
 
-def load_stats(path):
+def read_stats(path):
     return CoocStats.load(path)
 
 

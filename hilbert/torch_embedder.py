@@ -18,9 +18,9 @@ class TorchHilbertEmbedder(object):
     def __init__(
         self,
         M,
+        f_delta,
         d=300,
-        f_delta=h.f_delta.f_mse,
-        learning_rate=0.001,
+        learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
         device='cpu',
@@ -89,7 +89,7 @@ class TorchHilbertEmbedder(object):
         M_hat = torch.mm(use_W, use_V)
 
         # Determine the errors.
-        delta = self.f_delta(self.M, M_hat, **pass_args)
+        delta = self.f_delta(M_hat, **pass_args)
         self.badness = torch.sum(abs(delta)) / (
             self.M.shape[0] * self.M.shape[1])
 
@@ -149,8 +149,8 @@ class TorchHilbertEmbedderOptimized(object):
     def __init__(
         self,
         M,
+        f_delta,
         d=300,
-        f_delta=h.f_delta.f_mse,
         learning_rate=0.001,
         one_sided=False,
         constrainer=None,

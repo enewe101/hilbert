@@ -15,21 +15,35 @@ def get_test_stats(window_size):
 
 
 def calc_PMI(cooc_stats):
+    return calc_PMI_(cooc_stats.denseNxx, cooc_stats.Nx, cooc_stats.N)
+def calc_PMI_(Nxx, Nx, N):
     with np.errstate(divide='ignore'):
-        return np.array(
-            np.log(cooc_stats.N) + np.log(cooc_stats.denseNxx) 
-            - np.log(cooc_stats.Nx) - np.log(cooc_stats.Nx.T)
-        )
+        return np.array(np.log(N) + np.log(Nxx) - np.log(Nx) - np.log(Nx.T))
 
 
 def calc_positive_PMI(cooc_stats):
-    PMI = calc_PMI(cooc_stats)
+    return calc_positive_PMI_(cooc_stats.denseNxx, cooc_stats.Nx, cooc_stats.N)
+def calc_positive_PMI_(Nxx, Nx, N):
+    PMI = calc_PMI_(Nxx, Nx, N)
     PMI[PMI<0] = 0
     return PMI
 
 
 def calc_shifted_PMI(cooc_stats, k):
-    return calc_PMI(cooc_stats) - np.log(k)
+    return calc_shifted_PMI_(
+        cooc_stats.denseNxx, cooc_stats.Nx, cooc_stats.N, k)
+def calc_shifted_PMI_(Nxx, Nx, N, k):
+    return calc_PMI_(Nxx, Nx, N) - np.log(k)
+
+
+def calc_PMI_star(cooc_stats):
+    return calc_PMI_star_(cooc_stats.denseNxx, cooc_stats.Nx, cooc_stats.N)
+def calc_PMI_star_(Nxx, Nx, N):
+    Nxx[Nxx==0] = 1
+    return calc_PMI_(Nxx, Nx, N)
+
+
+
 
 
 def get_stats(token_list, window_size, verbose=True):

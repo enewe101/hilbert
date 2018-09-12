@@ -3,127 +3,91 @@ from scipy import sparse
 import torch
 
 
-def f_mse(M, M_hat, delta):
-    return np.subtract(M, M_hat, delta)
-
-
-def torch_f_mse(M, M_hat):
-    return M - M_hat
-
-
-def calc_N_neg_xx(N_x, k):
-    N = float(np.sum(N_x))
-    return k * N_x * N_x.T / N
-
-
-def get_f_w2v(cooc_stats, k):
-    N_neg_xx = calc_N_neg_xx(cooc_stats.Nx, k)
-    multiplier = cooc_stats.Nxx + N_neg_xx
-    sigmoid_M = np.zeros(cooc_stats.Nxx.shape)
-    sigmoid_M_hat = np.zeros(cooc_stats.Nxx.shape)
-    def f_w2v(M, M_hat, delta):
-        sigmoid_(M, sigmoid_M)
-        sigmoid_(M_hat, sigmoid_M_hat)
-        np.subtract(sigmoid_M, sigmoid_M_hat, delta)
-        return np.multiply(multiplier, delta, delta)
-    return f_w2v
-
-
-def sigmoid_(M, result=None):
-    """
-    Sigmoid, with the result to be placed in a pre-allocated numpy array  
-    `result`.
-    """
-    np.power(np.e, -M, result)
-    np.add(1, result, result)
-    return np.divide(1, result, result)
-    
-
-def sigmoid(M):
-    return 1 / (1 + np.e**(-M))
-
-
-def get_f_w2v_torch(cooc_stats, M, k, device='cuda'):
-    N_neg_xx = calc_N_neg_xx(cooc_stats.Nx, k)
-    multiplier = torch.tensor(
-        cooc_stats.denseNxx + N_neg_xx,
-        dtype=torch.float32,
-        device=device
-    )
-    sigmoid_M = sigmoid(torch.tensor(M, dtype=torch.float32, device=device))
-    def f_w2v(M, M_hat):
-        return multiplier * (sigmoid_M - sigmoid(M_hat))
-    return f_w2v
-
-
-
-
-
-def get_f_glove(cooc_stats, X_max=100.0):
-    X_max = float(X_max)
-    multiplier = cooc_stats.Nxx.toarray() / X_max
-    np.power(multiplier, 0.75, multiplier)
-    multiplier[multiplier>1] = 1
-    np.multiply(multiplier, 2, multiplier)
-    def f_glove(M, M_hat, delta):
+def get_f_MSE(cooc_stats, M, implementation='torch', device='cpu'):
+    def f_MSE(M_hat):
         with np.errstate(invalid='ignore'):
-            np.subtract(M, M_hat, delta)
-        delta[multiplier==0] = 0
-        return np.multiply(multiplier, delta, delta)
+            return M - M_hat
+    return f_MSE
+
+
+def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cpu'):
+    ensure_implementation_valid(implementation)
+    N_neg_xx = calc_N_neg_xx(cooc_stats.Nx, k)
+    multiplier = cooc_stats.denseNxx + N_neg_xx
+    sigmoid_M = sigmoid(M)
+    if implementation == 'torch':
+        multiplier = torch.tensor(
+            multiplier, dtype=torch.float32, device=device)
+        sigmoid_M = torch.tensor(
+            sigmoid_M, dtype=torch.float32, device=device)
+    
+    def f_w2v(M_hat):
+        return multiplier * (sigmoid_M - sigmoid(M_hat))
+
+    return f_w2v
+
+
+
+
+def get_f_glove(
+    cooc_stats, M,
+    X_max=100.0,
+    implementation='torch',
+    device='cpu'
+):
+    ensure_implementation_valid(implementation)
+    X_max = float(X_max)
+    multiplier = (cooc_stats.denseNxx / X_max) ** (0.75)
+    multiplier[multiplier>1] = 1
+    multiplier *= 2
+    if implementation == 'torch':
+        multiplier = torch.tensor(
+            multiplier, dtype=torch.float32, device=device)
+
+    def f_glove(M_hat):
+        return multiplier * (M - M_hat)
+
     return f_glove
 
 
-def get_f_MLE(cooc_stats):
 
-    Nx = cooc_stats.Nx.reshape((-1,1)).astype('float64')
-    multiplier = Nx * Nx.T
-    multiplier_max = np.max(multiplier)
-    np.divide(multiplier, multiplier_max, multiplier)
-
-    tempered_multiplier = np.zeros(cooc_stats.Nxx.shape)
-    exp_M = np.zeros(cooc_stats.Nxx.shape)
-    exp_M_hat = np.zeros(cooc_stats.Nxx.shape)
-
-    def f_MLE(M, M_hat, delta, t=1):
-
-        np.power(np.e, M, exp_M)
-        np.power(np.e, M_hat, exp_M_hat)
-        np.subtract(exp_M, exp_M_hat, delta)
-        np.power(multiplier, 1.0/t, tempered_multiplier)
-        np.multiply(tempered_multiplier, delta, delta)
-
-        return delta
-
-    return f_MLE
-
-
-
-def get_torch_f_MLE(cooc_stats, M, device='cuda'):
-    Nx = torch.tensor(cooc_stats.Nx, dtype=torch.float32, device=device)
-    M = torch.tensor(M, dtype=torch.float32, device=device)
-    multiplier = Nx * Nx.t()
-    multiplier = multiplier / torch.max(multiplier)
+def get_f_MLE(cooc_stats, M, implementation='torch', device='cuda'):
+    ensure_implementation_valid(implementation)
+    multiplier = cooc_stats.Nx * cooc_stats.Nx.T
+    multiplier = multiplier / np.max(multiplier)
     exp_M = np.e**M
-    def f_MLE(M, M_hat, t=1):
-        delta = (exp_M - np.e**M_hat)
-        tempered_multiplier = multiplier**(1.0/t)
-        return tempered_multiplier * delta
+    if implementation == 'torch':
+        multiplier = torch.tensor(
+            multiplier, dtype=torch.float32, device=device)
+        exp_M = torch.tensor(exp_M, dtype=torch.float32, device=device)
+
+    def f_MLE(M_hat, t=1):
+        return multiplier**(1.0/t) * (exp_M - np.e**M_hat)
+
     return f_MLE
 
 
-def get_torch_f_MLE_optimized(cooc_stats, M, device='cuda'):
+def get_torch_f_MLE_optimized(
+    cooc_stats, M, 
+    implementation='torch',
+    device='cuda'
+):
     """
     Mathematically equivalent to `get_torch_f_MLE`, but attempts to minimize
     allocation during the f_MLE calculations.  This turned out to have a 
     negligible effect on runtime.
     """
+    ensure_implementation_valid(implementation)
+    if implementation == 'numpy':
+        raise NotImplementedError(
+            'get_torch_f_MLE_optimized has only a torch-based implementation.')
     Nx = torch.tensor(cooc_stats.Nx, dtype=torch.float32, device=device)
     M = torch.tensor(M, dtype=torch.float32, device=device)
     multiplier = Nx * Nx.t()
     multiplier = multiplier / torch.max(multiplier)
     exp_M = np.e**M
     tempered_multiplier_ = torch.zeros(M.shape)
-    def f_MLE(M, M_hat, t=1):
+    def f_MLE(M_hat, t=1):
         M_hat_exp = torch.pow(np.e, M_hat, out=M_hat)
         delta = torch.sub(exp_M, M_hat_exp, out=M_hat)
         tempered_multiplier = torch.pow(
@@ -149,22 +113,21 @@ def calc_M_swivel(cooc_stats):
     ])
 
 
-def get_f_swivel(cooc_stats):
+def get_f_swivel(cooc_stats, M, implementation='torch', device='cuda'):
 
-    Nxx = cooc_stats.Nxx.toarray()
-    N_xx_sqrt = np.sqrt(Nxx)
-    selector = Nxx==0
+    N_xx_sqrt = np.sqrt(cooc_stats.denseNxx)
+    selector = cooc_stats.denseNxx==0
     exp_delta = np.zeros(cooc_stats.Nxx.shape)
     exp_delta_p1 = np.zeros(cooc_stats.Nxx.shape)
     temp_result_1 = np.zeros(cooc_stats.Nxx.shape)
     temp_result_2 = np.zeros(cooc_stats.Nxx.shape)
 
-    def f_swivel(M, M_hat, delta):
+    def f_swivel(M_hat):
 
         # Calculate cases where N_xx > 0
         np.subtract(M, M_hat, temp_result_1)
 
-        np.multiply(temp_result_1, N_xx_sqrt, delta)
+        delta = np.multiply(temp_result_1, N_xx_sqrt)
 
         # Calculate cases where N_xx == 0
         np.power(np.e, temp_result_1, exp_delta)
@@ -178,6 +141,22 @@ def get_f_swivel(cooc_stats):
 
     return f_swivel
 
+
+def calc_N_neg_xx(N_x, k):
+    N = float(np.sum(N_x))
+    return k * N_x * N_x.T / N
+
+
+def sigmoid(M):
+    return 1 / (1 + np.e**(-M))
+
+
+def ensure_implementation_valid(implementation):
+    if implementation != 'torch' and implementation != 'numpy':
+        raise ValueError(
+            "implementation must be 'torch' or 'numpy'.  Got %s."
+            % repr(implementation)
+        )
 
 
 

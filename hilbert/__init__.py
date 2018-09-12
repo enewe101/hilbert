@@ -7,3 +7,4 @@ import hilbert.torch_embedder
 import hilbert.solver
 import hilbert.cooc_stats
 import hilbert.dictionary
+import hilbert.M

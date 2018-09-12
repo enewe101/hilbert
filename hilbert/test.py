@@ -62,10 +62,21 @@ class TestCorpusStats(TestCase):
     def test_calc_shifted_PMI(self):
         k = 15.0
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
+        expected_PMI_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'expected_PMI.npz')
+        expected_PMI = np.load(expected_PMI_path)['arr_0']
         expected_shifted_PMI = expected_PMI - np.log(k)
         found = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
         self.assertTrue(np.allclose(found, expected_shifted_PMI))
+
+
+    def test_PMI_star(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        expected_PMI_star_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'expected_PMI_star.npz')
+        expected_PMI_star = np.load(expected_PMI_star_path)['arr_0']
+        found_PMI_star = h.corpus_stats.calc_PMI_star(cooc_stats)
+        self.assertTrue(np.allclose(found_PMI_star, expected_PMI_star))
 
 
     def test_get_stats(self):
@@ -81,18 +92,6 @@ class TestCorpusStats(TestCase):
 
 
 class TestFDeltas(TestCase):
-
-
-    def test_sigmoid_(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        PMI = h.corpus_stats.calc_PMI(cooc_stats)
-        expected = np.array([
-            [1/(1+np.e**(-pmi)) for pmi in row]
-            for row in PMI
-        ])
-        result = np.zeros(PMI.shape)
-        h.f_delta.sigmoid_(PMI, result)
-        self.assertTrue(np.allclose(expected, result))
 
 
     def test_sigmoid(self):
@@ -129,92 +128,165 @@ class TestFDeltas(TestCase):
         k = 15
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
-        M_hat = M + 1
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
+        expected_M_hat = expected_M + 1
         N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
+        expected_difference = (
+            h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
+        expected_multiplier = N_neg_xx + cooc_stats.denseNxx
+        expected = expected_multiplier * expected_difference
 
-        difference = h.f_delta.sigmoid(M) - h.f_delta.sigmoid(M_hat)
-        multiplier = N_neg_xx + cooc_stats.denseNxx
-        expected = multiplier * difference
-
-        delta = np.zeros(M.shape)
-        f_w2v = h.f_delta.get_f_w2v(cooc_stats, k)
-        found = f_w2v(M, M_hat, delta)
+        M = h.M.calc_M(
+            cooc_stats, 'PMI', shift=-np.log(k), implementation='numpy')
+        M_hat = M + 1
+        f_w2v = h.f_delta.get_f_w2v(cooc_stats, M, k, implementation='numpy')
+        found = f_w2v(M_hat)
 
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_w2v_torch(self):
-        device = 'cpu'
+
         k = 15
+        device = 'cpu'
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = torch.tensor(
-            h.corpus_stats.calc_shifted_PMI(cooc_stats, k),
-            dtype=torch.float32,
-            device=device
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
+        expected_M_hat = expected_M + 1
+        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
+        expected_difference = (
+            h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
+        expected_multiplier = N_neg_xx + cooc_stats.denseNxx
+        expected = torch.tensor(
+            expected_multiplier * expected_difference,
+            dtype=torch.float32, device=device
+        )
+
+        M = h.M.calc_M(
+            cooc_stats, 'PMI', shift=-np.log(k),
+            implementation='torch', device=device
         )
         M_hat = M + 1
-        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
-        difference = h.f_delta.sigmoid(M) - h.f_delta.sigmoid(M_hat)
-        multiplier = torch.tensor(
-            N_neg_xx + cooc_stats.denseNxx,
-            dtype=torch.float32,
-            device=device
-        )
-        expected = multiplier * difference
-
-        f_w2v_torch = h.f_delta.get_f_w2v_torch(
-            cooc_stats, M, k, device=device)
-        found = f_w2v_torch(M, M_hat)
+        f_w2v = h.f_delta.get_f_w2v(
+            cooc_stats, M, k, implementation='torch', device=device)
+        found = f_w2v(M_hat)
 
         self.assertTrue(torch.allclose(expected, found))
 
 
 
     def test_f_glove(self):
+
         cooc_stats = h.corpus_stats.get_test_stats(2)
         with np.errstate(divide='ignore'):
-            M = np.log(cooc_stats.denseNxx)
-        M_hat = M_hat = M - 1
+            expected_M = np.log(cooc_stats.denseNxx)
+            # Zero out cells containing negative infinity, which are ignored
+            # by glove.  We still need to zero them out to avoid nans.
+            expected_M[expected_M==-np.inf] = 0
+
+        expected_M_hat = expected_M + 1
+
         expected = np.array([
             [
                 2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
-                    * (M[i,j] - M_hat[i,j])
+                    * (expected_M[i,j] - expected_M_hat[i,j])
                 if cooc_stats.Nxx[i,j] > 0 else 0 
                 for j in range(cooc_stats.Nxx.shape[1])
             ]
             for i in range(cooc_stats.Nxx.shape[0])
         ])
 
-        delta = np.zeros(M.shape)
-        f_glove = h.f_delta.get_f_glove(cooc_stats)
-        found = f_glove(M, M_hat, delta)
-
+        M = h.M.calc_M(
+            cooc_stats, 'logNxx', implementation='numpy', no_neg_inf=True)
+        M_hat = M + 1
+        f_glove = h.f_delta.get_f_glove(
+            cooc_stats, M, implementation='numpy')
+        found = f_glove(M_hat)
         self.assertTrue(np.allclose(expected, found))
-        f_glove = h.f_delta.get_f_glove(cooc_stats, 10)
-        found2 = f_glove(M, M_hat, delta)
+
+        f_glove = h.f_delta.get_f_glove(
+            cooc_stats, M, 10, implementation='numpy')
+        found2 = f_glove(M_hat)
 
         expected2 = np.array([
             [
                 2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
-                    * (M[i,j] - M_hat[i,j])
+                    * (expected_M[i,j] - expected_M_hat[i,j])
                 if cooc_stats.Nxx[i,j] > 0 else 0 
                 for j in range(cooc_stats.Nxx.shape[1])
             ]
             for i in range(cooc_stats.Nxx.shape[0])
         ])
+
         self.assertTrue(np.allclose(expected2, found2))
         self.assertFalse(np.allclose(expected2, expected))
 
 
-    def test_f_mse(self):
+    def test_f_glove_torch(self):
+
+        device = 'cpu'
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(cooc_stats.denseNxx)
+        # Zero out cells containing negative infinity, which are ignored
+        # by glove.  We still need to zero them out to avoid nans.
+        expected_M[expected_M==-np.inf] = 0
+        expected_M_hat = expected_M + 1
+        expected = torch.tensor(np.array([
+            [
+                2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
+                    * (expected_M[i,j] - expected_M_hat[i,j])
+                if cooc_stats.Nxx[i,j] > 0 else 0 
+                for j in range(cooc_stats.Nxx.shape[1])
+            ]
+            for i in range(cooc_stats.Nxx.shape[0])
+        ]), dtype=torch.float32, device=device)
+
+        M = h.M.calc_M(
+            cooc_stats, 'logNxx', no_neg_inf=True, 
+            implementation='torch', device=device
+        )
+        M_hat = M_hat = M + 1
+        f_glove = h.f_delta.get_f_glove(
+            cooc_stats, M, implementation='torch', device=device)
+        found = f_glove(M_hat)
+        self.assertTrue(np.allclose(expected, found))
+
+        # Verify that x_max takes effect, by passing in a non-default value.
+        x_max_non_default = 10
+        f_glove = h.f_delta.get_f_glove(
+            cooc_stats, M, x_max_non_default,
+            implementation='torch', device=device
+        )
+        found2 = f_glove(M_hat)
+
+        expected2 = torch.tensor(np.array([
+            [
+                2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
+                    * (expected_M[i,j] - expected_M_hat[i,j])
+                if cooc_stats.Nxx[i,j] > 0 else 0 
+                for j in range(cooc_stats.Nxx.shape[1])
+            ]
+            for i in range(cooc_stats.Nxx.shape[0])
+        ]), dtype=torch.float32, device=device)
+
+        # We should find what we expected.
+        self.assertTrue(np.allclose(expected2, found2))
+        # It should be different from last time (hence x_max takes effect.)
+        self.assertFalse(np.allclose(expected2, expected))
+
+
+    def test_f_MSE(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
         M_hat = M + 1
-        expected = M - M_hat
+        with np.errstate(invalid='ignore'):
+            expected = M - M_hat
         delta = np.zeros(M.shape)
-        found = h.f_delta.f_mse(M, M_hat, delta)
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+        found = f_MSE(M_hat)
         np.testing.assert_equal(expected, found)
 
 
@@ -245,30 +317,35 @@ class TestFDeltas(TestCase):
             for i in range(M.shape[0])
         ])
         delta = np.zeros(M.shape)
-        f_swivel = h.f_delta.get_f_swivel(cooc_stats)
-        found = f_swivel(M, M_hat, delta)
+        f_swivel = h.f_delta.get_f_swivel(cooc_stats, M)
+        found = f_swivel(M_hat)
         self.assertTrue(np.allclose(found, expected))
 
 
     def test_f_MLE(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_PMI(cooc_stats)
-        M_hat = M + 1
 
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M_hat = expected_M + 1
         N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
         N_indep_max = np.max(N_indep_xx)
+        expected = N_indep_xx / N_indep_max * (
+            np.e**expected_M - np.e**expected_M_hat)
 
-        expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M_hat = M + 1
+        f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, implementation='numpy')
+        found = f_MLE(M_hat)
 
-        delta = np.zeros(M.shape)
-        f_MLE = h.f_delta.get_f_MLE(cooc_stats)
-        found = f_MLE(M, M_hat, delta)
         self.assertTrue(np.allclose(found, expected))
 
         t = 10
         expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
-            np.e**M - np.e**M_hat)
-        found = f_MLE(M, M_hat, delta, t=t)
+            np.e**expected_M - np.e**expected_M_hat)
+
+        found = f_MLE(M_hat, t=t)
+
         self.assertTrue(np.allclose(found, expected))
 
 
@@ -286,15 +363,15 @@ class TestFDeltas(TestCase):
         expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
         delta = np.zeros(M.shape)
-        f_MLE = h.f_delta.get_torch_f_MLE(cooc_stats, M, device=device)
-        found = f_MLE(M, M_hat)
+        f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, device=device)
+        found = f_MLE(M_hat)
 
         self.assertTrue(np.allclose(found, expected))
 
         t = 10
         expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
             np.e**M - np.e**M_hat)
-        found = f_MLE(M, M_hat, t=t)
+        found = f_MLE(M_hat, t=t)
         self.assertTrue(np.allclose(found, expected))
 
 
@@ -319,12 +396,14 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True,
+            implementation='numpy'
+        )
 
-        # Define an arbitrary f_delta
-        # First make a non-one-sided embedder.
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate,
+            M, f_MSE, d, learning_rate,
             constrainer=h.constrainer.glove_constrainer
         )
 
@@ -353,10 +432,12 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         W, V = embedder.W.copy(), embedder.V.copy()
         M_hat = np.dot(W,V)
@@ -375,12 +456,14 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
+
         offset_W = np.random.random(cooc_stats.Nxx.shape)
         offset_V = np.random.random(cooc_stats.Nxx.shape)
         
-        embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
 
         original_W, original_V = embedder.W.copy(), embedder.V.copy()
         W, V =  original_W + offset_W,  original_V + offset_V
@@ -404,10 +487,12 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
         
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
 
         original_V = embedder.V.copy()
         V =  original_V
@@ -429,11 +514,13 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
         offset_V = np.random.random(cooc_stats.Nxx.shape)
-        
+
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
 
         original_V = embedder.V.copy()
         V =  original_V + offset_V
@@ -456,21 +543,25 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
         pass_args = {'a':True, 'b':False}
 
-        def mock_f_delta(M_, M_hat_, delta_, **kwargs):
-            self.assertTrue(M_ is M)
-            self.assertEqual(kwargs, {'a':True, 'b':False})
-            return np.subtract(M_, M_hat_, delta_)
+        def get_mock_f_delta(cooc_stats, M_):
+            def mock_f_delta(M_hat_, **kwargs):
+                self.assertTrue(M_ is M)
+                self.assertEqual(kwargs, {'a':True, 'b':False})
+                return M_ - M_hat_
+            return mock_f_delta
 
+        f_delta = get_mock_f_delta(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
-            M, d, mock_f_delta, learning_rate, pass_args=pass_args)
+            M, f_delta, d, learning_rate, pass_args=pass_args)
 
         self.assertEqual(embedder.learning_rate, learning_rate)
         self.assertEqual(embedder.d, d)
         self.assertTrue(embedder.M is M)
-        self.assertEqual(embedder.f_delta, mock_f_delta)
+        self.assertEqual(embedder.f_delta, f_delta)
 
         old_W, old_V = embedder.W.copy(), embedder.V.copy()
 
@@ -493,17 +584,20 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
         # Define an arbitrary f_delta
         delta_amount = 0.1
         delta_always = np.zeros(M.shape) + delta_amount
-        def f_delta(M, M_hat, delta):
-            delta[:,:] = delta_amount
-            return delta
+        def get_f_delta(cooc_stats, M, implementation):
+            def f_delta(M_hat):
+                return np.ones(M_hat.shape) * delta_amount
+            return f_delta
 
+        f_delta = get_f_delta(cooc_stats, M, implementation='numpy')
         # First make a non-one-sided embedder.
-        embedder = h.embedder.HilbertEmbedder(M, d, f_delta, learning_rate)
+        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
 
         old_V = embedder.V.copy()
         old_W = embedder.W.copy()
@@ -528,11 +622,13 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         # First make a non-one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate
+            M, f_MSE, d, learning_rate
         )
 
         # The covectors and vectors are not the same.
@@ -540,7 +636,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Now make a one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate, one_sided=True
+            M, f_MSE, d, learning_rate, one_sided=True
         )
 
         # The covectors and vectors are the same.
@@ -568,17 +664,19 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         mse_embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
         mse_embedder.cycle(100000, print_badness=False)
 
         self.assertEqual(mse_embedder.V.shape, (M.shape[1],d))
         self.assertEqual(mse_embedder.W.shape, (d,M.shape[0]))
 
         delta = np.zeros(M.shape, dtype='float64')
-        residual = h.f_delta.f_mse(M, mse_embedder.M_hat, delta)
+        residual = f_MSE(mse_embedder.M_hat)
 
         self.assertTrue(np.allclose(residual, delta))
         
@@ -588,10 +686,12 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         old_W, old_V = embedder.W.copy(), embedder.V.copy()
 
@@ -608,10 +708,12 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate,
+            M, f_MSE, d, learning_rate,
             constrainer=h.constrainer.glove_constrainer
         )
 
@@ -636,10 +738,12 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, implementation='numpy')
 
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Show that we can update covector embeddings for a non-one-sided model
         delta_W = np.ones(M.shape)
@@ -647,7 +751,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Now show that a one-sided embedder rejects updates to covectors
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
         delta_W = np.ones(M.shape)
         with self.assertRaises(ValueError):
             embedder.update(delta_W=delta_W)
@@ -659,27 +763,32 @@ class TestTorchHilbertEmbedder(TestCase):
 
     def test_one_sided(self):
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True,
+            implementation='torch', device=device
+        )
 
         # First make a non-one-sided embedder.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate
-        )
+            M, f_MSE, d, learning_rate)
 
         # Ensure that the relevant variables are tensors
         self.assertTrue(isinstance(embedder.V, torch.Tensor))
         self.assertTrue(isinstance(embedder.W, torch.Tensor))
         self.assertTrue(isinstance(embedder.M, torch.Tensor))
 
-
         # The covectors and vectors are not the same.
         self.assertFalse(torch.allclose(embedder.W, embedder.V.t()))
 
         # Now make a one-sided embedder.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate, one_sided=True
+            M, f_MSE, d, learning_rate, one_sided=True
         )
 
         # Ensure that the relevant variables are tensors
@@ -698,7 +807,9 @@ class TestTorchHilbertEmbedder(TestCase):
         # Check that the update was performed.
         M_hat = torch.mm(old_V.t(), old_V)
         M = torch.tensor(M, dtype=torch.float32)
-        delta = h.f_delta.torch_f_mse(M, M_hat)
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
+        delta = f_MSE(M_hat)
         nabla_V = torch.mm(old_V, delta)
         new_V = old_V + learning_rate * nabla_V
         self.assertTrue(torch.allclose(embedder.V, new_V))
@@ -719,14 +830,19 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for the test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
-        # Make the embedder, whose method we are testing
         # Make the embedder, whose method we are testing.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Take the random starting embeddings.  We will compute the gradient
         # manually here to see if it matches what the embedder's method
@@ -737,7 +853,6 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertFalse(torch.allclose(W.t(), V))
 
         # Calculate the expected gradient.
-        M = torch.tensor(M, dtype=torch.float32)
         M_hat = torch.mm(W,V)
         delta = M - M_hat
         expected_nabla_W = torch.mm(delta, V.t())
@@ -755,22 +870,28 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for the test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
+
         offset_W = torch.rand(cooc_stats.Nxx.shape)
         offset_V = torch.rand(cooc_stats.Nxx.shape)
 
         # Create an embedder, whose get_gradient method we are testing.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Manually calculate the gradients we expect, applying offsets to the
         # current embeddings first.
         original_W, original_V = embedder.W.clone(), embedder.V.clone()
         W, V =  original_W + offset_W,  original_V + offset_V
         M_hat = torch.mm(W,V)
-        M = torch.tensor(M, dtype=torch.float32)
         delta = M - M_hat
         expected_nabla_W = torch.mm(delta, V.t())
         expected_nabla_V = torch.mm(W.t(), delta)
@@ -791,19 +912,25 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for the test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
 
         # Calculate the gradient manually here.
         original_V = embedder.V.clone()
         V = original_V
         M_hat = torch.mm(V.t(),V)
-        M = torch.tensor(M, dtype=torch.float32)
+        #M = torch.tensor(M, dtype=torch.float32)
         delta = M - M_hat
         expected_nabla_V = torch.mm(V, delta)
 
@@ -822,20 +949,26 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up test conditions.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
         offset_V = torch.rand(cooc_stats.Nxx.shape)
 
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
 
         # Manually calculate expected gradients
         original_V = embedder.V.clone()
         V =  original_V + offset_V
         M_hat = torch.mm(V.t(),V)
-        M = torch.tensor(M, dtype=torch.float32)
+        #M = torch.tensor(M, dtype=torch.float32)
         delta = M - M_hat
         expected_nabla_V = torch.mm(V, delta)
 
@@ -855,21 +988,31 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
         pass_args = {'a':True, 'b':False}
 
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
+
         # Make mock f_delta whose integration with an embedder is being tested.
-        def mock_torch_f_delta(M_, M_hat_, **kwargs):
-            self.assertTrue(torch.allclose(
-                M_, torch.tensor(M, dtype=torch.float32)))
-            self.assertEqual(kwargs, {'a':True, 'b':False})
-            return M_ - M_hat_
+        def get_mock_f_delta(cooc_stats, M_, implementation, device):
+            def mock_f_delta(M_hat_, **kwargs):
+                self.assertTrue(torch.allclose(
+                    M_, torch.tensor(M, dtype=torch.float32)))
+                self.assertEqual(kwargs, {'a':True, 'b':False})
+                return M_ - M_hat_
+            return mock_f_delta
+
+        f_delta = get_mock_f_delta(
+            cooc_stats, M, implementation='torch', device=device)
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, mock_torch_f_delta, learning_rate, pass_args=pass_args)
+            M, f_delta, d, learning_rate, pass_args=pass_args)
 
         # Verify that all settings passed into the ebedder were registered,
         # and that the M matrix has been converted to a torch.Tensor.
@@ -877,7 +1020,7 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertEqual(embedder.d, d)
         self.assertTrue(torch.allclose(
             embedder.M, torch.tensor(M, dtype=torch.float32)))
-        self.assertEqual(embedder.f_delta, mock_torch_f_delta)
+        self.assertEqual(embedder.f_delta, f_delta)
 
         # Clone current embeddings so we can manually calculate the expected
         # effect of one update cycle.
@@ -887,7 +1030,7 @@ class TestTorchHilbertEmbedder(TestCase):
         embedder.cycle(pass_args=pass_args, print_badness=False)
 
         # Calculate teh expected changes due to the update.
-        M = torch.tensor(M, dtype=torch.float32)
+        #M = torch.tensor(M, dtype=torch.float32)
         M_hat = torch.mm(old_W, old_V)
         delta = M - M_hat
         new_V = old_V + learning_rate * torch.mm(old_W.t(), delta)
@@ -906,19 +1049,28 @@ class TestTorchHilbertEmbedder(TestCase):
     def test_arbitrary_f_delta(self):
         # Set up conditions for test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
         delta_amount = 0.1
+
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
         # Test integration between an embedder and the following f_delta:
         delta_always = torch.zeros(M.shape) + delta_amount
-        def f_delta(M, M_hat):
-            return delta_always
+        def get_f_delta(cooc_stats, M, implementation, device):
+            def f_delta(M_hat):
+                return delta_always
+            return f_delta
 
         # Make the embedder whose integration with f_delta we are testing.
+        f_delta = get_f_delta(
+            cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, f_delta, learning_rate)
+            M, f_delta, d, learning_rate)
 
         # Clone current embeddings to manually calculate expected update.
         old_V = embedder.V.clone()
@@ -943,13 +1095,20 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
 
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
+
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make the embedder whose update method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Generate some random update to be applied
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
@@ -969,14 +1128,20 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up test conditions.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate,
+            M, f_MSE, d, learning_rate,
             constrainer=h.constrainer.glove_constrainer
         )
 
@@ -1009,13 +1174,19 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up conditions for test.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make a NON-one-sided embedder, whose `update` method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Show that we can update covector embeddings for a non-one-sided model
         delta_W = torch.ones(M.shape)
@@ -1023,7 +1194,7 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Now make a ONE-SIDED embedder, which should reject covector updates.
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True)
         delta_W = torch.ones(M.shape)
         with self.assertRaises(ValueError):
             embedder.update(delta_W=delta_W)
@@ -1033,13 +1204,19 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Set up test conditions.
         d = 11
+        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make an embedder, to test its integration with constrainer.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate,
+            M, f_MSE, d, learning_rate,
             constrainer=h.constrainer.glove_constrainer
         )
 
@@ -1052,7 +1229,6 @@ class TestTorchHilbertEmbedder(TestCase):
         embedder.cycle(print_badness=False)
 
         # Calculate the expected update, with constraints applied.
-        M = torch.tensor(M, dtype=torch.float32)
         M_hat = torch.mm(old_W, old_V)
         delta = M - M_hat
         new_V = old_V + learning_rate * torch.mm(old_W.t(), delta)
@@ -1078,14 +1254,20 @@ class TestTorchHilbertEmbedder(TestCase):
     def test_mse_embedder(self):
         # Set up conditions for test.
         d = 11
+        device = 'cpu'
+        tolerance = 0.0001
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
-        tolerance = 0.0001
+        M = h.M.calc_M(
+            cooc_stats, base='PMI', positive=True, 
+            implementation='torch', device=device
+        )
 
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device=device)
         # Make the embedder, whose convergence we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, d, h.f_delta.torch_f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
 
         # Run the embdder for one hundred thousand update cycles.
         embedder.cycle(100000, print_badness=False)
@@ -1097,7 +1279,7 @@ class TestTorchHilbertEmbedder(TestCase):
         # Check that we have essentially reached convergence, based on the 
         # fact that the delta value for the embedder is near zero.
         M_hat = torch.mm(embedder.W, embedder.V)
-        delta = h.f_delta.torch_f_mse(M, M_hat)
+        delta = f_MSE(M_hat)
         self.assertTrue(torch.sum(delta) < tolerance)
         
 
@@ -1378,12 +1560,13 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+            M, f_MSE, d, learning_rate)
         solver = h.solver.NesterovSolver(
             embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
@@ -1396,12 +1579,12 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
         solver = h.solver.NesterovSolverOptimized(
             embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
@@ -1414,12 +1597,12 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.corpus_stats.calc_positive_PMI(cooc_stats)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        embedder = h.embedder.HilbertEmbedder(
-            M, d, h.f_delta.f_mse, learning_rate)
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
         solver = h.solver.MomentumSolver(
             embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
