@@ -2161,7 +2161,7 @@ class TestEmbeddings(TestCase):
             device='cpu'
         )
         self.assertEqual(embeddings.V.shape, (vocab, d))
-        self.assertTrue(torch.allclose(embeddings.W, embeddings.V.t()))
+        self.assertTrue(embeddings.W is embeddings.V)
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can omit the dictionary
@@ -2218,10 +2218,10 @@ class TestEmbeddings(TestCase):
 
         embeddings = h.embeddings.Embeddings(V, W, dictionary)
 
-        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[:,1000]))
+        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[1000]))
         self.assertTrue(np.allclose(
             embeddings.get_vec('apple'),
-            V[:,dictionary.tokens.index('apple')]
+            V[dictionary.tokens.index('apple')]
         ))
 
         self.assertTrue(np.allclose(embeddings.get_covec(1000), W[1000]))
@@ -2230,10 +2230,10 @@ class TestEmbeddings(TestCase):
             W[dictionary.tokens.index('apple')]
         ))
 
-        self.assertTrue(np.allclose(embeddings[1000], V[:,1000]))
+        self.assertTrue(np.allclose(embeddings[1000], V[1000]))
         self.assertTrue(np.allclose(
             embeddings['apple'],
-            V[:,dictionary.tokens.index('apple')]
+            V[dictionary.tokens.index('apple')]
         ))
 
         with self.assertRaises(KeyError):
@@ -2254,16 +2254,16 @@ class TestEmbeddings(TestCase):
         self.assertTrue(embeddings.W is None)
         self.assertTrue(embeddings.dictionary is dictionary)
 
-        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[:,1000]))
+        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[1000]))
         self.assertTrue(np.allclose(
             embeddings.get_vec('apple'),
-            V[:,dictionary.tokens.index('apple')]
+            V[dictionary.tokens.index('apple')]
         ))
 
-        self.assertTrue(np.allclose(embeddings[1000], V[:,1000]))
+        self.assertTrue(np.allclose(embeddings[1000], V[1000]))
         self.assertTrue(np.allclose(
             embeddings['apple'],
-            V[:,dictionary.tokens.index('apple')]
+            V[dictionary.tokens.index('apple')]
         ))
 
         with self.assertRaises(ValueError):
@@ -2347,6 +2347,7 @@ class TestEmbeddings(TestCase):
 
 
     def test_embeddings_recognize_loading_normalized(self):
+
         in_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
         embeddings = h.embeddings.Embeddings.load(
@@ -2356,6 +2357,7 @@ class TestEmbeddings(TestCase):
 
 
     def test_normalize_embeddings(self):
+
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
@@ -2369,7 +2371,7 @@ class TestEmbeddings(TestCase):
         self.assertFalse(embeddings.normed)
         self.assertFalse(embeddings.check_normalized())
         self.assertFalse(
-            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+            np.allclose(h.utils.norm(embeddings.V, axis=1), 1.0))
         self.assertFalse(
             np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
 
@@ -2378,7 +2380,7 @@ class TestEmbeddings(TestCase):
         self.assertTrue(embeddings.normed)
         self.assertTrue(embeddings.check_normalized())
         self.assertTrue(
-            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+            np.allclose(h.utils.norm(embeddings.V, axis=1), 1.0))
         self.assertTrue(
             np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
 
@@ -2397,7 +2399,7 @@ class TestEmbeddings(TestCase):
         self.assertFalse(embeddings.normed)
         self.assertFalse(embeddings.check_normalized())
         self.assertFalse(
-            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+            np.allclose(h.utils.norm(embeddings.V, axis=1), 1.0))
         self.assertFalse(
             np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
 
@@ -2406,12 +2408,11 @@ class TestEmbeddings(TestCase):
         self.assertTrue(embeddings.normed)
         self.assertTrue(embeddings.check_normalized())
         self.assertTrue(
-            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+            np.allclose(h.utils.norm(embeddings.V, axis=1), 1.0))
         self.assertTrue(
             np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
 
-        self.assertTrue(
-            np.allclose(h.utils.transpose(embeddings.V), embeddings.W))
+        self.assertTrue(np.allclose(embeddings.V, embeddings.W))
 
 
     def test_greatest_product(self):
@@ -2445,7 +2446,6 @@ class TestEmbeddings(TestCase):
             found_ranked_tokens[-10:], expected_ranked_tokens[-10:])
 
         # If we provide an id as a query, the matches are returned as ids.
-        print(dictionary.get_id('dog'))
         found_ranked_ids = embeddings.greatest_product(
             dictionary.get_id('dog'))
         self.assertEqual(
@@ -2481,7 +2481,7 @@ class TestEmbeddings(TestCase):
         # the greatest dot product.
         query = embeddings['dog']
         normed = h.utils.normalize(embeddings.V, axis=0)
-        products = h.utils.transpose(normed) @ query
+        products = normed @ query
 
         ranks = sorted(
             [(p, idx) for idx, p in enumerate(products)], reverse=True)
@@ -2529,7 +2529,7 @@ class TestEmbeddings(TestCase):
         embeddings = h.embeddings.Embeddings(
             V, dictionary, shared=True, implementation='torch',device='cpu')
 
-        self.assertTrue(torch.allclose(embeddings[0:300:1,0:5000:1], V))
+        self.assertTrue(torch.allclose(embeddings[0:5000:1,0:300:1], V))
 
         #  (You cannot use negative step size in torch tensors.)
 
@@ -2541,11 +2541,11 @@ class TestEmbeddings(TestCase):
             V, dictionary, shared=True, implementation='numpy')
 
         self.assertTrue(
-            np.allclose(embeddings[0:300:1,0:5000:1], V))
+            np.allclose(embeddings[0:5000:1,0:300:1], V))
 
         #  You can use negative step size for numpy arrays!
         self.assertTrue(np.allclose(
-            embeddings[50:100:-2,500:1000:-10], V[50:100:-2,500:1000:-10])
+            embeddings[500:1000:-2,50:100:-10], V[500:1000:-2,50:100:-10])
         )
 
 
@@ -2565,34 +2565,25 @@ class TestUtils(TestCase):
 
         V_numpy = np.random.random((vocab, d))
 
-        norm = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
-        expected = V_numpy / norm
-        found = h.utils.normalize(V_numpy, ord=2, axis=0)
-        self.assertTrue(np.allclose(found, expected))
-        self.assertTrue(V_numpy.shape, found.shape)
-        self.assertTrue(np.allclose(
-            np.linalg.norm(found, ord=2, axis=0), np.ones(vocab)))
-
-        V_numpy = np.random.random((vocab, d))
-
         norm = np.linalg.norm(V_numpy, ord=2, axis=1, keepdims=True)
         expected = V_numpy / norm
         found = h.utils.normalize(V_numpy, ord=2, axis=1)
         self.assertTrue(np.allclose(found, expected))
         self.assertTrue(V_numpy.shape, found.shape)
         self.assertTrue(np.allclose(
-            np.linalg.norm(found, ord=2, axis=1), np.ones(d)))
+            np.linalg.norm(found, ord=2, axis=1), np.ones(vocab)))
+
+        V_numpy = np.random.random((vocab, d))
+
+        norm = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
+        expected = V_numpy / norm
+        found = h.utils.normalize(V_numpy, ord=2, axis=0)
+        self.assertTrue(np.allclose(found, expected))
+        self.assertTrue(V_numpy.shape, found.shape)
+        self.assertTrue(np.allclose(
+            np.linalg.norm(found, ord=2, axis=0), np.ones(d)))
 
         V_torch = torch.rand((vocab, d))
-
-        norm = torch.norm(V_torch, p=2, dim=0, keepdim=True)
-        expected = V_torch / norm
-        found = h.utils.normalize(V_torch, ord=2, axis=0)
-        self.assertTrue(torch.allclose(found, expected))
-        self.assertTrue(V_torch.shape, found.shape)
-        self.assertTrue(torch.allclose(
-            torch.norm(found, p=2, dim=0), torch.ones(vocab)))
-
 
         norm = torch.norm(V_torch, p=2, dim=1, keepdim=True)
         expected = V_torch / norm
@@ -2600,7 +2591,16 @@ class TestUtils(TestCase):
         self.assertTrue(torch.allclose(found, expected))
         self.assertTrue(V_torch.shape, found.shape)
         self.assertTrue(torch.allclose(
-            torch.norm(found, p=2, dim=1), torch.ones(d)))
+            torch.norm(found, p=2, dim=1), torch.ones(vocab)))
+
+
+        norm = torch.norm(V_torch, p=2, dim=0, keepdim=True)
+        expected = V_torch / norm
+        found = h.utils.normalize(V_torch, ord=2, axis=0)
+        self.assertTrue(torch.allclose(found, expected))
+        self.assertTrue(V_torch.shape, found.shape)
+        self.assertTrue(torch.allclose(
+            torch.norm(found, p=2, dim=0), torch.ones(d)))
 
 
 

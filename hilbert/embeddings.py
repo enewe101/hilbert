@@ -64,7 +64,7 @@ class Embeddings:
         )
 
         if shared:
-            self.W = h.utils.transpose(self.V)
+            self.W = self.V
         else:
             self.W = (
                 None if W is None else np.array(W, dtype=np.float32)
@@ -82,7 +82,7 @@ class Embeddings:
         Checks if vectors and covectors all have unit norm.  
         Sets ``self.normed``
         """
-        V_normed = np.allclose(h.utils.norm(self.V, axis=0), 1.0)
+        V_normed = np.allclose(h.utils.norm(self.V, axis=1), 1.0)
         if self.shared or self.W is None:
             self.normed = V_normed
             return V_normed
@@ -105,9 +105,9 @@ class Embeddings:
         """
         Normalize the vectors.
         """
-        self.V = h.utils.normalize(self.V, axis=0)
+        self.V = h.utils.normalize(self.V, axis=1)
         if self.shared:
-            self.W = h.utils.transpose(self.V)
+            self.W = self.V
         else:
             self.W = h.utils.normalize(self.W, axis=1)
         self.normed = True
@@ -160,7 +160,7 @@ class Embeddings:
 
         query_vec = self[key]
         query_id = self._as_id(key)
-        inner_products = h.utils.transpose(normed_embeddings) @ query_vec
+        inner_products = normed_embeddings @ query_vec
         top_indices = np.argsort(-inner_products)
         if isinstance(key, str):
             return [
@@ -243,8 +243,6 @@ class Embeddings:
         dictionary to be albe to access embeddings by name.
         """
         slice_obj = self._as_slice(key)
-        print(slice_obj)
-        print(self.V.shape)
         return self.V[slice_obj]
 
 
@@ -287,3 +285,6 @@ class Embeddings:
             W = np.load(W_path)
 
         return Embeddings(V, W, dictionary, shared, implementation, device)
+
+
+
