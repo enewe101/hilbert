@@ -71,9 +71,11 @@ raw torch tensors or numpy arrays.
 
 .. py:module:: hilbert
 
-.. autoclass:: hilbert.embeddings.Embeddings
+.. autoclass:: embeddings.Embeddings
     :member-order: bysource
     :members:
+
+        .. automethod:: save
 
 
 .. py:class:: hilbert.embeddings.Embeddings
