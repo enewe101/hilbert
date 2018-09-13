@@ -31,6 +31,7 @@ Embeddings often come from one of these places:
     ...    my_embedder.cycle()    
     >>> my_embeddings = my_embedder.get_embeddings()
 
+
     (after which you would normally save them by doing
     ``my_embeddings.save('path-to-my-embeddings'.``)
 
