@@ -53,6 +53,9 @@ class Embeddings:
 
 
     def check_normalized(self):
+        """
+        This is a docstring.
+        """
         V_normed = np.allclose(h.utils.norm(self.V, axis=0), 1.0)
         if self.shared or self.W is None:
             return V_normed
