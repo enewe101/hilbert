@@ -2150,39 +2150,39 @@ class TestEmbeddings(TestCase):
 
         # Can make random embeddings and provide a dictionary to use.
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared, implementation='torch', device='cpu')
-        self.assertEqual(embeddings.V.shape, (d, vocab))
+            vocab, d, dictionary, shared, implementation='torch', device='cpu')
+        self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertEqual(embeddings.W.shape, (vocab, d))
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can have random embeddings with shared parameters.
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared=True, implementation='torch', 
+            vocab, d, dictionary, shared=True, implementation='torch', 
             device='cpu'
         )
-        self.assertEqual(embeddings.V.shape, (d, vocab))
+        self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertTrue(torch.allclose(embeddings.W, embeddings.V.t()))
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can omit the dictionary
         embeddings = h.embeddings.random(
-            d, vocab, dictionary=None, shared=False, implementation='torch',
+            vocab, d, dictionary=None, shared=False, implementation='torch',
             device='cpu'
         )
-        self.assertEqual(embeddings.V.shape, (d, vocab))
+        self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertEqual(embeddings.W.shape, (vocab, d))
         self.assertTrue(embeddings.dictionary is None)
 
         # Can use either numpy or torch
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared=False, implementation='torch', 
+            vocab, d, dictionary, shared=False, implementation='torch', 
             device='cpu'
         )
         self.assertTrue(isinstance(embeddings.V, torch.Tensor))
         self.assertTrue(isinstance(embeddings.W, torch.Tensor))
 
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared=False, implementation='numpy')
+            vocab, d, dictionary, shared=False, implementation='numpy')
         self.assertTrue(isinstance(embeddings.V, np.ndarray))
         self.assertTrue(isinstance(embeddings.W, np.ndarray))
 
@@ -2193,7 +2193,7 @@ class TestEmbeddings(TestCase):
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = np.random.random((d, vocab))
+        V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
 
         embeddings = h.embeddings.Embeddings(
@@ -2213,7 +2213,7 @@ class TestEmbeddings(TestCase):
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = np.random.random((d, vocab))
+        V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
 
         embeddings = h.embeddings.Embeddings(V, W, dictionary)
@@ -2281,7 +2281,7 @@ class TestEmbeddings(TestCase):
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = np.random.random((d, vocab))
+        V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
         out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-embeddings')
         device='cpu'
@@ -2359,7 +2359,7 @@ class TestEmbeddings(TestCase):
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = np.random.random((d, vocab))
+        V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
         device='cpu'
 
@@ -2387,7 +2387,7 @@ class TestEmbeddings(TestCase):
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = np.random.random((d, vocab))
+        V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
         device='cpu'
 
@@ -2422,14 +2422,14 @@ class TestEmbeddings(TestCase):
         # Some products are tied, and their sorting isn't stable.  But, when
         # we set fix the seed, the top and bottom ten are stably ranked.
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared=False, implementation='torch', 
+            vocab, d, dictionary, shared=False, implementation='torch', 
             device='cpu', seed=0
         )
 
         # Given a query vector, verify that we can find the other vector having
         # the greatest dot product.
         query = embeddings['dog']
-        products = h.utils.transpose(embeddings.V) @ query
+        products = embeddings.V @ query
         ranks = sorted(
             [(p, idx) for idx, p in enumerate(products)], reverse=True)
         expected_ranked_tokens = [
@@ -2445,6 +2445,7 @@ class TestEmbeddings(TestCase):
             found_ranked_tokens[-10:], expected_ranked_tokens[-10:])
 
         # If we provide an id as a query, the matches are returned as ids.
+        print(dictionary.get_id('dog'))
         found_ranked_ids = embeddings.greatest_product(
             dictionary.get_id('dog'))
         self.assertEqual(
@@ -2472,7 +2473,7 @@ class TestEmbeddings(TestCase):
         # Some products are tied, and their sorting isn't stable.  But, when
         # we set fix the seed, the top and bottom ten are stably ranked.
         embeddings = h.embeddings.random(
-            d, vocab, dictionary, shared=False, implementation='torch', 
+            vocab, d, dictionary, shared=False, implementation='torch', 
             device='cpu', seed=0
         )
 
@@ -2516,6 +2517,44 @@ class TestEmbeddings(TestCase):
         self.assertEqual(found_best_match, expected_ranked_ids[0])
 
 
+    def test_slicing(self):
+
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = torch.rand((vocab, d))
+        W = torch.rand((vocab, d))
+        device='cpu'
+
+        embeddings = h.embeddings.Embeddings(
+            V, dictionary, shared=True, implementation='torch',device='cpu')
+
+        self.assertTrue(torch.allclose(embeddings[0:300:1,0:5000:1], V))
+
+        #  (You cannot use negative step size in torch tensors.)
+
+        V = np.random.random((vocab, d))
+        W = np.random.random((vocab, d))
+        device='cpu'
+
+        embeddings = h.embeddings.Embeddings(
+            V, dictionary, shared=True, implementation='numpy')
+
+        self.assertTrue(
+            np.allclose(embeddings[0:300:1,0:5000:1], V))
+
+        #  You can use negative step size for numpy arrays!
+        self.assertTrue(np.allclose(
+            embeddings[50:100:-2,500:1000:-10], V[50:100:-2,500:1000:-10])
+        )
+
+
+
+
+
+
+
+
 
 class TestUtils(TestCase):
 
@@ -2524,7 +2563,7 @@ class TestUtils(TestCase):
         d = 300
         vocab = 5000
 
-        V_numpy = np.random.random((d, vocab))
+        V_numpy = np.random.random((vocab, d))
 
         norm = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
         expected = V_numpy / norm
@@ -2534,7 +2573,7 @@ class TestUtils(TestCase):
         self.assertTrue(np.allclose(
             np.linalg.norm(found, ord=2, axis=0), np.ones(vocab)))
 
-        V_numpy = np.random.random((d, vocab))
+        V_numpy = np.random.random((vocab, d))
 
         norm = np.linalg.norm(V_numpy, ord=2, axis=1, keepdims=True)
         expected = V_numpy / norm
@@ -2544,7 +2583,7 @@ class TestUtils(TestCase):
         self.assertTrue(np.allclose(
             np.linalg.norm(found, ord=2, axis=1), np.ones(d)))
 
-        V_torch = torch.rand((d, vocab))
+        V_torch = torch.rand((vocab, d))
 
         norm = torch.norm(V_torch, p=2, dim=0, keepdim=True)
         expected = V_torch / norm
@@ -2570,7 +2609,7 @@ class TestUtils(TestCase):
         d = 300
         vocab = 5000
 
-        V_numpy = np.random.random((d, vocab))
+        V_numpy = np.random.random((vocab, d))
 
         expected = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
         found = h.utils.norm(V_numpy, ord=2, axis=0, keepdims=True)
@@ -2580,7 +2619,7 @@ class TestUtils(TestCase):
         found = h.utils.norm(V_numpy, ord=3, axis=1, keepdims=False)
         self.assertTrue(np.allclose(found, expected))
 
-        V_torch = torch.rand((d, vocab))
+        V_torch = torch.rand((vocab, d))
 
         expected = torch.norm(V_torch, p=2, dim=0, keepdim=True)
         found = h.utils.norm(V_torch, ord=2, axis=0, keepdims=True)
