@@ -24,12 +24,12 @@ Embeddings often come from one of these places:
 
 (2) By training them.  E.g.
 
-.. code-block:: python
+    .. code-block:: python
 
-    # suppose you have a hilbert.embedder.HilbertEmbedder
-    >>> while not my_embedder.converged:
-    ...    my_embedder.cycle()    
-    >>> my_embeddings = my_embedder.get_embeddings()
+        # suppose you have a hilbert.embedder.HilbertEmbedder
+        >>> while not my_embedder.converged:
+        ...    my_embedder.cycle()    
+        >>> my_embeddings = my_embedder.get_embeddings()
 
 
     (after which you would normally save them by doing
@@ -37,22 +37,20 @@ Embeddings often come from one of these places:
 
 (2) Read previously embeddings:
 
-.. code-block:: python
+    .. code-block:: python
 
-    >>> embeddings = h.embedings.Embeddings.load('path-to-my-embeddings')
+        >>> embeddings = h.embedings.Embeddings.load('path-to-my-embeddings')
 
 (3) Or, if you happen to have raw numpy arrays or torch tensors, you can use
     those to make the embedding:
 
-.. code-block:: python
+    .. code-block:: python
 
-    >>> import torch
-    >>> dimensions, vocab = 300, 5000
-    >>> V = torch.rand(dimensions, vocab)
-    >>> W = torch.rand(vocab, dimensions)
-    >>> embeddings = h.embeddings.Embeddings(V, W)
-
-
+        >>> import torch
+        >>> dimensions, vocab = 300, 5000
+        >>> V = torch.rand(dimensions, vocab)
+        >>> W = torch.rand(vocab, dimensions)
+        >>> embeddings = h.embeddings.Embeddings(V, W)
 
     Notice the shape of the embeddings.  `V` has word vectors as its columns,
     while 'W' has its word vectors as rows.  There's a good chance I'll change
