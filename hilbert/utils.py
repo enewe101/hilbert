@@ -1,5 +1,9 @@
-import numpy as np
-import torch
+try:
+    import numpy as np
+    import torch
+except ImportError:
+    np = None
+    torch = None
 
 
 def norm(array_or_tensor, ord=2, axis=None, keepdims=False):
