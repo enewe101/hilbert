@@ -4,10 +4,10 @@
    contain the root `toctree` directive.
 
 Hilbert --- simple embedding framework for deep learning.
-========================================================
+=========================================================
 
-Embedings
-~~~~~~~~~~~~~
+Embeddings
+~~~~~~~~~~
 
 Typical usage:
 
@@ -53,7 +53,7 @@ Usually, you'll obtain embeddings in one of these ways:
 
     .. code-block:: python
 
-        >>> embeddings = h.embedings.Embeddings.load('path-to-my-embeddings')
+        >>> embeddings = h.embeddings.Embeddings.load('path-to-my-embeddings')
 
 (4) Or making them manually from some torch tensors or numpy arrays:
 
@@ -69,7 +69,7 @@ Usually, you'll obtain embeddings in one of these ways:
 
 
 Embeddings can use a dictionary
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you provide a dictionary, then you can access the vectors for a given word by name:
 
@@ -87,7 +87,7 @@ A 5000-word dictionary is available for testing purposees by doing
 
 
 Accessing embeddings of specific words.
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 You can always access a vector by index.
 
@@ -117,7 +117,7 @@ a dictionary.  To get covectors by name, do this:
 
 
 Reference for ``hilbert.embeddings.Embeddings``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. py:module:: hilbert
 
