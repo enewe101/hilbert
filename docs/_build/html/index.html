@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>hilbert — a simple deeplearning embedding framework for &mdash; hilbert 0.0.1 documentation</title>
+  <title>hilbert — a simple embedding framework for deep learning &mdash; hilbert 0.0.1 documentation</title>
   
 
   
@@ -78,7 +78,10 @@
             
               <!-- Local TOC -->
               <div class="local-toc"><ul>
-<li><a class="reference internal" href="#">hilbert — a simple deeplearning embedding framework for</a></li>
+<li><a class="reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">hilbert</span></code> — a simple embedding framework for deep learning</a><ul>
+<li><a class="reference internal" href="#embedings"><code class="docutils literal notranslate"><span class="pre">Embedings</span></code></a></li>
+</ul>
+</li>
 </ul>
 </div>
             
@@ -124,7 +127,7 @@
     
       <li><a href="#">Docs</a> &raquo;</li>
         
-      <li>hilbert — a simple deeplearning embedding framework for</li>
+      <li><code class="docutils literal notranslate"><span class="pre">hilbert</span></code> — a simple embedding framework for deep learning</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -143,9 +146,63 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="hilbert-a-simple-deeplearning-embedding-framework-for">
-<h1>hilbert — a simple deeplearning embedding framework for<a class="headerlink" href="#hilbert-a-simple-deeplearning-embedding-framework-for" title="Permalink to this headline">¶</a></h1>
-<p>yo</p>
+  <div class="section" id="hilbert-a-simple-embedding-framework-for-deep-learning">
+<h1><code class="docutils literal notranslate"><span class="pre">hilbert</span></code> — a simple embedding framework for deep learning<a class="headerlink" href="#hilbert-a-simple-embedding-framework-for-deep-learning" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="embedings">
+<h2><code class="docutils literal notranslate"><span class="pre">Embedings</span></code><a class="headerlink" href="#embedings" title="Permalink to this headline">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">hilbert.embedings.Embeddings</span></code> class allows you to save, load, and do
+some basic manipulations of embeddings.  At its core, the <code class="docutils literal notranslate"><span class="pre">Embeddings</span></code> class
+owns a set of (word-)vector and (context-)covector embeddings, which are
+contained in two torch tensors (<code class="docutils literal notranslate"><span class="pre">torch.Tensor(dtype=torch.float32)</span></code>), along
+with a dictionary that maps between words and vector indices.</p>
+<p>If you just want the class to get out of your way, and give you access to those
+underlying data, do this: <code class="docutils literal notranslate"><span class="pre">vectors,</span> <span class="pre">covectors,</span> <span class="pre">dictionary</span> <span class="pre">=</span> <span class="pre">embeddings</span></code>.</p>
+<p>However, the <code class="docutils literal notranslate"><span class="pre">Embeddings</span></code> class provides a couple conveniences.  To begin,
+you can get some random embeddings by doing:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">hilbert</span> <span class="kn">as</span> <span class="nn">h</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">embeddings</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">d</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">vocab</span><span class="o">=</span><span class="mi">5000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Embeddings can optionally associate a dictionary, which makes it easy to
+access the embeddings that correspond to particular words.  Here we’re loading
+a small dictionary used in testing, but normally you would use a dictionary
+built from accumulating cooccurrence statistics:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">hilbert.test</span> <span class="kn">as</span> <span class="nn">t</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">dictionary</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">get_test_dictionary</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">embeddings</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="mi">300</span><span class="p">,</span> <span class="mi">5000</span><span class="p">,</span> <span class="n">dictionary</span><span class="o">=</span><span class="n">dictionary</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span><span class="p">[</span><span class="s1">&#39;dog&#39;</span><span class="p">]</span>
+<span class="go">tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])</span>
+</pre></div>
+</div>
+<p>Normally, you would either (1) get embeddings from an embedder, (2) read
+embeddings previously stored on disk, or (3) make an instance by passing in
+raw torch tensors or numpy arrays.</p>
+<ol class="arabic simple">
+<li>Get embeddings from an embedder:</li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># suppose you have an embedder</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embedder</span>
+<span class="go">&lt;class &#39;hilbert.torch_embedder.TorchHilbertEmbedder&#39;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">embedder</span><span class="o">.</span><span class="n">get_embeddings</span><span class="p">()</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="2">
+<li>Read previously stored embeddings:</li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">embedings</span><span class="o">.</span><span class="n">Embeddings</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">&#39;my-saved-embeddings&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li>Make an instance by passing in raw torch tensors or numpy arrays</li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">dimensions</span><span class="p">,</span> <span class="n">vocab</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span> <span class="mi">5000</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">V</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">dimensions</span><span class="p">,</span> <span class="n">vocab</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">vocab</span><span class="p">,</span> <span class="n">dimensions</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">embeddings</span><span class="o">.</span><span class="n">Embeddings</span><span class="p">(</span><span class="n">V</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">embeddings</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 
 
