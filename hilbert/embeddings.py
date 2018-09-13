@@ -1,5 +1,9 @@
 import os
-import torch
+try:
+    import torch
+except ImportError:
+    pass
+
 import numpy as np
 import hilbert as h
 
