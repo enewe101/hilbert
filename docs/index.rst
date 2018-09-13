@@ -3,13 +3,67 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-``hilbert`` --- a simple embedding framework for deep learning
-==============================================================
+Hilbert --- simple embedding framework for deep learning.
+========================================================
 
 ``Embedings``
 ~~~~~~~~~~~~~
 
-The ``hilbert.embedings.Embeddings`` class allows you to save, load, and do
+Typical usage:
+.. code-block:: python
+
+    my_embeddings = hilbert.embeddings.Embeddings(U, V, dictionary)
+
+The ``Embeddings`` class let's you easily manipulate embeddings.  You can read
+or save them to disk, get the embedding for a given word, normalize them, or
+find the embedding most similar to a given one.
+
+Embeddings often come from one of these places:
+(1) Generated randomly, e.g. by calling ``hilbert.embeddings.random(d=300,
+    vocab=100000)``
+
+(2) By training them.  E.g.
+
+.. code-block:: python
+
+    # suppose you have a hilbert.embedder.HilbertEmbedder
+    >>> while not my_embedder.converged:
+    ...    my_embedder.cycle()    
+    >>> my_embeddings = my_embedder.get_embeddings()
+
+    (after which you would normally save them by doing
+    ``my_embeddings.save('path-to-my-embeddings'.``)
+
+(2) Read previously embeddings:
+
+.. code-block:: python
+
+    >>> embeddings = h.embedings.Embeddings.load('path-to-my-embeddings')
+
+(3) Or, if you happen to have raw numpy arrays or torch tensors, you can use
+    those to make the embedding:
+
+.. code-block:: python
+
+    >>> import torch
+    >>> dimensions, vocab = 300, 5000
+    >>> V = torch.rand(dimensions, vocab)
+    >>> W = torch.rand(vocab, dimensions)
+    >>> embeddings = h.embeddings.Embeddings(V, W)
+
+
+
+    Notice the shape of the embeddings.  `V` has word vectors as its columns,
+    while 'W' has its word vectors as rows.  There's a good chance I'll change
+    this so that `V` and `W` would have the same shape, but I find it less
+    appealing when written as math.
+
+    .. todo::
+
+        Make it so that the shape of `V` and `W` are the same.
+
+
+
 some basic manipulations of embeddings.  At its core, the ``Embeddings`` class
 owns a set of (word-)vector and (context-)covector embeddings, which are
 contained in two torch tensors (``torch.Tensor(dtype=torch.float32)``), along
