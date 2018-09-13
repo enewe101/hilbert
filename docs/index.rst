@@ -10,6 +10,7 @@ Hilbert --- simple embedding framework for deep learning.
 ~~~~~~~~~~~~~
 
 Typical usage:
+
 .. code-block:: python
 
     my_embeddings = hilbert.embeddings.Embeddings(U, V, dictionary)
@@ -18,11 +19,12 @@ The ``Embeddings`` class let's you easily manipulate embeddings.  You can read
 or save them to disk, get the embedding for a given word, normalize them, or
 find the embedding most similar to a given one.
 
-Embeddings often come from one of these places:
-(1) Generated randomly, e.g. by calling ``hilbert.embeddings.random(d=300,
+You can obtain embeddings in different ways, e.g. by:
+
+(1) Generating them randomly, e.g. by calling ``hilbert.embeddings.random(d=300,
     vocab=100000)``
 
-(2) By training them.  E.g.
+(2) Training them.  E.g.
 
     .. code-block:: python
 
@@ -35,14 +37,13 @@ Embeddings often come from one of these places:
     (after which you would normally save them by doing
     ``my_embeddings.save('path-to-my-embeddings'.``)
 
-(2) Read previously embeddings:
+(2) Reading saved embeddings from disk:
 
     .. code-block:: python
 
         >>> embeddings = h.embedings.Embeddings.load('path-to-my-embeddings')
 
-(3) Or, if you happen to have raw numpy arrays or torch tensors, you can use
-    those to make the embedding:
+(3) Or making them manually from some torch tensors or numpy arrays:
 
     .. code-block:: python
 
