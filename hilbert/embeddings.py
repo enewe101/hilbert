@@ -154,6 +154,19 @@ class Embeddings:
             self.dictionary.save(os.path.join(path, 'dictionary'))
 
 
+    def as_slice(self, key):
+        if isinstance(key, str):
+            if self.dictionary is None:
+                raise ValueError(
+                    "Can't access vectors by token: these embeddings carry no "
+                    "dictionary!"
+                )
+            return (slice(None), self.dictionary.get_id(key))
+        return key
+
+
+
+
     def as_id(self, id_or_token):
         if isinstance(id_or_token, str):
             if self.dictionary is None:
@@ -165,20 +178,20 @@ class Embeddings:
         return id_or_token
 
 
-    def get_vec(self, id_or_token):
-        idx = self.as_id(id_or_token)
-        return self.V[:,idx]
+    def get_vec(self, key):
+        slice_obj = self.as_slice(key)
+        return self.V[slice_obj]
 
 
-    def get_covec(self, id_or_token):
+    def get_covec(self, key):
         if self.W is None:
             raise ValueError("This one-sided embedding has no co-vectors.")
-        idx = self.as_id(id_or_token)
-        return self.W[idx]
+        slice_obj = self.as_slice(key)
+        return self.W[slice_obj]
 
 
-    def __getitem__(self, id_or_token):
-        return self.get_vec(id_or_token)
+    def __getitem__(self, key):
+        return self.get_vec(key)
 
 
     @staticmethod

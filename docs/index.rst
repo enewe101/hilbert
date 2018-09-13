@@ -19,7 +19,14 @@ The ``Embeddings`` class let's you easily manipulate embeddings.  You can read
 or save them to disk, get the embedding for a given word, normalize them, or
 find the embedding most similar to a given one.
 
-You can obtain embeddings in different ways, e.g. by:
+The ``Embeddings`` class tries to be useful, but if you just want to access the underlying tensors or dictionary, just do:
+
+.. code-block:: python
+
+    V, W, dictionary = my_embeddings
+
+
+Usually, you'll obtain embeddings in one of these ways:
 
 (1) Generating them randomly, e.g. by calling ``hilbert.embeddings.random(d=300,
     vocab=100000)``
@@ -63,27 +70,28 @@ You can obtain embeddings in different ways, e.g. by:
         Make it so that the shape of `V` and `W` are the same.
 
 
+Embeddings can use a dictionary
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-some basic manipulations of embeddings.  At its core, the ``Embeddings`` class
-owns a set of (word-)vector and (context-)covector embeddings, which are
-contained in two torch tensors (``torch.Tensor(dtype=torch.float32)``), along
-with a dictionary that maps between words and vector indices.
-
-If you just want the class to get out of your way, and give you access to those
-underlying data, do this: ``vectors, covectors, dictionary = embeddings``.
-
-However, the ``Embeddings`` class provides a couple conveniences.  To begin,
-you can get some random embeddings by doing:
+If you provide a dictionary when you make them, then you can access the
+embeddings for given word by its name:
 
 .. code-block:: python
 
-    >>> import hilbert as h
-    >>> embeddings = h.embeddings.random(d=300, vocab=5000)
+    # you can get a toy dictionary for testing like so...
+    >>> import hilbert.test
+    >>> dictionary = hilbert.test.get_test_dictionary()
+    >>> my_embeddings = hilbert.embeddings.random(300, 5000, dictionary)
+    >>> my_embeddings['dog']
+    tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
 
-Embeddings can optionally associate a dictionary, which makes it easy to 
-access the embeddings that correspond to particular words.  Here we're loading
-a small dictionary used in testing, but normally you would use a dictionary
-built from accumulating cooccurrence statistics:
+
+Accessing embeddings of specific words.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As we saw, you can access the embedding for a given word by just indexing with
+it's name.  You can also index by providing an `int`
+
 
 .. code-block:: python
 
