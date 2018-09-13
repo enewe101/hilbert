@@ -28,31 +28,31 @@ def random(
 
 
 class Embeddings:
+    """
+    Creates new embeddings.  The vector embeddings based on the 2D torch
+    tensor or numpy array ``V``.  Each row in ``V`` should correspond to
+    a vector for one word (or item).
+
+    Similarly, you can provide covectors ``W``, or leave ``W`` as None.  
+    Another option is to have ``V`` and ``W`` be identical pointers to the
+    same memory by passing ``shared=True``.  Like ``V``, each row in ``W`` 
+    should correspond to the covector for one word.
+
+    If you provide a ``hilbert.dictionary.Dictionary``, then you will
+    be able to access vectors and covectors by name.
+
+    If ``normalize`` is True, then normalize the vectors if they don't 
+    already have norm.
+
+    Specify to store ``V`` and ``W`` either as ``numpy.ndarray``s or 
+    ``torch.Tensor``s, by setting ``implementation`` to ``'torch'`` or
+    ``'numpy'`, and specify the ``device``, in the case of torch tensors.
+    """
 
     def __init__(
         self, V, W=None, dictionary=None, shared=False, 
         implementation='torch', device='cuda', normalize=False
     ):
-        """
-        Creates new embeddings.  The vector embeddings based on the 2D torch
-        tensor or numpy array ``V``.  Each row in ``V`` should correspond to
-        a vector for one word (or item).
-
-        Similarly, you can provide covectors ``W``, or leave ``W`` as None.  
-        Another option is to have ``V`` and ``W`` be identical pointers to the
-        same memory by passing ``shared=True``.  Like ``V``, each row in ``W`` 
-        should correspond to the covector for one word.
-
-        If you provide a ``hilbert.dictionary.Dictionary``, then you will
-        be able to access vectors and covectors by name.
-
-        If ``normalize`` is True, then normalize the vectors if they don't 
-        already have norm.
-
-        Specify to store ``V`` and ``W`` either as ``numpy.ndarray``s or 
-        ``torch.Tensor``s, by setting ``implementation`` to ``'torch'`` or
-        ``'numpy'`, and specify the ``device``, in the case of torch tensors.
-        """
         self.dictionary = dictionary
         self.shared = shared
         self.implementation = implementation
