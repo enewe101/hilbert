@@ -1,5 +1,8 @@
-import torch
 import hilbert as h
+try:
+    import torch
+except ImportError:
+    torch = None
 
 def sim(word, context, embedder, dictionary):
     word_id = dictionary.get_id(word)

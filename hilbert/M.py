@@ -1,6 +1,10 @@
 import hilbert as h
-import numpy as np
-import torch
+try:
+    import numpy as np
+    import torch
+except ImportError:
+    np = None
+    torch = None
 
 
 def calc_M(

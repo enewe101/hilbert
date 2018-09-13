@@ -1,12 +1,13 @@
 import os
-try:
-    import torch
-except ImportError:
-    pass
 
-import numpy as np
 import hilbert as h
 
+try:
+    import torch
+    import numpy as np
+except ImportError:
+    torch = None
+    np = None
 
 def random(
     d, vocab, dictionary=None, shared=False, implementation='torch',

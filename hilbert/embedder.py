@@ -2,7 +2,7 @@ import hilbert as h
 try:
     import numpy as np
     import torch
-except ImportError
+except ImportError:
     np = None
     torch = None
 
