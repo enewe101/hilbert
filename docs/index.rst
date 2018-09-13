@@ -6,7 +6,7 @@
 Hilbert --- simple embedding framework for deep learning.
 ========================================================
 
-``Embedings``
+Embedings
 ~~~~~~~~~~~~~
 
 Typical usage:
@@ -116,6 +116,8 @@ a dictionary.  To get covectors by name, do this:
 (or just slice into the `W` attribute.)
 
 
+Reference for ``hilbert.embeddings.Embeddings``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. py:module:: hilbert
 
