@@ -34,9 +34,9 @@ Usually, you'll obtain embeddings in one of these ways:
 
 (1) Generating them randomly:
 
-    ... code-block:: python
+    .. code-block:: python
 
-        hilbert.embeddings.random(d=300, vocab=100000)
+        hilbert.embeddings.random(vocab=100000, d=300)
 
 (2) Training them:
 
@@ -47,8 +47,7 @@ Usually, you'll obtain embeddings in one of these ways:
         ...    my_embedder.cycle()    
         >>> my_embeddings = my_embedder.get_embeddings()
 
-    (after which you would normally save them by doing
-    ``my_embeddings.save('path-to-my-embeddings'.``)
+    (And then save them:  ``my_embeddings.save('path-to-my-embeddings'.``)
 
 (3) Reading saved embeddings from disk:
 
@@ -62,25 +61,17 @@ Usually, you'll obtain embeddings in one of these ways:
 
         >>> import torch
         >>> dimensions, vocab = 300, 5000
-        >>> V = torch.rand(dimensions, vocab)
+        >>> V = torch.rand(vocab, dimensions)
         >>> W = torch.rand(vocab, dimensions)
         >>> embeddings = h.embeddings.Embeddings(V, W)
 
-    Notice the shape of the embeddings.  `V` has word vectors as its columns,
-    while 'W' has its word vectors as rows.  There's a good chance I'll change
-    this so that `V` and `W` would have the same shape, but I find it less
-    appealing when written as math.
-
-    .. todo::
-
-        Make it so that the shape of `V` and `W` are the same.
+    Notice that the vector and covector arrays should have one vector per row.
 
 
 Embeddings can use a dictionary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you provide a dictionary when you make them, then you can access the
-embeddings for given word by its name:
+If you provide a dictionary, then you can access the vectors for a given word by name:
 
 .. code-block:: python
 
@@ -98,17 +89,33 @@ A 5000-word dictionary is available for testing purposees by doing
 Accessing embeddings of specific words.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-As we saw, you can access the embedding for a given word either using
-its name or its index in the dictionary.
+You can always access the a word's vector by index.
 
 .. code-block:: python
 
-    >>> embeddings['dog']
-    tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
     >>> embeddings[3170]
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
-    >>> dictionary.get_id('dog') === 3170
-    True
+
+Any slicy stuff will be sent right through to the underlying tensors / arrays:
+
+.. code-block:: python
+    
+    >>> embeddings[1:6:2, :3]
+    tensor([[0.6240, 0.2314, 0.4231],
+            [0.7956, 0.7815, 0.4875],
+            [0.7281, 0.8238, 0.9222]])
+
+As we saw above, you can access a word's vector by name if you have provided
+a dictionary.  To get covectors by name, do this:
+
+.. code-block:: python
+    
+    >>> embeddings.get_covec('dog')
+    tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
+
+(or just slice into the `W` attribute.)
+
+
 
 .. py:module:: hilbert
 
@@ -117,6 +124,7 @@ its name or its index in the dictionary.
     :members:
 
 
+        .. automethod:: save
 
 
 
