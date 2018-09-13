@@ -75,7 +75,7 @@ If you provide a dictionary, then you can access the vectors for a given word by
 
 .. code-block:: python
 
-    # you can get a toy dictionary for testing like so...
+    >>> # you can get a toy dictionary for testing like so...
     >>> my_embeddings = hilbert.embeddings.random(300, 5000, dictionary)
     >>> my_embeddings['dog']
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
@@ -89,14 +89,14 @@ A 5000-word dictionary is available for testing purposees by doing
 Accessing embeddings of specific words.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can always access the a word's vector by index.
+You can always access a vector by index.
 
 .. code-block:: python
 
     >>> embeddings[3170]
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
 
-Any slicy stuff will be sent right through to the underlying tensors / arrays:
+Any slicey stuff will be sent right through to the underlying tensors / arrays:
 
 .. code-block:: python
     
@@ -122,11 +122,5 @@ a dictionary.  To get covectors by name, do this:
 .. autoclass:: embeddings.Embeddings
     :member-order: bysource
     :members:
-
-
-        .. automethod:: save
-
-
-
 
 
