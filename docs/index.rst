@@ -69,17 +69,17 @@ raw torch tensors or numpy arrays.
     >>> embeddings = h.embeddings.Embeddings(V, W, embeddings)
 
 
-.. py:module:: hilbert.embeddings
+.. py:module:: hilbert
 
-.. autoclass:: Embeddings
+.. autoclass:: hilbert.embeddings.Embeddings
     :member-order: bysource
     :members:
 
-        .. automethod:: yo()
 
 .. py:class:: hilbert.embeddings.Embeddings
 
         .. py:method:: yoyo()
+
 
 
 

@@ -202,12 +202,34 @@ raw torch tensors or numpy arrays.</p>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">embeddings</span><span class="o">.</span><span class="n">Embeddings</span><span class="p">(</span><span class="n">V</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">embeddings</span><span class="p">)</span>
 </pre></div>
 </div>
-<span class="target" id="module-hilbert.embeddings"></span><dl class="class">
-<dt id="hilbert.embeddings.hilbert.embeddings.Embeddings">
-<em class="property">class </em><code class="descclassname">hilbert.embeddings.</code><code class="descname">Embeddings</code><a class="headerlink" href="#hilbert.embeddings.hilbert.embeddings.Embeddings" title="Permalink to this definition">¶</a></dt>
+<span class="target" id="module-hilbert"></span><dl class="class">
+<dt id="hilbert.embeddings.Embeddings">
+<em class="property">class </em><code class="descclassname">hilbert.embeddings.</code><code class="descname">Embeddings</code><span class="sig-paren">(</span><em>V</em>, <em>W=None</em>, <em>dictionary=None</em>, <em>shared=False</em>, <em>implementation='torch'</em>, <em>device='cuda'</em>, <em>normalize=False</em><span class="sig-paren">)</span><a class="headerlink" href="#hilbert.embeddings.Embeddings" title="Permalink to this definition">¶</a></dt>
 <dd><dl class="method">
-<dt id="hilbert.embeddings.hilbert.embeddings.Embeddings.yoyo">
-<code class="descname">yoyo</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#hilbert.embeddings.hilbert.embeddings.Embeddings.yoyo" title="Permalink to this definition">¶</a></dt>
+<dt id="hilbert.embeddings.Embeddings.check_normalized">
+<code class="descname">check_normalized</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#hilbert.embeddings.Embeddings.check_normalized" title="Permalink to this definition">¶</a></dt>
+<dd><p>This is a docstring.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="hilbert.embeddings.Embeddings.save">
+<code class="descname">save</code><span class="sig-paren">(</span><em>path</em><span class="sig-paren">)</span><a class="headerlink" href="#hilbert.embeddings.Embeddings.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save the vectors, and, subject to them not being None, save the 
+covectors and dictionary, to disk, as files under a new directory 
+called path.  Saving is done using th numpy format, regardless of the
+in-memory implementation.  The particular implementation when read
+back into memory depends on options to the load method, not on the 
+files written.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="hilbert.hilbert.embeddings.Embeddings">
+<em class="property">class </em><code class="descclassname">hilbert.embeddings.</code><code class="descname">Embeddings</code><a class="headerlink" href="#hilbert.hilbert.embeddings.Embeddings" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="method">
+<dt id="hilbert.hilbert.embeddings.Embeddings.yoyo">
+<code class="descname">yoyo</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#hilbert.hilbert.embeddings.Embeddings.yoyo" title="Permalink to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </dd></dl>
