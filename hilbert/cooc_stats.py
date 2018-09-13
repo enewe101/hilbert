@@ -2,8 +2,12 @@ import os
 from copy import deepcopy
 from collections import Counter
 
-import numpy as np
-from scipy import sparse
+try:
+    import numpy as np
+    from scipy import sparse
+except ImportError:
+    np = None
+    scipy = None
 
 import hilbert as h
 

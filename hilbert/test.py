@@ -2,11 +2,17 @@ import os
 import shutil
 from unittest import main, TestCase
 from copy import copy, deepcopy
-from scipy import sparse
 from collections import Counter
-import numpy as np
 import hilbert as h
-import torch
+
+try:
+    import numpy as np
+    from scipy import sparse
+    import torch
+except ImportError:
+    np = None
+    sparse = None
+    torch = None
 
 
 class TestCorpusStats(TestCase):

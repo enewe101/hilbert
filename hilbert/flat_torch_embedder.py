@@ -1,7 +1,12 @@
 from time import time
 import hilbert as h
-import numpy as np
-import torch
+try:
+    import numpy as np
+    import torch
+except ImporError:
+    np = None
+    torch = None
+
 
 def train(
     cooc_stats,

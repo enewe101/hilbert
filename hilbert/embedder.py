@@ -1,6 +1,11 @@
 import hilbert as h
-import numpy as np
-import torch
+try:
+    import numpy as np
+    import torch
+except ImportError
+    np = None
+    torch = None
+
 
 def sim(word, context, embedder, dictionary):
     word_id = dictionary.get_id(word)

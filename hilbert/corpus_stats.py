@@ -1,5 +1,9 @@
 import hilbert as h
-import numpy as np
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)

@@ -1,6 +1,11 @@
-import numpy as np
-from scipy import sparse
-import torch
+try:
+    import numpy as np
+    from scipy import sparse
+    import torch
+except ImportError:
+    np = None
+    torch = None
+    sparse = None
 
 import hilbert as h
 

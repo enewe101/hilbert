@@ -1,4 +1,7 @@
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 
 class MomentumSolver(object):
