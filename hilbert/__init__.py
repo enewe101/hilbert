@@ -9,3 +9,4 @@ import hilbert.cooc_stats
 import hilbert.dictionary
 import hilbert.M
 import hilbert.utils
+import hilbert.embeddings

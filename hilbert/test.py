@@ -788,7 +788,7 @@ class TestTorchHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Ensure that the relevant variables are tensors
         self.assertTrue(isinstance(embedder.V, torch.Tensor))
@@ -800,7 +800,7 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Now make a one-sided embedder.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True
+            M, f_MSE, d, learning_rate, one_sided=True, device=device
         )
 
         # Ensure that the relevant variables are tensors
@@ -854,7 +854,7 @@ class TestTorchHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Take the random starting embeddings.  We will compute the gradient
         # manually here to see if it matches what the embedder's method
@@ -897,7 +897,7 @@ class TestTorchHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Manually calculate the gradients we expect, applying offsets to the
         # current embeddings first.
@@ -936,7 +936,7 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True, device=device)
 
         # Calculate the gradient manually here.
         original_V = embedder.V.clone()
@@ -974,7 +974,7 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
+            M, f_MSE, d, learning_rate, one_sided=True, device=device)
 
         # Manually calculate expected gradients
         original_V = embedder.V.clone()
@@ -1024,7 +1024,7 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate, pass_args=pass_args)
+            M, f_delta, d, learning_rate, pass_args=pass_args, device=device)
 
         # Verify that all settings passed into the ebedder were registered,
         # and that the M matrix has been converted to a torch.Tensor.
@@ -1082,7 +1082,7 @@ class TestTorchHilbertEmbedder(TestCase):
         f_delta = get_f_delta(
             cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate)
+            M, f_delta, d, learning_rate, device=device)
 
         # Clone current embeddings to manually calculate expected update.
         old_V = embedder.V.clone()
@@ -1120,7 +1120,7 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         # Make the embedder whose update method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Generate some random update to be applied
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
@@ -1154,7 +1154,8 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
             M, f_MSE, d, learning_rate,
-            constrainer=h.constrainer.glove_constrainer
+            constrainer=h.constrainer.glove_constrainer,
+            device='cpu'
         )
 
         # Clone the current embeddings, and apply a random update to them,
@@ -1198,7 +1199,7 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         # Make a NON-one-sided embedder, whose `update` method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Show that we can update covector embeddings for a non-one-sided model
         delta_W = torch.ones(M.shape)
@@ -1229,7 +1230,7 @@ class TestTorchHilbertEmbedder(TestCase):
         # Make an embedder, to test its integration with constrainer.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
             M, f_MSE, d, learning_rate,
-            constrainer=h.constrainer.glove_constrainer
+            constrainer=h.constrainer.glove_constrainer, device=device
         )
 
         # Copy the current embeddings so we can manually calculate the expected
@@ -1279,7 +1280,7 @@ class TestTorchHilbertEmbedder(TestCase):
             cooc_stats, M, implementation='torch', device=device)
         # Make the embedder, whose convergence we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device=device)
 
         # Run the embdder for one hundred thousand update cycles.
         embedder.cycle(100000, print_badness=False)
@@ -2126,6 +2127,462 @@ class TestCoocStats(TestCase):
         self.assertTrue(np.allclose(cooccurrence_sum.Nx, Nx_sum))
         self.assertTrue(cooccurrence_sum.N, cooccurrence1.N + cooccurrence2.N)
         self.assertEqual(cooccurrence_sum.counts, counts_sum)
+
+
+def get_test_dictionary():
+    return h.dictionary.Dictionary.load(
+        os.path.join(h.CONSTANTS.TEST_DIR, 'dictionary'))
+
+
+class TestEmbeddings(TestCase):
+
+    def test_random(self):
+        d = 300
+        vocab = 5000
+        shared = False
+        dictionary = get_test_dictionary()
+
+        # Can make random embeddings and provide a dictionary to use.
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared, implementation='torch', device='cpu')
+        self.assertEqual(embeddings.V.shape, (d, vocab))
+        self.assertEqual(embeddings.W.shape, (vocab, d))
+        self.assertTrue(embeddings.dictionary is dictionary)
+
+        # Can have random embeddings with shared parameters.
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared=True, implementation='torch', 
+            device='cpu'
+        )
+        self.assertEqual(embeddings.V.shape, (d, vocab))
+        self.assertTrue(torch.allclose(embeddings.W, embeddings.V.t()))
+        self.assertTrue(embeddings.dictionary is dictionary)
+
+        # Can omit the dictionary
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary=None, shared=False, implementation='torch',
+            device='cpu'
+        )
+        self.assertEqual(embeddings.V.shape, (d, vocab))
+        self.assertEqual(embeddings.W.shape, (vocab, d))
+        self.assertTrue(embeddings.dictionary is None)
+
+        # Can use either numpy or torch
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared=False, implementation='torch', 
+            device='cpu'
+        )
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
+
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared=False, implementation='numpy')
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+
+
+
+
+    def test_embedding_implementation(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = np.random.random((d, vocab))
+        W = np.random.random((vocab, d))
+
+        embeddings = h.embeddings.Embeddings(
+            V, W, dictionary, implementation="torch", device="cpu")
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
+        self.assertEqual(embeddings.W.device.type, 'cpu')
+
+        embeddings = h.embeddings.Embeddings(
+            V, W, dictionary, implementation="numpy")
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+
+
+    def test_embedding_access(self):
+
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = np.random.random((d, vocab))
+        W = np.random.random((vocab, d))
+
+        embeddings = h.embeddings.Embeddings(V, W, dictionary)
+
+        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[:,1000]))
+        self.assertTrue(np.allclose(
+            embeddings.get_vec('apple'),
+            V[:,dictionary.tokens.index('apple')]
+        ))
+
+        self.assertTrue(np.allclose(embeddings.get_covec(1000), W[1000]))
+        self.assertTrue(np.allclose(
+            embeddings.get_covec('apple'),
+            W[dictionary.tokens.index('apple')]
+        ))
+
+        self.assertTrue(np.allclose(embeddings[1000], V[:,1000]))
+        self.assertTrue(np.allclose(
+            embeddings['apple'],
+            V[:,dictionary.tokens.index('apple')]
+        ))
+
+        with self.assertRaises(KeyError):
+            embeddings.get_vec('archaeopteryx')
+
+        with self.assertRaises(KeyError):
+            embeddings.get_covec('archaeopteryx')
+            
+        with self.assertRaises(KeyError):
+            embeddings['archaeopteryx']
+
+        embeddings = h.embeddings.Embeddings(V, W, dictionary=None)
+        with self.assertRaises(ValueError):
+            embeddings['apple']
+
+        embeddings = h.embeddings.Embeddings(V, W=None, dictionary=dictionary)
+        self.assertTrue(np.allclose(embeddings.V, V))
+        self.assertTrue(embeddings.W is None)
+        self.assertTrue(embeddings.dictionary is dictionary)
+
+        self.assertTrue(np.allclose(embeddings.get_vec(1000), V[:,1000]))
+        self.assertTrue(np.allclose(
+            embeddings.get_vec('apple'),
+            V[:,dictionary.tokens.index('apple')]
+        ))
+
+        self.assertTrue(np.allclose(embeddings[1000], V[:,1000]))
+        self.assertTrue(np.allclose(
+            embeddings['apple'],
+            V[:,dictionary.tokens.index('apple')]
+        ))
+
+        with self.assertRaises(ValueError):
+            self.assertTrue(np.allclose(embeddings.get_covec(1000), W[1000]))
+
+        with self.assertRaises(ValueError):
+            self.assertTrue(np.allclose(
+                embeddings.get_covec('apple'),
+                W[dictionary.tokens.index('apple')]
+            ))
+
+
+    def test_save_load(self):
+
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = np.random.random((d, vocab))
+        W = np.random.random((vocab, d))
+        out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-embeddings')
+        device='cpu'
+
+        if os.path.exists(out_path):
+            shutil.rmtree(out_path)
+
+
+        # Create vectors using the numpy implementation, save them, then 
+        # reload them alternately using either numpy or torch implementation.
+        embeddings1 = h.embeddings.Embeddings(
+            V, W, dictionary, implementation='torch',device='cpu')
+        embeddings1.save(out_path)
+
+        embeddings2 = h.embeddings.Embeddings.load(
+            out_path, implementation='torch', device='cpu')
+        self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
+
+        self.assertTrue(embeddings1.V is not embeddings2.V)
+        self.assertTrue(embeddings1.W is not embeddings2.W)
+        self.assertTrue(torch.allclose(embeddings1.V, embeddings2.V))
+        self.assertTrue(torch.allclose(embeddings1.W, embeddings2.W))
+
+        embeddings2 = h.embeddings.Embeddings.load(
+            out_path, implementation='numpy')
+        self.assertTrue(isinstance(embeddings2.V, np.ndarray))
+
+        self.assertTrue(embeddings1.V is not embeddings2.V)
+        self.assertTrue(embeddings1.W is not embeddings2.W)
+        self.assertTrue(np.allclose(embeddings1.V, embeddings2.V))
+        self.assertTrue(np.allclose(embeddings1.W, embeddings2.W))
+
+        shutil.rmtree(out_path)
+
+        # We can do the same save and load cycle, this time starting from 
+        # torch embeddings.
+        if os.path.exists(out_path):
+            shutil.rmtree(out_path)
+
+        embeddings1 = h.embeddings.Embeddings(
+            V, W, dictionary, implementation='torch',device='cpu')
+        embeddings1.save(out_path)
+
+        embeddings2 = h.embeddings.Embeddings.load(
+            out_path, implementation='torch', device='cpu')
+        self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
+
+        self.assertTrue(embeddings1.V is not embeddings2.V)
+        self.assertTrue(embeddings1.W is not embeddings2.W)
+        self.assertTrue(torch.allclose(embeddings1.V, embeddings2.V))
+        self.assertTrue(torch.allclose(embeddings1.W, embeddings2.W))
+
+        embeddings2 = h.embeddings.Embeddings.load(
+            out_path, implementation='numpy')
+        self.assertTrue(isinstance(embeddings2.V, np.ndarray))
+
+        self.assertTrue(embeddings1.V is not embeddings2.V)
+        self.assertTrue(embeddings1.W is not embeddings2.W)
+        self.assertTrue(np.allclose(embeddings1.V, embeddings2.V))
+        self.assertTrue(np.allclose(embeddings1.W, embeddings2.W))
+
+        shutil.rmtree(out_path)
+
+
+    def test_embeddings_recognize_loading_normalized(self):
+        in_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
+        embeddings = h.embeddings.Embeddings.load(
+            in_path, implementation='torch', device='cpu')
+        self.assertTrue(embeddings.normed)
+        self.assertTrue(embeddings.check_normalized())
+
+
+    def test_normalize_embeddings(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = np.random.random((d, vocab))
+        W = np.random.random((vocab, d))
+        device='cpu'
+
+        embeddings = h.embeddings.Embeddings(
+            V, W, dictionary, implementation='torch',device='cpu')
+
+        self.assertFalse(embeddings.normed)
+        self.assertFalse(embeddings.check_normalized())
+        self.assertFalse(
+            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+        self.assertFalse(
+            np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
+
+        embeddings.normalize()
+
+        self.assertTrue(embeddings.normed)
+        self.assertTrue(embeddings.check_normalized())
+        self.assertTrue(
+            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+        self.assertTrue(
+            np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
+
+
+    def test_normalize_embeddings_shared(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        V = np.random.random((d, vocab))
+        W = np.random.random((vocab, d))
+        device='cpu'
+
+        embeddings = h.embeddings.Embeddings(
+            V, dictionary, shared=True, implementation='torch',device='cpu')
+
+        self.assertFalse(embeddings.normed)
+        self.assertFalse(embeddings.check_normalized())
+        self.assertFalse(
+            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+        self.assertFalse(
+            np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
+
+        embeddings.normalize()
+
+        self.assertTrue(embeddings.normed)
+        self.assertTrue(embeddings.check_normalized())
+        self.assertTrue(
+            np.allclose(h.utils.norm(embeddings.V, axis=0), 1.0))
+        self.assertTrue(
+            np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
+
+        self.assertTrue(
+            np.allclose(h.utils.transpose(embeddings.V), embeddings.W))
+
+
+    def test_greatest_product(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+
+        # Some products are tied, and their sorting isn't stable.  But, when
+        # we set fix the seed, the top and bottom ten are stably ranked.
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared=False, implementation='torch', 
+            device='cpu', seed=0
+        )
+
+        # Given a query vector, verify that we can find the other vector having
+        # the greatest dot product.
+        query = embeddings['dog']
+        products = h.utils.transpose(embeddings.V) @ query
+        ranks = sorted(
+            [(p, idx) for idx, p in enumerate(products)], reverse=True)
+        expected_ranked_tokens = [
+            dictionary.get_token(idx) for p, idx in ranks 
+            if dictionary.get_token(idx) != 'dog'
+        ]
+        expected_ranked_ids = [
+            idx for p, idx in ranks if dictionary.get_token(idx) != 'dog']
+
+        found_ranked_tokens = embeddings.greatest_product('dog')
+        self.assertEqual(found_ranked_tokens[:10], expected_ranked_tokens[:10])
+        self.assertEqual(
+            found_ranked_tokens[-10:], expected_ranked_tokens[-10:])
+
+        # If we provide an id as a query, the matches are returned as ids.
+        found_ranked_ids = embeddings.greatest_product(
+            dictionary.get_id('dog'))
+        self.assertEqual(
+            list(found_ranked_ids[:10]), expected_ranked_ids[:10])
+        self.assertEqual(
+            list(found_ranked_ids[-10:]), expected_ranked_ids[-10:])
+
+        # Verify that we can get the single best match:
+        found_best_match = embeddings.greatest_product_one('dog')
+        self.assertEqual(found_best_match, expected_ranked_tokens[0])
+
+        # Again, if we provide an id as the query, the best match is returned
+        # as an id.
+        found_best_match = embeddings.greatest_product_one(
+            dictionary.get_id('dog'))
+        self.assertEqual(found_best_match, expected_ranked_ids[0])
+
+
+
+    def test_greatest_cosine(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+
+        # Some products are tied, and their sorting isn't stable.  But, when
+        # we set fix the seed, the top and bottom ten are stably ranked.
+        embeddings = h.embeddings.random(
+            d, vocab, dictionary, shared=False, implementation='torch', 
+            device='cpu', seed=0
+        )
+
+        # Given a query vector, verify that we can find the other vector having
+        # the greatest dot product.
+        query = embeddings['dog']
+        normed = h.utils.normalize(embeddings.V, axis=0)
+        products = h.utils.transpose(normed) @ query
+
+        ranks = sorted(
+            [(p, idx) for idx, p in enumerate(products)], reverse=True)
+        expected_ranked_tokens = [
+            dictionary.get_token(idx) for p, idx in ranks 
+            if dictionary.get_token(idx) != 'dog'
+        ]
+        expected_ranked_ids = [
+            idx for p, idx in ranks if dictionary.get_token(idx) != 'dog']
+
+        found_ranked_tokens = embeddings.greatest_cosine('dog')
+
+        self.assertEqual(found_ranked_tokens[:10], expected_ranked_tokens[:10])
+        self.assertEqual(
+            found_ranked_tokens[-10:], expected_ranked_tokens[-10:])
+
+        # If we provide an id as a query, the matches are returned as ids.
+        found_ranked_ids = embeddings.greatest_cosine(
+            dictionary.get_id('dog'))
+        self.assertEqual(
+            list(found_ranked_ids[:10]), expected_ranked_ids[:10])
+        self.assertEqual(
+            list(found_ranked_ids[-10:]), expected_ranked_ids[-10:])
+
+        # Verify that we can get the single best match:
+        found_best_match = embeddings.greatest_cosine_one('dog')
+        self.assertEqual(found_best_match, expected_ranked_tokens[0])
+
+        # Again, if we provide an id as the query, the best match is returned
+        # as an id.
+        found_best_match = embeddings.greatest_cosine_one(
+            dictionary.get_id('dog'))
+        self.assertEqual(found_best_match, expected_ranked_ids[0])
+
+
+
+class TestUtils(TestCase):
+
+    def test_normalize(self):
+
+        d = 300
+        vocab = 5000
+
+        V_numpy = np.random.random((d, vocab))
+
+        norm = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
+        expected = V_numpy / norm
+        found = h.utils.normalize(V_numpy, ord=2, axis=0)
+        self.assertTrue(np.allclose(found, expected))
+        self.assertTrue(V_numpy.shape, found.shape)
+        self.assertTrue(np.allclose(
+            np.linalg.norm(found, ord=2, axis=0), np.ones(vocab)))
+
+        V_numpy = np.random.random((d, vocab))
+
+        norm = np.linalg.norm(V_numpy, ord=2, axis=1, keepdims=True)
+        expected = V_numpy / norm
+        found = h.utils.normalize(V_numpy, ord=2, axis=1)
+        self.assertTrue(np.allclose(found, expected))
+        self.assertTrue(V_numpy.shape, found.shape)
+        self.assertTrue(np.allclose(
+            np.linalg.norm(found, ord=2, axis=1), np.ones(d)))
+
+        V_torch = torch.rand((d, vocab))
+
+        norm = torch.norm(V_torch, p=2, dim=0, keepdim=True)
+        expected = V_torch / norm
+        found = h.utils.normalize(V_torch, ord=2, axis=0)
+        self.assertTrue(torch.allclose(found, expected))
+        self.assertTrue(V_torch.shape, found.shape)
+        self.assertTrue(torch.allclose(
+            torch.norm(found, p=2, dim=0), torch.ones(vocab)))
+
+
+        norm = torch.norm(V_torch, p=2, dim=1, keepdim=True)
+        expected = V_torch / norm
+        found = h.utils.normalize(V_torch, ord=2, axis=1)
+        self.assertTrue(torch.allclose(found, expected))
+        self.assertTrue(V_torch.shape, found.shape)
+        self.assertTrue(torch.allclose(
+            torch.norm(found, p=2, dim=1), torch.ones(d)))
+
+
+
+    def test_norm(self):
+
+        d = 300
+        vocab = 5000
+
+        V_numpy = np.random.random((d, vocab))
+
+        expected = np.linalg.norm(V_numpy, ord=2, axis=0, keepdims=True)
+        found = h.utils.norm(V_numpy, ord=2, axis=0, keepdims=True)
+        self.assertTrue(np.allclose(found, expected))
+
+        expected = np.linalg.norm(V_numpy, ord=3, axis=1, keepdims=False)
+        found = h.utils.norm(V_numpy, ord=3, axis=1, keepdims=False)
+        self.assertTrue(np.allclose(found, expected))
+
+        V_torch = torch.rand((d, vocab))
+
+        expected = torch.norm(V_torch, p=2, dim=0, keepdim=True)
+        found = h.utils.norm(V_torch, ord=2, axis=0, keepdims=True)
+        self.assertTrue(np.allclose(found, expected))
+
+        expected = torch.norm(V_torch, p=3, dim=1, keepdim=False)
+        found = h.utils.norm(V_torch, ord=3, axis=1, keepdims=False)
+        self.assertTrue(np.allclose(found, expected))
 
 
 if __name__ == '__main__':

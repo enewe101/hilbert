@@ -31,7 +31,7 @@ def calc_M(
     base = base.lower()
     if base == 'pmi':
         M = h.corpus_stats.calc_PMI(cooc_stats)
-    elif base == 'logNxx':
+    elif base == 'lognxx':
         with np.errstate(divide='ignore'):
             M = np.log(cooc_stats.denseNxx)
     elif base == 'swivel':

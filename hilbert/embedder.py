@@ -18,14 +18,16 @@ def get_embedder(
     base,               # 'pmi' | 'logNxx' | 'swivel'
 
     # Options for f_delta
-    k=None,             # weight of negative samples (w2v only)
     X_max=None,         # denominator of multiplier (glove only)
+    k=None,             # weight of negative samples (w2v only)
 
     # Options for M
     shift=None,         # None | float -- shift all vals e.g. -np.log(k)
     no_neg_inf=False,   # whether to set -np.inf values to zero.
     positive=False,     # whether to clip negative values to zero.
     diag=None,          # None | float -- set diagonals to this val
+
+    # TODO: Add use noise samples, use noise smoothing
 
     # Options for embedder
     d=300,              # embedding dimension
