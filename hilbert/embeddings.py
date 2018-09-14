@@ -298,12 +298,13 @@ class Embeddings:
 
     def get_vec(self, key, oov_policy='err'):
         """
-        Gets the embedding for a single vector, either using an ``int``
-        or the name of the word as a ``str``.  The embeddings must have a
-        dictionary to be albe to access embeddings by name.
+        Gets the embedding for vector ``key``.  Key can either be an ``int``
+        representing the index of the embedding in V, or it can be the
+        name of the embedded word.  The embeddins have to have an associated 
+        dictionary to access embeddings by name.
 
         If key is a ``str`` but is not found in ``self.dictionary``, then
-        KeyError is raised.  But if oov_policy is ``'unk'``, then return 
+        KeyError is raised.  But if ``oov_policy`` is ``'unk'``, then return 
         the centroid of the vectors.
         """
         if self.handle_out_of_vocab(key, oov_policy):
@@ -314,12 +315,13 @@ class Embeddings:
 
     def get_covec(self, key, oov_policy='err'):
         """
-        Gets the embedding for a single covector, either using an ``int``
-        or the name of the word as a ``str``.  The embeddings must have a
-        dictionary to be albe to access embeddings by name.
+        Gets the embedding for covector ``key``.  Key can either be an ``int``
+        representing the index of the embedding in V, or it can be the
+        name of the embedded word.  The embeddins have to have an associated 
+        dictionary to access embeddings by name.
 
         If key is a ``str`` but is not found in ``self.dictionary``, then
-        KeyError is raised.  But if oov_policy is ``'unk'``, then return 
+        KeyError is raised.  But if ``oov_policy`` is ``'unk'``, then return 
         ``self.unk``.
         """
         if self.W is None:
