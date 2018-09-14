@@ -128,5 +128,6 @@ Reference for ``hilbert.embeddings.Embeddings``
     :member-order: bysource
     :members:
 
-.. autofunction:: embeddings.random
+.. autofunction:: embeddings.poo()
+
 
