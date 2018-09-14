@@ -1,9 +1,10 @@
 try:
     import numpy as np
+    import torch
 except ImportError:
     np = None
+    torch = None
 
-import torch
 import hilbert as h
 
 class MomentumSolver(object):
