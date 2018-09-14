@@ -47,7 +47,7 @@ Usually, you'll obtain embeddings in one of these ways:
         ...    my_embedder.cycle()    
         >>> my_embeddings = my_embedder.get_embeddings()
 
-    (And then save them:  ``my_embeddings.save('path-to-my-embeddings'.``)
+    (And then save them:  ``my_embeddings.save('path-to-my-embeddings'``.)
 
 (3) Reading saved embeddings from disk:
 
@@ -60,7 +60,7 @@ Usually, you'll obtain embeddings in one of these ways:
     .. code-block:: python
 
         >>> import torch
-        >>> dimensions, vocab = 300, 5000
+        >>> vocab, dimensions = 5000, 300
         >>> V = torch.rand(vocab, dimensions)
         >>> W = torch.rand(vocab, dimensions)
         >>> embeddings = h.embeddings.Embeddings(V, W)
@@ -68,14 +68,17 @@ Usually, you'll obtain embeddings in one of these ways:
     Notice that the vector and covector arrays should have one vector per row.
 
 
-Embeddings can use a dictionary
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Embeddings can use a dictionary.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you provide a dictionary, then you can access the vectors for a given word by name:
 
 .. code-block:: python
 
     >>> # you can get a toy dictionary for testing like so...
+    >>> import hilbert.test
+    >>> dictionary = hilbert.test.get_test_dictionary()
+    >>>
     >>> my_embeddings = hilbert.embeddings.random(300, 5000, dictionary)
     >>> my_embeddings['dog']
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
@@ -125,4 +128,5 @@ Reference for ``hilbert.embeddings.Embeddings``
     :member-order: bysource
     :members:
 
+.. autofunction:: embeddings.random()
 

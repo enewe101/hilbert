@@ -1308,19 +1308,28 @@ class TestTorchHilbertEmbedder(TestCase):
 
 class MockObjective(object):
 
-    def __init__(self, *param_shapes):
+    def __init__(self, *param_shapes, implementation='torch', device='cuda'):
         self.param_shapes = param_shapes
         self.updates = []
         self.passed_args = []
         self.params = []
+        self.implementation = implementation
+        self.device = device
+        h.utils.ensure_implementation_valid(implementation)
         self.initialize_params()
 
 
     def initialize_params(self):
         initial_params = []
         for shape in self.param_shapes:
-            np.random.seed(0)
-            initial_params.append(np.random.random(shape))
+            if self.implementation == 'torch':
+                initial_params.append(
+                    torch.tensor(np.random.random(shape), dtype=torch.float32)
+                )
+            else:
+                initial_params.append(np.random.random(shape))
+        print(initial_params[0])
+        print(initial_params[1])
         self.params.append(initial_params)
 
 
@@ -1341,7 +1350,11 @@ class MockObjective(object):
             new_params.append(self.params[-1][i] + updates[i])
         self.params.append(new_params)
 
-        copied_updates = [a if np.isscalar(a) else a.copy() for a in updates]
+        copied_updates = [
+            a if np.isscalar(a) else a.copy() 
+            if self.implementation == 'numpy' else a.clone()
+            for a in updates
+        ]
         self.updates.append(copied_updates)
 
 
@@ -1352,9 +1365,14 @@ class TestSolvers(TestCase):
         learning_rate = 0.1
         momentum_decay = 0.8
         times = 3
-        mock_objective = MockObjective((1,), (3,3))
+
+        np.random.seed(0)
+        mock_objective = MockObjective((1,), (3,3), implementation='numpy')
+
         solver = h.solver.MomentumSolver(
-            mock_objective, learning_rate, momentum_decay)
+            mock_objective, learning_rate, momentum_decay, 
+            implementation='numpy'
+        )
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1363,7 +1381,6 @@ class TestSolvers(TestCase):
         expected_params = []
         np.random.seed(0)
         initial_params_0 = np.random.random((1,))
-        np.random.seed(0)
         initial_params_1 = np.random.random((3,3))
         expected_params.append((initial_params_0, initial_params_1))
 
@@ -1400,6 +1417,311 @@ class TestSolvers(TestCase):
             mock_objective.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
+    def test_momentum_solver_torch(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mock_objective = MockObjective(
+            (1,), (3,3), implementation='torch', device='cpu')
+
+        solver = h.solver.MomentumSolver(
+            mock_objective, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        expected_params = []
+
+
+        np.random.seed(0)
+        initial_params_0 = torch.tensor(
+            np.random.random((1,)), dtype=torch.float32)
+
+        initial_params_1 = torch.tensor(
+            np.random.random((3,3)), dtype=torch.float32)
+
+
+        expected_params.append((initial_params_0, initial_params_1))
+
+        # Initialize the momentum at zero
+        expected_momenta = [(torch.zeros((1,)), torch.zeros((3,3)))]
+
+        # Compute successive updates
+        for i in range(times):
+            update_0 = (
+                expected_momenta[-1][0] * momentum_decay
+                + (expected_params[-1][0] + 0.1) * learning_rate
+            )
+            update_1 = (
+                expected_momenta[-1][1] * momentum_decay
+                + (expected_params[-1][1] + 0.1) * learning_rate
+            )
+            expected_momenta.append((update_0, update_1))
+
+            expected_params.append((
+                expected_params[-1][0] + expected_momenta[-1][0],
+                expected_params[-1][1] + expected_momenta[-1][1]
+            ))
+
+        # Updates should be the successive momenta (excluding the first zero
+        # value)
+        iter_momenta_updates = zip(
+            expected_momenta[1:], mock_objective.updates)
+        for expected,found in iter_momenta_updates:
+            for e, f in zip(expected, found):
+                self.assertTrue(torch.allclose(e, f))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mock_objective.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+    def test_momentum_solver_torch_and_numpy_equivalent(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        # Do 3 iterations on a numpy-based objective and solver.
+        np.random.seed(0)
+        torch_mock_objective = MockObjective(
+            (1,), (3,3), implementation='torch', device='cpu')
+        torch_solver = h.solver.MomentumSolver(
+            torch_mock_objective, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+        torch_solver.cycle(times=times, pass_args={'a':1})
+
+
+        # Do 3 iterations on a torch-based objective and solver.
+        np.random.seed(0)
+        numpy_mock_objective = MockObjective(
+            (1,), (3,3), implementation='numpy')
+        numpy_solver = h.solver.MomentumSolver(
+            numpy_mock_objective, learning_rate, momentum_decay, 
+            implementation='numpy'
+        )
+        numpy_solver.cycle(times=times, pass_args={'a':1})
+
+
+        # They should be equal!
+        iter_momenta_updates = zip(
+            torch_mock_objective.updates, numpy_mock_objective.updates)
+        for torch_update, numpy_update in iter_momenta_updates:
+            for e, f in zip(torch_update, numpy_update):
+                self.assertTrue(np.allclose(e, f))
+
+
+    def test_nesterov_momentum_solver(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective((1,), (3,3), implementation='numpy')
+        solver = h.solver.NesterovSolver(
+            mo, learning_rate, momentum_decay, implementation='numpy')
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = self.calculate_expected_nesterov_params(
+            times, learning_rate, momentum_decay)
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                print(param)
+                print(param_expected)
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+    def test_nesterov_momentum_solver_torch_equivalent_to_numpy(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        torch_mo = MockObjective(
+            (1,), (3,3), implementation='torch', device='cpu')
+        torch_solver = h.solver.NesterovSolver(
+            torch_mo, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+        torch_solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        numpy_mo = MockObjective((1,), (3,3), implementation='numpy')
+        numpy_solver = h.solver.NesterovSolver(
+            numpy_mo, learning_rate, momentum_decay, implementation='numpy')
+        numpy_solver.cycle(times=times, pass_args={'a':1})
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(torch_mo.params)):
+            param_iterator = zip(torch_mo.params[i], numpy_mo.params[i])
+            for torch_param, numpy_param in param_iterator:
+                self.assertTrue(np.allclose(torch_param, numpy_param))
+
+
+
+    def test_nesterov_momentum_solver_torch(self):
+        learning_rate = 0.1
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective((1,), (3,3), implementation='torch', device='cpu')
+        solver = h.solver.NesterovSolver(
+            mo, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+
+        np.random.seed(0)
+        params_expected = self.calculate_expected_nesterov_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                print(param)
+                print(param_expected)
+                self.assertTrue(torch.allclose(
+                    param,
+                    torch.tensor(param_expected, dtype=torch.float32)
+                ))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+
+    def test_nesterov_momentum_solver_optimized(self):
+
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective(
+            (1,), (3,3), implementation='numpy', device='cpu')
+        solver = h.solver.NesterovSolverOptimized(
+            mo, learning_rate, momentum_decay, 
+            implementation='numpy', device='cpu'
+        )
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = self.calculate_expected_nesterov_optimized_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+
+
+    def test_nesterov_momentum_solver_optimized_torch(self):
+
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective(
+            (1,), (3,3), implementation='torch', device='cpu')
+        solver = h.solver.NesterovSolverOptimized(
+            mo, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = self.calculate_expected_nesterov_optimized_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+    def test_nesterov_momentum_solver_cautious_torch(self):
+
+        print(
+            'Warning, condiitons have been deactivated in '
+            'test_nesterov_momentum_solver_cautious_torch, this test is '
+            'invalid'
+        )
+
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective(
+            (1,), (3,3), implementation='torch', device='cpu')
+        solver = h.solver.NesterovSolverCautious(
+            mo, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = self.calculate_expected_nesterov_optimized_params(
+            times, learning_rate, momentum_decay
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                pass
+                #self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+
     def compare_nesterov_momentum_solver_to_optimized(self):
 
         learning_rate = 0.1
@@ -1426,58 +1748,6 @@ class TestSolvers(TestCase):
                 self.assertTrue(np.allclose(param_1, param_2))
 
 
-    def test_nesterov_momentum_solver(self):
-        learning_rate = 0.1
-        momentum_decay = 0.8
-        times = 3
-        mo = MockObjective((1,), (3,3))
-        solver = h.solver.NesterovSolver(
-            mo, learning_rate, momentum_decay)
-
-        solver.cycle(times=times, pass_args={'a':1})
-
-        params_expected = self.calculate_expected_nesterov_params(
-            times, learning_rate, momentum_decay
-        )
-
-        # Verify that the solver visited to the expected parameter values
-        for i in range(len(params_expected)):
-            for param, param_expected in zip(mo.params[i], params_expected[i]):
-                self.assertTrue(np.allclose(param, param_expected))
-
-        # Test that all the pass_args were received.  Note that the solver
-        # will call get_gradient once at the start to determine the shape
-        # of the parameters, and None will have been passed as the pass_arg.
-        self.assertEqual(
-            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
-
-
-
-    def test_nesterov_momentum_solver_optimized(self):
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        times = 3
-        mo = MockObjective((1,), (3,3))
-        solver = h.solver.NesterovSolverOptimized(
-            mo, learning_rate, momentum_decay)
-
-        solver.cycle(times=times, pass_args={'a':1})
-
-        params_expected = self.calculate_expected_nesterov_optimized_params(
-            times, learning_rate, momentum_decay
-        )
-
-        # Verify that the solver visited to the expected parameter values
-        for i in range(len(params_expected)):
-            for param, param_expected in zip(mo.params[i], params_expected[i]):
-                self.assertTrue(np.allclose(param, param_expected))
-
-        # Test that all the pass_args were received.  Note that the solver
-        # will call get_gradient once at the start to determine the shape
-        # of the parameters, and None will have been passed as the pass_arg.
-        self.assertEqual(
-            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
-
 
     def calculate_expected_nesterov_params(
         self, times, learning_rate, momentum_decay
@@ -1486,9 +1756,7 @@ class TestSolvers(TestCase):
         # Initialize the parameters using the same random initialization as
         # used by the mock objective.
         params_expected = [[]]
-        np.random.seed(0)
         params_expected[0].append(np.random.random((1,)))
-        np.random.seed(0)
         params_expected[0].append(np.random.random((3,3)))
 
         # Solver starts with zero momentum
@@ -1532,9 +1800,7 @@ class TestSolvers(TestCase):
         # Initialize the parameters using the same random initialization as
         # used by the mock objective.
         params_expected = [[]]
-        np.random.seed(0)
         params_expected[0].append(np.random.random((1,)))
-        np.random.seed(0)
         params_expected[0].append(np.random.random((3,3)))
 
         # Solver starts with zero momentum
@@ -2185,6 +2451,104 @@ class TestEmbeddings(TestCase):
             vocab, d, dictionary, shared=False, implementation='numpy')
         self.assertTrue(isinstance(embeddings.V, np.ndarray))
         self.assertTrue(isinstance(embeddings.W, np.ndarray))
+
+
+    def test_random_distribution(self):
+        d = 300
+        vocab = 5000
+        shared = False
+
+        dictionary = get_test_dictionary()
+
+        # Can make numpy random embeddings with uniform distribution
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='uniform', scale=0.2, seed=0,
+            implementation='numpy', device='cpu',
+        )
+
+        np.random.seed(0)
+        expected_uniform_V = np.random.uniform(-0.2, 0.2, (vocab, d))
+        expected_uniform_W = np.random.uniform(-0.2, 0.2, (vocab, d))
+
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(np.allclose(embeddings.V, expected_uniform_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_uniform_W))
+
+        # Can make numpy random embeddings with normal distribution
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='normal', scale=0.2, seed=0,
+            implementation='numpy', device='cpu',
+        )
+
+        np.random.seed(0)
+        expected_normal_V = np.random.normal(0, 0.2, (vocab, d))
+        expected_normal_W = np.random.normal(0, 0.2, (vocab, d))
+
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(np.allclose(embeddings.V, expected_normal_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_normal_W))
+
+        # Scale matters.
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='uniform', scale=1, seed=0,
+            implementation='numpy', device='cpu',
+        )
+
+        np.random.seed(0)
+        expected_uniform_scale_V = np.random.uniform(-1, 1, (vocab, d))
+        expected_uniform_scale_W = np.random.uniform(-1, 1, (vocab, d))
+
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(np.allclose(embeddings.V, expected_uniform_scale_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_uniform_scale_W))
+
+        # Scale matters.
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='normal', scale=1, seed=0,
+            implementation='numpy', device='cpu',
+        )
+
+        np.random.seed(0)
+        expected_normal_scale_V = np.random.normal(0, 1, (vocab, d))
+        expected_normal_scale_W = np.random.normal(0, 1, (vocab, d))
+
+        self.assertTrue(isinstance(embeddings.V, np.ndarray))
+        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(np.allclose(embeddings.V, expected_normal_scale_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_normal_scale_W))
+
+        # Can make torch random embeddings with uniform distribution
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='uniform', scale=0.2, seed=0,
+            implementation='torch', device='cpu',
+        )
+
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
+        self.assertTrue(np.allclose(embeddings.V, expected_uniform_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_uniform_W))
+
+        # Can make torch random embeddings with normal distribution
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            distribution='normal', scale=0.2, seed=0,
+            implementation='torch', device='cpu',
+        )
+
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
+        self.assertTrue(np.allclose(embeddings.V, expected_normal_V))
+        self.assertTrue(np.allclose(embeddings.W, expected_normal_W))
+
+
 
 
 

@@ -3,8 +3,6 @@ try:
 except ImportError:
     np = None
 
-import torch
-import hilbert as h
 
 class MomentumSolver(object):
     """
@@ -20,40 +18,39 @@ class MomentumSolver(object):
     a tuple of parameter updates, having the same shape.
     """
 
-    def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
-    ):
+    def __init__(self, objective, learning_rate=0.001, momentum_decay=0.9):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
-        self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
         self.momenta = []
+        self.gradient_steps = []
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.tensor(np.zeros(param.shape), dtype=torch.float32)
-                )
-            else:
-                self.momenta.append(np.zeros(param.shape))
+            self.momenta.append(np.zeros(param.shape))
+            self.gradient_steps.append(np.zeros(param.shape))
 
 
     def cycle(self, times=1, pass_args=None):
         pass_args = pass_args or {}
         for i in range(times):
-
             gradients = self.objective.get_gradient(pass_args=pass_args)
-            for j in range(len(gradients)):
-                self.momenta[j] *= self.momentum_decay
-                self.momenta[j] += gradients[j] * self.learning_rate
-
+            for j in range(len(self.gradient_steps)):
+                np.multiply(
+                    gradients[j], self.learning_rate,
+                    self.gradient_steps[j]
+                )
+                np.multiply(
+                    self.momenta[j], self.momentum_decay,
+                    self.momenta[j]
+                )
+                np.add(
+                    self.momenta[j], self.gradient_steps[j],
+                    self.momenta[j]
+                )
             self.objective.update(*self.momenta)
 
 
@@ -72,28 +69,22 @@ class NesterovSolver(object):
     a tuple of parameter updates, having the same shape.
     """
 
-    def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
-    ):
+    def __init__(self, objective, learning_rate=0.001, momentum_decay=0.9):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
-        self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
+
         self.momenta = []
+        self.gradient_steps = []
+
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
+            self.momenta.append(np.zeros(param.shape))
+            self.gradient_steps.append(np.zeros(param.shape))
 
 
     def cycle(self, times=1, pass_args=None):
@@ -101,18 +92,27 @@ class NesterovSolver(object):
 
         
         for i in range(times):
-
-            # First, decay the momentum
+            # First, decay the momentum, we can then use it as an offset to
+            # get the gradient at the current parameters offset by the momentum
             for j in range(len(self.momenta)):
-                self.momenta[j] = self.momenta[j] * self.momentum_decay
+                np.multiply(
+                    self.momentum_decay, self.momenta[j], self.momenta[j])
 
-            # Use the decayed momentum to offset position while getting gradient
+            # Get the gradients offset by the decayed momentum
             gradients = self.objective.get_gradient(
                 offsets=self.momenta, pass_args=pass_args)
 
-            # Update the momenta using the gradient.
-            for j in range(len(self.momenta)):
-                self.momenta[j] += gradients[j] * self.learning_rate
+            # Update the momenta using the gradient.  Note that we have already 
+            # applied decay to the momenta.
+            for j in range(len(self.gradient_steps)):
+                np.multiply(
+                    gradients[j], self.learning_rate,
+                    self.gradient_steps[j]
+                )
+                np.add(
+                    self.momenta[j], self.gradient_steps[j],
+                    self.momenta[j]
+                )
 
             self.objective.update(*self.momenta)
 
@@ -132,32 +132,24 @@ class NesterovSolverOptimized(object):
     a tuple of parameter updates, having the same shape.
     """
 
-    def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
-    ):
+    def __init__(self, objective, learning_rate=0.001, momentum_decay=0.9):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
-        self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
+
         self.momenta = []
+        self.gradient_steps = []
         self.updates = []
+
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.updates.append(
-                    torch.zeros(param.shape, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
-                self.updates.append(np.zeros(param.shape))
+            self.momenta.append(np.zeros(param.shape))
+            self.gradient_steps.append(np.zeros(param.shape))
+            self.updates.append(np.zeros(param.shape))
 
 
     def cycle(self, times=1, pass_args=None):
@@ -169,11 +161,23 @@ class NesterovSolverOptimized(object):
             gradients = self.objective.get_gradient(pass_args=pass_args)
 
             # Calculate update to momenta.
-            for j in range(len(gradients)):
-                self.momenta[j] *= self.momentum_decay
-                self.momenta[j] += gradients[j] * self.learning_rate
+            for j in range(len(self.gradient_steps)):
+                np.multiply(
+                    self.momenta[j], self.momentum_decay, self.momenta[j])
+                np.multiply(
+                    gradients[j], self.learning_rate,
+                    self.gradient_steps[j]
+                )
+                np.add(
+                    self.momenta[j], self.gradient_steps[j],
+                    self.momenta[j]
+                )
+
+            # Calculate the update to the accellerated position
+            # We need to add the gradient_step and the decayed momentum.
+            for j in range(len(self.momenta)):
                 self.updates[j] = (
-                    gradients[j] * self.learning_rate
+                    self.gradient_steps[j] 
                     + self.momenta[j] * self.momentum_decay
                 )
 
@@ -181,7 +185,12 @@ class NesterovSolverOptimized(object):
 
 
 
-#TODO: test
+
+
+
+
+
+
 class NesterovSolverCautious(object):
     """
     Accepts an objective object, and finds a local minumum using stochastic
@@ -196,41 +205,31 @@ class NesterovSolverCautious(object):
     a tuple of parameter updates, having the same shape.
     """
 
-    def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
-    ):
+    def __init__(self, objective, learning_rate=0.001, momentum_decay=0.9):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
-        self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
+
         self.momenta = []
+        self.gradient_steps = []
         self.updates = []
         self.last_gradient = []
+
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.updates.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.last_gradient.append(
-                    torch.zeros(param.shape, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
-                self.updates.append(np.zeros(param.shape))
-                self.last_gradient.append(np.zeros(param.shape))
+            self.momenta.append(np.zeros(param.shape))
+            self.gradient_steps.append(np.zeros(param.shape))
+            self.updates.append(np.zeros(param.shape))
+            self.last_gradient.append(np.zeros(param.shape))
 
 
     def clear_momenta(self):
         for j in range(len(self.momenta)):
-            self.momenta[j][...] = 0
+            np.multiply(self.momenta[j], 0, self.momenta[j])
 
 
     def cycle(self, times=1, pass_args=None):
@@ -246,36 +245,41 @@ class NesterovSolverCautious(object):
             last_norm_squared = 0
             product = 0
             for j in range(len(self.last_gradient)):
-                # TODO: handle non-matrix values (scalar and vector)
-                last_norm_squared += torch.sum(
-                    torch.mm(self.last_gradient[j].t(), self.last_gradient[j]))
-                norm_squared += torch.sum(
-                    torch.mm(gradients[j].t(), gradients[j]))
-                product += torch.sum(
-                    torch.mm(gradients[j].t(), self.last_gradient[j]))
-            norms = torch.sqrt(norm_squared) * torch.sqrt(last_norm_squared)
+                last_norm_squared += np.sum(np.dot(
+                    self.last_gradient[j].T, self.last_gradient[j]))
+                norm_squared += np.sum(np.dot(gradients[j].T, gradients[j]))
+                product += np.sum(np.dot(gradients[j].T, self.last_gradient[j]))
+            norms = np.sqrt(norm_squared) * np.sqrt(last_norm_squared)
             if norms == 0:
                 alignment = 1
             else:
                 alignment = product / norms
-
             self.last_gradient = [
-                gradients[j].clone() for j in range(len(gradients))]
+                gradients[j].copy() for j in range(len(gradients))]
             print('alignment: %.2f %%' % (alignment * 100))
+
             use_momentum_decay = max(0, alignment) * self.momentum_decay
 
             # Calculate update to momenta.
-            for j in range(len(gradients)):
-                self.momenta[j] *= use_momentum_decay
-                self.momenta[j] += gradients[j] * self.learning_rate
+            for j in range(len(self.gradient_steps)):
+                np.multiply(
+                    self.momenta[j], use_momentum_decay, self.momenta[j])
+                np.multiply(
+                    gradients[j], self.learning_rate,
+                    self.gradient_steps[j]
+                )
+                np.add(
+                    self.momenta[j], self.gradient_steps[j],
+                    self.momenta[j]
+                )
+
+            # Calculate the update to the accellerated position
+            # We need to add the gradient_step and the decayed momentum.
+            for j in range(len(self.momenta)):
                 self.updates[j] = (
-                    gradients[j] * self.learning_rate
+                    self.gradient_steps[j] 
                     + self.momenta[j] * use_momentum_decay
                 )
 
             self.objective.update(*self.updates)
-
-
-
-
 

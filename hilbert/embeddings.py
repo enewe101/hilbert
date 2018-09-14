@@ -10,17 +10,42 @@ except ImportError:
     np = None
 
 def random(
-    vocab, d, dictionary=None, shared=False, implementation='torch',
-    device='cpu', seed=None
+    vocab, d, dictionary=None, shared=False, seed=None,
+    distribution='uniform', scale='0.2',
+    implementation='torch', device='cuda', 
+    
 ):
+    """
+    Obtain ``Embeddings`` containing ``vocab`` number of ``d``-dimensional
+    vectors, whose components are sampled randomly.  Optionaly provide a
+    `dictionary` to associate.   
+
+    By default, both vectors and covectors are sampled, independently.  If
+    ``shared`` is True, then only vectors are sampled, and the covectors simply
+    point to the same memory as stores the vectors.
+    
+    You may provide a random ``seed`` for replicability.  ``implementation``
+    can be ``'torch'`` or ``'numpy'``, and if ``'torch'`` is used, you can set
+    the ``device``.
+
+    Components are uniformly sampled in the range ``[-scale,scale]``, with
+    ``scale`` defaulting to 0.2.  Optionally set ``distribution=normal``
+    to sample a Gaussian with mean 0 and standard deviation equal to ``scale``
+    """
 
     if seed is not None:
         np.random.seed(seed)
 
-    V = np.random.random((vocab, d)).astype(np.float32)
+    V = (
+        np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+        if distribution == 'uniform' else
+        np.random.normal(0, scale, (vocab, d)).astype(np.float32)
+    )
     W = (
-        h.utils.transpose(V) if shared else 
-        np.random.random((vocab, d)).astype(np.float32)
+        V if shared else 
+        np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+        if distribution == 'uniform' else
+        np.random.normal(0, scale, (vocab, d)).astype(np.float32)
     )
 
     return Embeddings(V, W, dictionary, shared, implementation, device) 
@@ -41,11 +66,11 @@ class Embeddings:
     If you provide a ``hilbert.dictionary.Dictionary``, then you will
     be able to access vectors and covectors by name.
 
-    If ``normalize`` is True, then normalize the vectors if they don't 
-    already have norm.
+    If ``normalize`` is True, then normalize the vectors if they are not 
+    already normalized.
 
     Specify to store ``V`` and ``W`` either as ``numpy.ndarray``s or 
-    ``torch.Tensor``s, by setting ``implementation`` to ``'torch'`` or
+    ``torch.Tensor``\ s, by setting ``implementation`` to ``'torch'`` or
     ``'numpy'`, and specify the ``device``, in the case of torch tensors.
     """
 

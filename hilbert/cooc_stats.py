@@ -70,7 +70,7 @@ class CoocStats(object):
         self._denseNxx = None
         if Nxx is not None:
             self._Nxx = sparse.csr_matrix(Nxx)
-            self._Nx = np.sum(self._Nxx, axis=1).reshape(-1,1)
+            self._Nx = np.asarray(np.sum(self._Nxx, axis=1).reshape(-1,1))
             self._N = np.sum(self._Nx)
 
         # If no prior cooccurrence stats are given, start as empty.
