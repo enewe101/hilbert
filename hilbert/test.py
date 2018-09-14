@@ -2550,6 +2550,45 @@ class TestEmbeddings(TestCase):
 
 
 
+    def test_unk(self):
+
+        d = 300
+        vocab = 5000
+        shared = False
+        dictionary = get_test_dictionary()
+
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            implementation='numpy', device='cpu'
+        )
+        self.assertTrue(np.allclose(embeddings.unk, embeddings.V.mean(0)))
+        self.assertTrue(np.allclose(embeddings.unkV, embeddings.V.mean(0)))
+        self.assertTrue(np.allclose(embeddings.unkW, embeddings.W.mean(0)))
+
+        embeddings = h.embeddings.random(
+            vocab, d, dictionary, shared, 
+            implementation='torch', device='cpu'
+        )
+        self.assertTrue(torch.allclose(embeddings.unk, embeddings.V.mean(0)))
+        self.assertTrue(torch.allclose(embeddings.unkV, embeddings.V.mean(0)))
+        self.assertTrue(torch.allclose(embeddings.unkW, embeddings.W.mean(0)))
+
+        with self.assertRaises(KeyError):
+            embeddings.get_vec('archaeopteryx')
+        with self.assertRaises(KeyError):
+            embeddings.get_covec('archaeopteryx')
+        with self.assertRaises(KeyError):
+            embeddings['archaeopteryx']
+
+        self.assertTrue(torch.allclose(
+            embeddings.get_vec('archaeopteryx', 'unk'),
+            embeddings.V.mean(0)
+        ))
+        self.assertTrue(torch.allclose(
+            embeddings.get_covec('archaeopteryx', 'unk'),
+            embeddings.W.mean(0)
+        ))
+        
 
 
 

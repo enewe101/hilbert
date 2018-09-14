@@ -11,7 +11,7 @@ except ImportError:
 
 def random(
     vocab, d, dictionary=None, shared=False, seed=None,
-    distribution='uniform', scale='0.2',
+    distribution='uniform', scale=0.2,
     implementation='torch', device='cuda', 
     
 ):
@@ -22,7 +22,7 @@ def random(
 
     By default, both vectors and covectors are sampled, independently.  If
     ``shared`` is True, then only vectors are sampled, and the covectors simply
-    point to the same memory as stores the vectors.
+    point to the same memory as vectors.
     
     You may provide a random ``seed`` for replicability.  ``implementation``
     can be ``'torch'`` or ``'numpy'``, and if ``'torch'`` is used, you can set
@@ -30,23 +30,25 @@ def random(
 
     Components are uniformly sampled in the range ``[-scale,scale]``, with
     ``scale`` defaulting to 0.2.  Optionally set ``distribution=normal``
-    to sample a Gaussian with mean 0 and standard deviation equal to ``scale``
+    to sample a Gaussian with mean 0 and standard deviation equal to ``scale``.
     """
 
     if seed is not None:
         np.random.seed(seed)
 
-    V = (
-        np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
-        if distribution == 'uniform' else
-        np.random.normal(0, scale, (vocab, d)).astype(np.float32)
-    )
-    W = (
-        V if shared else 
-        np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
-        if distribution == 'uniform' else
-        np.random.normal(0, scale, (vocab, d)).astype(np.float32)
-    )
+    if distribution == 'uniform':
+        V = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+        if shared:
+            W = V 
+        else:
+            W = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+
+    elif distribution == 'normal':
+        V = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
+        if shared:
+            W = V 
+        else:
+            np.random.normal(0, scale, (vocab, d)).astype(np.float32)
 
     return Embeddings(V, W, dictionary, shared, implementation, device) 
     
@@ -97,14 +99,49 @@ class Embeddings:
                 torch.tensor(W, dtype=torch.float32, device=device)
             )
 
+        self._unkV = None
+        self._unkW = None
         self.normed = self.check_normalized()
         if normalize:
             self.normalize()
 
 
+    @property
+    def unk(self, for_W=False):
+        """
+        The vector for unkown (out-of-vocabulary) tokens.  Equal to the
+        centroid of the vectors.
+        """
+        if self._unkV is None:
+            self._unkV = self.V.mean(0)
+        return self._unkV
+
+
+    @property
+    def unkV(self):
+        """
+        The vector for unkown (out-of-vocabulary) tokens.  Equal to the
+        centroid of the vectors.
+        """
+        if self._unkV is None:
+            self._unkV = self.V.mean(0)
+        return self._unkV
+
+
+    @property
+    def unkW(self):
+        """
+        The covector for unkown (out-of-vocabulary) tokens.  Equal to the
+        centroid of the covectors.
+        """
+        if self._unkW is None:
+            self._unkW = self.W.mean(0)
+        return self._unkW
+
+
     def check_normalized(self):
         """
-        Checks if vectors and covectors all have unit norm.  
+        Returns true if vectors and covectors have unit norm.  
         Sets ``self.normed``
         """
         V_normed = np.allclose(h.utils.norm(self.V, axis=1), 1.0)
@@ -248,8 +285,6 @@ class Embeddings:
         return key
 
 
-
-
     def _as_id(self, id_or_token):
         if isinstance(id_or_token, str):
             if self.dictionary is None:
@@ -261,30 +296,73 @@ class Embeddings:
         return id_or_token
 
 
-    def get_vec(self, key):
+    def get_vec(self, key, oov_policy='err'):
         """
         Gets the embedding for a single vector, either using an ``int``
         or the name of the word as a ``str``.  The embeddings must have a
         dictionary to be albe to access embeddings by name.
+
+        If key is a ``str`` but is not found in ``self.dictionary``, then
+        KeyError is raised.  But if oov_policy is ``'unk'``, then return 
+        the centroid of the vectors.
         """
+        if self.handle_out_of_vocab(key, oov_policy):
+            return self.unk
         slice_obj = self._as_slice(key)
         return self.V[slice_obj]
 
 
-    def get_covec(self, key):
+    def get_covec(self, key, oov_policy='err'):
         """
         Gets the embedding for a single covector, either using an ``int``
         or the name of the word as a ``str``.  The embeddings must have a
         dictionary to be albe to access embeddings by name.
+
+        If key is a ``str`` but is not found in ``self.dictionary``, then
+        KeyError is raised.  But if oov_policy is ``'unk'``, then return 
+        ``self.unk``.
         """
         if self.W is None:
             raise ValueError("This one-sided embedding has no co-vectors.")
+        if self.handle_out_of_vocab(key, oov_policy):
+            return self.unkW
         slice_obj = self._as_slice(key)
         return self.W[slice_obj]
 
 
+    def handle_out_of_vocab(self, key, policy):
+        """
+        If key is not in vocabulary, then
+        - if policy=='err', raise ValueError.
+        - if policy=='unk', return the ``self.unk`` embedding.
+        """
+
+        if policy != 'err' and policy != 'unk':
+            raise ValueError(
+                "Unexpected out-of-vocabulary policy'.  Should be "
+                "'err' or 'unk' (got %s)." % repr(handle_oov)
+            )
+
+        # Only tokens are possibly out of vocabulary.  Indices or slices are
+        # never considered out of vocabulary.
+        # TODO: test
+        if isinstance(key, (int, tuple, slice)):
+            return False
+
+        # tokens that are in the dictionary are not out of vocabulary
+        is_out_of_vocabulary = key not in self.dictionary
+        if is_out_of_vocabulary and policy=='err':
+            raise KeyError(
+                'Token %s in out of vocabulary.  '
+                'Pass ``policy="unk"`` to return the centroid embedder for '
+                'out-of-vocaulary tokens' % repr(key),
+            )
+
+        return is_out_of_vocabulary
+
+
     def __getitem__(self, key):
-        return self.get_vec(key)
+        return self.get_vec(key, oov_policy='err')
 
 
     @staticmethod

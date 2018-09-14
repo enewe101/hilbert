@@ -15,6 +15,10 @@ class Dictionary(object):
         return deepcopy(self)
 
 
+    def __contains__(self, key):
+        return key in self.token_ids
+
+
     def __deepcopy__(self, memo):
         result = Dictionary(self.tokens)
         memo[id(self)] = result
