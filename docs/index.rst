@@ -13,7 +13,7 @@ Typical usage:
 
 .. code-block:: python
 
-    my_embeddings = hilbert.embeddings.Embeddings(U, V, dictionary)
+    my_embeddings = hilbert.embeddings.Embeddings(V, W, dictionary)
 
 The ``Embeddings`` class let's you easily manipulate embeddings.  You can read
 or save them to disk, get the embedding for a given word, normalize them, or
