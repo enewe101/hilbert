@@ -71,7 +71,9 @@ Usually, you'll obtain embeddings in one of these ways:
 Embeddings can use a dictionary.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you provide a dictionary, then you can access the vectors for a given word by name:
+Dictionaries map tokens to integer IDs, which themselves correspond to the
+index of that tokens embedding within ``V`` and ``W``.  When embeddings have an
+associated dictionary, you can access vectors for given words by name:
 
 .. code-block:: python
 
@@ -82,6 +84,10 @@ If you provide a dictionary, then you can access the vectors for a given word by
     >>> my_embeddings = hilbert.embeddings.random(300, 5000, dictionary)
     >>> my_embeddings['dog']
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
+    >>>
+    >>> # Dictionaries provide a word's index in V and W; note the equivalence:
+    >>> all(my_embeddings['dog'] == my_embeddings[dictionary.get_id('dog')])
+    True
 
 The dictionary should be a ``hilbert.dictionary.Dictionary`` instance.
 A 5000-word dictionary is available for testing purposees by doing
