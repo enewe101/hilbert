@@ -132,7 +132,6 @@ Reference for ``hilbert.embeddings.Embeddings``
 .. py:module:: hilbert
 
 .. autoclass:: embeddings.Embeddings
-    :member-order: bysource
 
     .. py:attribute V
 
@@ -153,6 +152,8 @@ Reference for ``hilbert.embeddings.Embeddings``
         A ``hilbert.dictionary.Dictionary`` instance, or None, depending on 
         whether a dictionary was provided when creating the embeddings.
 
+
+    :member-order: bysource
     :members:
 
 
