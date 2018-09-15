@@ -142,12 +142,11 @@ Reference for ``hilbert.embeddings.Embeddings``
     .. autoattribute:: dictionary
         :annotation: = A ``hilbert.dictionary.Dictionary`` instance, or None, depending on whether a dictionary was provided when creating the embeddings.
 
-    :member-order: bysource
-    :members:
+    .. automethod:: normalize()
+
 
 
 Reference for ``hilbert.embeddings.random``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: embeddings.random
-
 
