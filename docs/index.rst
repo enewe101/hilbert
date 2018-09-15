@@ -128,6 +128,9 @@ Reference for ``hilbert.embeddings.Embeddings``
     :member-order: bysource
     :members:
 
+
+Reference for ``hilbert.embeddings.random``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: embeddings.random
 
 
