@@ -22,6 +22,8 @@ def get_embedder(
     f_delta,            # 'mse' | 'w2v' | 'glove' | 'swivel' | 'mse'
     base,               # 'pmi' | 'logNxx' | 'swivel'
 
+    solver='sgd',       # 'sgd' | 'momentum' | 'nesterov' | 'slosh'
+
     # Options for f_delta
     X_max=None,         # denominator of multiplier (glove only)
     k=None,             # weight of negative samples (w2v only)
@@ -36,10 +38,13 @@ def get_embedder(
 
     # Options for embedder
     d=300,              # embedding dimension
-    learning_rate=1e-6,
+    learning_rate=1e-5,
     one_sided=False,    # whether vectors share parameters with covectors
     constrainer=None,   # constrainer instances can mutate values after update
     pass_args={},       # kwargs to pass into f_delta when it is called
+
+    # Options for solver
+    momentum_decay=0.9,
 
     # Implementation details
     implementation='torch',
@@ -96,12 +101,30 @@ def get_embedder(
     )
 
     if implementation == 'torch':
-        return h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
             M, f_delta, d, learning_rate, one_sided, constrainer, pass_args,
             device,
         )
-    return HilbertEmbedder(
-        M, f_delta, d, learning_rate, one_sided, constrainer, pass_args)
+    else:
+        embedder = HilbertEmbedder(
+            M, f_delta, d, learning_rate, one_sided, constrainer, pass_args)
+
+    solver_instance = (
+        embedder if solver=='sgd' else
+        h.solver.MomentumSolver(embedder, learning_rate, momentum_decay,
+            implementation, device) if solver=='momentum' else
+        h.solver.NesterovSolverOptimized(embedder, learning_rate,
+            momentum_decay, implementation, device) if solver=='nesterov' else
+        h.solver.NesterovSolverCautious(embedder, learning_rate,
+            momentum_decay, implementation, device) if solver=='slosh' else
+        None
+    )
+    if solver_instance is None:
+        raise ValueError('Solver must be one of "sgd", "momentum", "nesterov", '
+            'or "slosh".  Got %s' % repr(solver))
+
+    return solver_instance
+
 
 
 
