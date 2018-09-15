@@ -146,7 +146,7 @@ class Embeddings:
 
     def check_normalized(self):
         """
-        Returns true if vectors and covectors have unit norm.  
+        Returns ``True`` if vectors and covectors have unit norm.  
         Sets ``self.normed``
         """
         V_normed = np.allclose(h.utils.norm(self.V, axis=1), 1.0)

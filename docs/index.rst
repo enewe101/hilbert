@@ -149,22 +149,27 @@ Reference for ``hilbert.embeddings.Embeddings``
 
     .. py:attribute:: dictionary
 
-        A ``hilbert.dictionary.Dictionary`` instance, or None, depending on
+        A ``hilbert.dictionary.Dictionary`` instance, or ``None``, depending on
         whether a dictionary was provided when creating the embeddings.
+
+    .. py:attribute:: normed
+
+        ``True`` if all the vectors in ``V`` and ``W`` (if it exists) are
+        normalized, otherwise ``False``.
 
     .. automethod:: unk()
     .. automethod:: unkV()
-    .. automethod:: check_normalized()
-    .. automethod:: normalize()
-    .. automethod:: greatest_product()
-    .. automethod:: greatest_product_one()
-    .. automethod:: greatest_cosine()
-    .. automethod:: greatest_cosine_one()
+    .. automethod:: unkW()
     .. automethod:: save()
     .. automethod:: load()
     .. automethod:: get_vec()
     .. automethod:: get_covec()
-    .. automethod:: handle_out_of_vocab()
+    .. automethod:: normalize()
+    .. automethod:: check_normalized()
+    .. automethod:: greatest_product()
+    .. automethod:: greatest_product_one()
+    .. automethod:: greatest_cosine()
+    .. automethod:: greatest_cosine_one()
     .. automethod:: handle_out_of_vocab()
 
 
