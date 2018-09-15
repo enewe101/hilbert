@@ -142,7 +142,20 @@ Reference for ``hilbert.embeddings.Embeddings``
     .. autoattribute:: dictionary
         :annotation: = A ``hilbert.dictionary.Dictionary`` instance, or None, depending on whether a dictionary was provided when creating the embeddings.
 
+    .. automethod:: unk()
+    .. automethod:: unkV()
+    .. automethod:: check_normalized()
     .. automethod:: normalize()
+    .. automethod:: greatest_product()
+    .. automethod:: greatest_product_one()
+    .. automethod:: greatest_cosine()
+    .. automethod:: greatest_cosine_one()
+    .. automethod:: save()
+    .. automethod:: load()
+    .. automethod:: get_vec()
+    .. automethod:: get_covec()
+    .. automethod:: handle_out_of_vocab()
+    .. automethod:: handle_out_of_vocab()
 
 
 
