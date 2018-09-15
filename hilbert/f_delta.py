@@ -89,7 +89,7 @@ def get_torch_f_MLE_optimized(
     multiplier = Nx * Nx.t()
     multiplier = multiplier / torch.max(multiplier)
     exp_M = np.e**M
-    tempered_multiplier_ = torch.zeros(M.shape)
+    tempered_multiplier_ = torch.zeros(M.shape, device=device)
     def f_MLE(M_hat, t=1):
         M_hat_exp = torch.pow(np.e, M_hat, out=M_hat)
         delta = torch.sub(exp_M, M_hat_exp, out=M_hat)

@@ -39,9 +39,10 @@ class MomentumSolver(object):
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
             if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.tensor(np.zeros(param.shape), dtype=torch.float32)
-                )
+                self.momenta.append(torch.tensor(
+                    np.zeros(param.shape), dtype=torch.float32, 
+                    device=self.device
+                ))
             else:
                 self.momenta.append(np.zeros(param.shape))
 
@@ -91,8 +92,8 @@ class NesterovSolver(object):
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
             if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
+                self.momenta.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
             else:
                 self.momenta.append(np.zeros(param.shape))
 
@@ -152,10 +153,10 @@ class NesterovSolverOptimized(object):
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
             if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.updates.append(
-                    torch.zeros(param.shape, device=self.device))
+                self.momenta.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
+                self.updates.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
             else:
                 self.momenta.append(np.zeros(param.shape))
                 self.updates.append(np.zeros(param.shape))
@@ -217,12 +218,12 @@ class NesterovSolverCautious(object):
         param_gradients = self.objective.get_gradient()
         for param in param_gradients:
             if self.implementation == 'torch':
-                self.momenta.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.updates.append(
-                    torch.zeros(param.shape, device=self.device))
-                self.last_gradient.append(
-                    torch.zeros(param.shape, device=self.device))
+                self.momenta.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
+                self.updates.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
+                self.last_gradient.append(torch.zeros(
+                    param.shape, dtype=torch.float32, device=self.device))
             else:
                 self.momenta.append(np.zeros(param.shape))
                 self.updates.append(np.zeros(param.shape))
@@ -243,32 +244,38 @@ class NesterovSolverCautious(object):
             gradients = self.objective.get_gradient(pass_args=pass_args)
 
             # Calculate alignment with last gradient
-            norm_squared = 0
-            last_norm_squared = 0
+            norm = 0
+            last_norm = 0
             product = 0
+
             for j in range(len(self.last_gradient)):
-                # TODO: handle non-matrix values (scalar and vector)
-                last_norm_squared += torch.sum(
-                    torch.mm(self.last_gradient[j].t(), self.last_gradient[j]))
-                norm_squared += torch.sum(
-                    torch.mm(gradients[j].t(), gradients[j]))
-                product += torch.sum(
-                    torch.mm(gradients[j].t(), self.last_gradient[j]))
-            norms = torch.sqrt(norm_squared) * torch.sqrt(last_norm_squared)
+                last_norm += h.utils.norm(self.last_gradient[j])
+                norm += h.utils.norm(gradients[j])
+                # TODO: can't use torch.dot this needs to generalize over np 
+                # arrays too.
+                product += h.utils.dot(gradients[j], self.last_gradient[j])
+
+            norms = norm * last_norm
             if norms == 0:
                 alignment = 1
             else:
                 alignment = product / norms
 
-            self.last_gradient = [
-                gradients[j].clone() for j in range(len(gradients))]
-            print('alignment: %.2f %%' % (alignment * 100))
+            if self.implementation == 'torch':
+                self.last_gradient = [
+                    gradients[j].clone() for j in range(len(gradients))]
+            else:
+                self.last_gradient = [
+                    gradients[j].copy() for j in range(len(gradients))]
             use_momentum_decay = max(0, alignment) * self.momentum_decay
 
             # Calculate update to momenta.
+
             for j in range(len(gradients)):
                 self.momenta[j] *= use_momentum_decay
                 self.momenta[j] += gradients[j] * self.learning_rate
+
+            for j in range(len(gradients)):
                 self.updates[j] = (
                     gradients[j] * self.learning_rate
                     + self.momenta[j] * use_momentum_decay

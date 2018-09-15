@@ -36,19 +36,16 @@ def random(
     if seed is not None:
         np.random.seed(seed)
 
+    W = None
     if distribution == 'uniform':
         V = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
-        if shared:
-            W = V 
-        else:
+        if not shared:
             W = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
 
     elif distribution == 'normal':
         V = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
-        if shared:
-            W = V 
-        else:
-            np.random.normal(0, scale, (vocab, d)).astype(np.float32)
+        if not shared:
+            W = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
 
     return Embeddings(V, W, dictionary, shared, implementation, device) 
     
@@ -80,6 +77,14 @@ class Embeddings:
         self, V, W=None, dictionary=None, shared=False, 
         implementation='torch', device='cuda', normalize=False
     ):
+
+        h.utils.ensure_implementation_valid(implementation)
+        if shared and W is not None:
+            raise ValueError(
+                'Cannot provide covector embeddings when using parameter '
+                'sharing between vectors and covectors.'
+            )
+
         self.dictionary = dictionary
         self.shared = shared
         self.implementation = implementation
@@ -339,27 +344,35 @@ class Embeddings:
         - if policy=='unk', return the ``self.unk`` embedding.
         """
 
+        # Check that a meaninful policy was given
         if policy != 'err' and policy != 'unk':
             raise ValueError(
                 "Unexpected out-of-vocabulary policy'.  Should be "
                 "'err' or 'unk' (got %s)." % repr(handle_oov)
             )
 
-        # Only tokens are possibly out of vocabulary.  Indices or slices are
-        # never considered out of vocabulary.
+        # Indices or slices are never considered out of vocabulary.  
         # TODO: test
         if isinstance(key, (int, tuple, slice)):
             return False
 
-        # tokens that are in the dictionary are not out of vocabulary
+        # Handle missing dictionary
+        if self.dictionary is None:
+            raise ValueError(
+                'Because embeddings have no dictionary , you can only select '
+                'vectors using indices or slices, got %s.' % repr(key)
+            )
+
+        # Check if out of vocabulary.  If so, raise if policy says so.
         is_out_of_vocabulary = key not in self.dictionary
         if is_out_of_vocabulary and policy=='err':
             raise KeyError(
-                'Token %s in out of vocabulary.  '
-                'Pass ``policy="unk"`` to return the centroid embedder for '
-                'out-of-vocaulary tokens' % repr(key),
+                'Token %s in out of vocabulary.  Pass ``policy="unk"`` to '
+                'return the centroid embedder for '
+                'out-of-vocaulary tokens.'
             )
 
+        # Return whether the key is out of vocabulary
         return is_out_of_vocabulary
 
 

@@ -1328,8 +1328,6 @@ class MockObjective(object):
                 )
             else:
                 initial_params.append(np.random.random(shape))
-        print(initial_params[0])
-        print(initial_params[1])
         self.params.append(initial_params)
 
 
@@ -1537,8 +1535,6 @@ class TestSolvers(TestCase):
         # Verify that the solver visited to the expected parameter values
         for i in range(len(params_expected)):
             for param, param_expected in zip(mo.params[i], params_expected[i]):
-                print(param)
-                print(param_expected)
                 self.assertTrue(np.allclose(param, param_expected))
 
         # Test that all the pass_args were received.  Note that the solver
@@ -1546,6 +1542,7 @@ class TestSolvers(TestCase):
         # of the parameters, and None will have been passed as the pass_arg.
         self.assertEqual(
             mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
 
     def test_nesterov_momentum_solver_torch_equivalent_to_numpy(self):
         learning_rate = 0.1
@@ -1574,7 +1571,6 @@ class TestSolvers(TestCase):
                 self.assertTrue(np.allclose(torch_param, numpy_param))
 
 
-
     def test_nesterov_momentum_solver_torch(self):
         learning_rate = 0.1
         momentum_decay = 0.8
@@ -1598,8 +1594,6 @@ class TestSolvers(TestCase):
         # Verify that the solver visited to the expected parameter values
         for i in range(len(params_expected)):
             for param, param_expected in zip(mo.params[i], params_expected[i]):
-                print(param)
-                print(param_expected)
                 self.assertTrue(torch.allclose(
                     param,
                     torch.tensor(param_expected, dtype=torch.float32)
@@ -1610,7 +1604,6 @@ class TestSolvers(TestCase):
         # of the parameters, and None will have been passed as the pass_arg.
         self.assertEqual(
             mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
-
 
 
     def test_nesterov_momentum_solver_optimized(self):
@@ -1646,8 +1639,6 @@ class TestSolvers(TestCase):
             mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
-
-
     def test_nesterov_momentum_solver_optimized_torch(self):
 
         learning_rate = 0.01
@@ -1681,13 +1672,41 @@ class TestSolvers(TestCase):
             mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
-    def test_nesterov_momentum_solver_cautious_torch(self):
 
-        print(
-            'Warning, condiitons have been deactivated in '
-            'test_nesterov_momentum_solver_cautious_torch, this test is '
-            'invalid'
-        )
+    def test_nesterov_momentum_solver_cautious_numpy(self):
+
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective(
+            (1,), (3,3), implementation='numpy', device='cpu')
+        solver = h.solver.NesterovSolverCautious(
+            mo, learning_rate, momentum_decay, implementation='numpy')
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = (
+            self.calculate_expected_nesterov_optimized_cautious_params(
+                times, learning_rate, momentum_decay, implementation='numpy'
+        ))
+
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that the solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
+
+    def test_nesterov_momentum_solver_cautious_torch(self):
 
         learning_rate = 0.01
         momentum_decay = 0.8
@@ -1704,15 +1723,16 @@ class TestSolvers(TestCase):
         solver.cycle(times=times, pass_args={'a':1})
 
         np.random.seed(0)
-        params_expected = self.calculate_expected_nesterov_optimized_params(
-            times, learning_rate, momentum_decay
-        )
+        params_expected = (
+            self.calculate_expected_nesterov_optimized_cautious_params(
+                times, learning_rate, momentum_decay, implementation='torch'
+        ))
+
 
         # Verify that the solver visited to the expected parameter values
         for i in range(len(params_expected)):
             for param, param_expected in zip(mo.params[i], params_expected[i]):
-                pass
-                #self.assertTrue(np.allclose(param, param_expected))
+                self.assertTrue(np.allclose(param, param_expected))
 
         # Test that all the pass_args were received.  Note that the solver
         # will call get_gradient once at the start to determine the shape
@@ -1832,6 +1852,107 @@ class TestSolvers(TestCase):
             ))
 
         return params_expected
+
+
+    def calculate_expected_nesterov_optimized_cautious_params(
+        self, times, learning_rate, momentum_decay, implementation, 
+        device='cpu'
+    ):
+
+        h.utils.ensure_implementation_valid(implementation)
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        params_expected = [[]]
+        gradient_steps = []
+
+        if implementation == 'numpy':
+            params_expected[0].append(np.random.random((1,)))
+            params_expected[0].append(np.random.random((3,3)))
+            momentum_expected = [[np.zeros((1,)), np.zeros((3,3))]]
+            last_gradient = [np.zeros((1,)), np.zeros((3,3))]
+
+        else:
+            params_expected[0].append(torch.tensor(
+                np.random.random((1,)), dtype=torch.float32, device=device
+            ))
+            params_expected[0].append(torch.tensor(
+                np.random.random((3,3)), dtype=torch.float32, device=device 
+            ))
+            momentum_expected = [[
+                torch.tensor(
+                    np.zeros((1,)), dtype=torch.float32, device=device), 
+                torch.tensor(
+                    np.zeros((3,3)), dtype=torch.float32, device=device)
+            ]]
+            last_gradient = [
+                torch.tensor(
+                    np.zeros((1,)), dtype=torch.float32, device=device),
+                torch.tensor(
+                    np.zeros((3,3)), dtype=torch.float32, device=device)
+            ]
+
+
+        for i in range(times):
+
+            # In this test, the gradient is always equal to `params + 0.1`
+            gradient = (
+                (params_expected[-1][0] + 0.1),
+                (params_expected[-1][1] + 0.1)
+            )
+            last_gradient_norm = (
+                h.utils.norm(last_gradient[0]) 
+                + h.utils.norm(last_gradient[1])
+            )
+            gradient_norm = (
+                h.utils.norm(gradient[0]) 
+                + h.utils.norm(gradient[1])
+            )
+            product = (
+                h.utils.dot(last_gradient[0], gradient[0])
+                + h.utils.dot(last_gradient[1], gradient[1])
+            )
+            norms = last_gradient_norm * gradient_norm
+
+            if norms == 0:
+                alignment = 1
+            else:
+                alignment = product / norms
+
+            if implementation == 'torch':
+                last_gradient = [gradient[0].clone(), gradient[1].clone()]
+            else:
+                last_gradient = [gradient[0].copy(), gradient[1].copy()]
+
+            use_decay = max(0, alignment) * momentum_decay
+            gradient_steps.append((
+                (params_expected[-1][0] + 0.1) * learning_rate,
+                (params_expected[-1][1] + 0.1) * learning_rate
+            ))
+            
+
+            # Calculate the current momentum
+            momentum_expected.append((
+                use_decay * momentum_expected[-1][0] 
+                    + gradient[0] * learning_rate,
+                use_decay * momentum_expected[-1][1]
+                    + gradient[1] * learning_rate
+            ))
+
+            # Do the accellerated update
+            params_update = (
+                gradient_steps[-1][0] 
+                    + use_decay * momentum_expected[-1][0],
+                gradient_steps[-1][1]
+                    + use_decay * momentum_expected[-1][1]
+            )
+
+            new_params = (
+                params_expected[-1][0] + params_update[0],
+                params_expected[-1][1] + params_update[1]
+            )
+            params_expected.append(new_params)
+
+        return params_expected
             
 
 
@@ -1853,25 +1974,7 @@ class TestEmbedderSolverIntegration(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             M, f_MSE, d, learning_rate)
         solver = h.solver.NesterovSolver(
-            embedder, learning_rate, momentum_decay)
-        solver.cycle(times=times)
-
-
-    def test_embedder_nesterov_solver_optimized_integration(self):
-
-        d = 5
-        times = 3
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
-
-        # This test just makes sure that the solver and embedder interface
-        # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
-        solver = h.solver.NesterovSolverOptimized(
-            embedder, learning_rate, momentum_decay)
+            embedder, learning_rate, momentum_decay, implementation='numpy')
         solver.cycle(times=times)
 
 
@@ -1889,8 +1992,90 @@ class TestEmbedderSolverIntegration(TestCase):
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
         solver = h.solver.MomentumSolver(
-            embedder, learning_rate, momentum_decay)
+            embedder, learning_rate, momentum_decay, implementation='numpy')
         solver.cycle(times=times)
+
+
+    def test_embedder_nesterov_solver_optimized_integration(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
+        solver = h.solver.NesterovSolverOptimized(
+            embedder, learning_rate, momentum_decay, implementation='numpy')
+        solver.cycle(times=times)
+
+
+    def test_embedder_solver_integration_torch(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch')
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='torch')
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            M, f_MSE, d, learning_rate)
+        solver = h.solver.NesterovSolver(
+            embedder, learning_rate, momentum_decay, implementation='torch')
+        solver.cycle(times=times)
+
+
+    def test_embedder_momentum_solver_integration_torch(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch', device='cpu')
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device='cpu')
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            M, f_MSE, d, learning_rate, device='cpu')
+        solver = h.solver.MomentumSolver(
+            embedder, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu'
+        )
+        solver.cycle(times=times)
+
+
+    def test_embedder_nesterov_solver_optimized_integration_torch(self):
+
+        d = 5
+        times = 3
+        learning_rate = 0.01
+        momentum_decay = 0.8
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch', device='cpu')
+
+        # This test just makes sure that the solver and embedder interface
+        # properly.  All is good as long as this doesn't throw errors.
+        f_MSE = h.f_delta.get_f_MSE(
+            cooc_stats, M, implementation='torch', device='cpu')
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            M, f_MSE, d, learning_rate, device='cpu')
+        solver = h.solver.NesterovSolverOptimized(
+            embedder, learning_rate, momentum_decay,
+            implementation='torch', device='cpu'
+        )
+        solver.cycle(times=times)
+
 
 
 # These functions came from hilbert-experiments, where they were only being
@@ -2639,6 +2824,8 @@ class TestEmbeddings(TestCase):
             V[dictionary.tokens.index('apple')]
         ))
 
+        # KeyErrors are trigerred when trying to access embeddings that are
+        # out-of-vocabulary.
         with self.assertRaises(KeyError):
             embeddings.get_vec('archaeopteryx')
 
@@ -2647,6 +2834,26 @@ class TestEmbeddings(TestCase):
             
         with self.assertRaises(KeyError):
             embeddings['archaeopteryx']
+
+        # IndexErrors are raised for trying to access non-existent embedding
+        # indices
+        with self.assertRaises(IndexError):
+            embeddings.get_vec(5000)
+
+        with self.assertRaises(IndexError):
+            embeddings.get_vec((0,300))
+
+        with self.assertRaises(IndexError):
+            embeddings.get_covec(5000)
+
+        with self.assertRaises(IndexError):
+            embeddings.get_covec((0,300))
+
+        with self.assertRaises(IndexError):
+            embeddings[5000]
+
+        with self.assertRaises(IndexError):
+            embeddings[0,300]
 
         embeddings = h.embeddings.Embeddings(V, W, dictionary=None)
         with self.assertRaises(ValueError):
@@ -2670,13 +2877,10 @@ class TestEmbeddings(TestCase):
         ))
 
         with self.assertRaises(ValueError):
-            self.assertTrue(np.allclose(embeddings.get_covec(1000), W[1000]))
+            embeddings.get_covec(1000)
 
         with self.assertRaises(ValueError):
-            self.assertTrue(np.allclose(
-                embeddings.get_covec('apple'),
-                W[dictionary.tokens.index('apple')]
-            ))
+            embeddings.get_covec('apple'),
 
 
     def test_save_load(self):
@@ -2797,7 +3001,9 @@ class TestEmbeddings(TestCase):
         device='cpu'
 
         embeddings = h.embeddings.Embeddings(
-            V, dictionary, shared=True, implementation='torch',device='cpu')
+            V, dictionary=dictionary, shared=True, 
+            implementation='torch', device='cpu'
+        )
 
         self.assertFalse(embeddings.normed)
         self.assertFalse(embeddings.check_normalized())
@@ -2816,6 +3022,16 @@ class TestEmbeddings(TestCase):
             np.allclose(h.utils.norm(embeddings.W, axis=1), 1.0))
 
         self.assertTrue(np.allclose(embeddings.V, embeddings.W))
+
+
+    def test_cannot_provide_W_if_shared(self):
+        d = 300
+        vocab = 5000
+        V = torch.rand((vocab, d))
+        W = torch.rand((vocab, d))
+
+        with self.assertRaises(ValueError):
+            embeddings = h.embeddings.Embeddings(V, W, shared=True)
 
 
     def test_greatest_product(self):
@@ -2930,25 +3146,43 @@ class TestEmbeddings(TestCase):
         device='cpu'
 
         embeddings = h.embeddings.Embeddings(
-            V, dictionary, shared=True, implementation='torch',device='cpu')
+            V, W, dictionary, implementation='torch',device='cpu'
+        )
 
         self.assertTrue(torch.allclose(embeddings[0:5000:1,0:300:1], V))
+        self.assertTrue(torch.allclose(
+            embeddings.get_vec((slice(0,5000,1),slice(0,300,1))), V))
+        self.assertTrue(torch.allclose(
+            embeddings.get_covec((slice(0,5000,1),slice(0,300,1))), 
+            W
+        ))
 
-        #  (You cannot use negative step size in torch tensors.)
 
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
         device='cpu'
 
         embeddings = h.embeddings.Embeddings(
-            V, dictionary, shared=True, implementation='numpy')
+            V, W, dictionary, implementation='numpy')
 
         self.assertTrue(
             np.allclose(embeddings[0:5000:1,0:300:1], V))
+        self.assertTrue(np.allclose(
+                embeddings.get_vec((slice(0,5000,1),slice(0,300,1))), V))
+        self.assertTrue(np.allclose(
+                embeddings.get_covec((slice(0,5000,1),slice(0,300,1))), W))
 
         #  You can use negative step size for numpy arrays!
         self.assertTrue(np.allclose(
             embeddings[500:1000:-2,50:100:-10], V[500:1000:-2,50:100:-10])
+        )
+        self.assertTrue(np.allclose(
+            embeddings.get_vec((slice(500,1000,-2),slice(50,100,-10))),
+            V[500:1000:-2,50:100:-10])
+        )
+        self.assertTrue(np.allclose(
+            embeddings.get_covec((slice(500,1000,-2),slice(50,100,-10))),
+            W[500:1000:-2,50:100:-10])
         )
 
 
