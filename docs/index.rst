@@ -114,7 +114,7 @@ Any slicey stuff will be sent right through to the underlying tensors / arrays:
             [0.7956, 0.7815, 0.4875],
             [0.7281, 0.8238, 0.9222]])
 
-In most cases, vectors, as opposed to covectors, are desired.  To access covectors, use the `get_covec()` method considered:
+In most cases, vectors, as opposed to covectors, are desired.  To access covectors, use the ``get_covec()`` method considered:
 
 .. code-block:: python
     
@@ -123,7 +123,7 @@ In most cases, vectors, as opposed to covectors, are desired.  To access covecto
     >>> embeddings.get_covec('dog')
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
 
-(or just slice into the `W` attribute.)
+(or just slice into the ``W`` attribute.)
 
 
 Reference for ``hilbert.embeddings.Embeddings``
@@ -137,15 +137,15 @@ Reference for ``hilbert.embeddings.Embeddings``
 
         A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows
         correspond to word vectors.  If the Embeddings are created with
-        ``implementation='numpy'``, then `V` will be a numpy.ndarray.
+        ``implementation='numpy'``, then ``V`` will be a numpy.ndarray.
 
     .. py:attribute:: W
 
         A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows
         correspond to word covectors. If the Embeddings are created with
-        ``implementation='numpy'``, then `V` will be a numpy.ndarray.
-        Embeddings can be created without any covectors, in which case `W` will
-        be `None`.
+        ``implementation='numpy'``, then ``V`` will be a numpy.ndarray.
+        Embeddings can be created without any covectors, in which case ``W``
+        will be ``None``.
 
     .. py:attribute:: dictionary
 
