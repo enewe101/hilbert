@@ -133,25 +133,14 @@ Reference for ``hilbert.embeddings.Embeddings``
 
 .. autoclass:: embeddings.Embeddings
 
-    .. py:attribute V
+    .. autoattribute:: V
+        :annotation: = A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows correspond to word vectors.  If the Embeddings are created with ``implementation='numpy'``, then `V` will be a numpy.ndarray.
 
-        A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows
-        correspond to word vectors.  If the Embeddings are created with
-        ``implementation='numpy'``, then `V` will be a numpy.ndarray.
+    .. autoattribute:: W
+        :annotation: = A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows correspond to word covectors. If the Embeddings are created with ``implementation='numpy'``, then `V` will be a numpy.ndarray.  Embeddings can be created without any covectors, in which case `W` will be `None`.
 
-    .. py:attribute W
-
-        A 2D ``torch.Tensor`` with ``dtype=torch.float32`` whose rows
-        correspond to word covectors. If the Embeddings are created with
-        ``implementation='numpy'``, then `V` will be a numpy.ndarray.
-        Embeddings can be created without any covectors, in which case `W` will
-        be `None`.
-
-    .. py:attribute dictionary
-
-        A ``hilbert.dictionary.Dictionary`` instance, or None, depending on 
-        whether a dictionary was provided when creating the embeddings.
-
+    .. autoattribute:: dictionary
+        :annotation: = A ``hilbert.dictionary.Dictionary`` instance, or None, depending on whether a dictionary was provided when creating the embeddings.
 
     :member-order: bysource
     :members:
