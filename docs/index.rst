@@ -72,7 +72,7 @@ Embeddings can use a dictionary.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Dictionaries map tokens to integer IDs, which themselves correspond to the
-index of that tokens embedding within ``V`` and ``W``.  When embeddings have an
+index of that token's embedding within ``V`` and ``W``.  When embeddings have an
 associated dictionary, you can access vectors for given words by name:
 
 .. code-block:: python
@@ -85,7 +85,7 @@ associated dictionary, you can access vectors for given words by name:
     >>> my_embeddings['dog']
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
     >>>
-    >>> # Dictionaries provide a word's index in V and W; note the equivalence:
+    >>> # Note the equivalence
     >>> all(my_embeddings['dog'] == my_embeddings[dictionary.get_id('dog')])
     True
 
@@ -114,11 +114,12 @@ Any slicey stuff will be sent right through to the underlying tensors / arrays:
             [0.7956, 0.7815, 0.4875],
             [0.7281, 0.8238, 0.9222]])
 
-As we saw above, you can access a word's vector by name if you have provided
-a dictionary.  To get covectors by name, do this:
+In most cases, vectors, as opposed to covectors, are desired.  To access covectors, use the `get_covec()` method considered:
 
 .. code-block:: python
     
+    >>> embeddings.get_covec(3170)
+    tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
     >>> embeddings.get_covec('dog')
     tensor([0.4308, 0.9972, 0.0308, 0.6320, 0.6734, 0.9966, 0.7073, 0.2918...])
 
