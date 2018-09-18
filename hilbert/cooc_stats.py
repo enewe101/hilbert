@@ -94,6 +94,16 @@ class CoocStats(object):
         return result
 
 
+    def __iter__(self):
+        """
+        Returns Nxx, Nx, N, which means that the CoocStats instance can easily
+        unpack into cooccurrence counts, unigram counts, and the total number
+        of tokens.  Useful for functions expecting such a stats triplet, and
+        for getting raw access to the data.
+        """
+        return iter((self.denseNxx, self.Nx, self.N))
+
+    
     #def __radd__(self, other):
     #    """
     #    Create a new CoocStats that has counts from both operands.

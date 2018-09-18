@@ -5,6 +5,7 @@ from copy import copy, deepcopy
 from collections import Counter
 import hilbert as h
 
+
 try:
     import numpy as np
     from scipy import sparse
@@ -93,6 +94,334 @@ class TestCorpusStats(TestCase):
         # Next, test with a cooccurrence window of +/-3
         cooc_stats = h.corpus_stats.get_test_stats(3)
         self.assertTrue(np.allclose(cooc_stats.denseNxx,self.N_XX_3))
+
+
+
+
+class TestM(TestCase):
+
+    def test_undersample(self):
+
+        # Setup
+        t_undersample = 0.1
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+        Nx = Nx.reshape(-1)
+
+        # Manually calculate probability that a token is kept.
+        p_xx = np.array([
+            [
+                min(1, np.sqrt(t_undersample * N / Nx[i])) 
+                    * min(1, np.sqrt(t_undersample * N / Nx[j]))
+                for i in range(Nx.shape[0])
+            ]
+            for j in range(Nx.shape[0])
+        ])
+
+        # Expected expectation counts given undersampling
+        expectedNxx = Nxx * p_xx
+        expectedNx = np.sum(expectedNxx, axis=1, keepdims=True)
+        expectedN = np.sum(expectedNx)
+
+        # Found expectation counts given undersampling
+        foundNxx, foundNx, foundN = h.M.undersample(cooc_stats, t_undersample)
+
+        # Verify Nxx and its roll-ups.
+        self.assertTrue(np.allclose(foundNxx, expectedNxx))
+        self.assertTrue(np.allclose(foundNx, expectedNx))
+        self.assertTrue(np.allclose(foundN, expectedN))
+
+
+
+    def test_calc_M_pmi(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+
+        # First calculate using no options
+        found_M = h.M.calc_M_pmi(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        shift_by = -np.log(15)
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats) + shift_by
+        found_M = h.M.calc_M_pmi(cooc_stats, shift_by=shift_by)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        t_undersample = 0.1
+        undersamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
+        expected_M = h.corpus_stats.calc_PMI(undersamp_cooc_stats)
+        found_M = h.M.calc_M_pmi(cooc_stats, t_undersample=t_undersample)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        clip_thresh = -0.1
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M[expected_M<clip_thresh] = clip_thresh
+        found_M = h.M.calc_M_pmi(cooc_stats, clip_thresh=clip_thresh)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        diag = 5
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        np.fill_diagonal(expected_M, diag)
+        found_M = h.M.calc_M_pmi(cooc_stats, diag=diag)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        implementation='numpy'
+        found_M = h.M.calc_M_pmi(cooc_stats, implementation=implementation)
+        self.assertTrue(isinstance(found_M, np.ndarray))
+
+        implementation='torch'
+        device='cpu'
+        found_M = h.M.calc_M_pmi(
+            cooc_stats, implementation=implementation, device=device)
+        self.assertTrue(isinstance(found_M, torch.Tensor))
+        self.assertEqual(str(found_M.device), 'cpu')
+
+
+    def test_calc_M_logNxx(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+
+        # First calculate using no options.
+        M = h.M.calc_M_logNxx(cooc_stats)
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(cooc_stats.denseNxx)
+        self.assertTrue(np.allclose(M, expected_M))
+
+        # Test shift option.
+        shift_by = -np.log(15)
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(cooc_stats.denseNxx) + shift_by
+        found_M = h.M.calc_M_logNxx(cooc_stats, shift_by=shift_by)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test undersample option.
+        t_undersample = 0.1
+        usampNxx, usampNx, usampN = h.M.undersample(cooc_stats, t_undersample)
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(usampNxx)
+        found_M = h.M.calc_M_logNxx(cooc_stats, t_undersample=t_undersample)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test setting a clip threshold.
+        clip_thresh = -0.1
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(cooc_stats.denseNxx)
+        expected_M[expected_M<clip_thresh] = clip_thresh
+        found_M = h.M.calc_M_logNxx(cooc_stats, clip_thresh=clip_thresh)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test setting diagonal values to a given constant.
+        diag = 5
+        with np.errstate(divide='ignore'):
+            expected_M = np.log(cooc_stats.denseNxx)
+        np.fill_diagonal(expected_M, diag)
+        found_M = h.M.calc_M_logNxx(cooc_stats, diag=diag)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test explicitly choosing implementation.
+        implementation='numpy'
+        found_M = h.M.calc_M_logNxx(cooc_stats, implementation=implementation)
+        self.assertTrue(isinstance(found_M, np.ndarray))
+
+        # Test explicitly choosing implementation.
+        implementation='torch'
+        device='cpu'
+        found_M = h.M.calc_M_logNxx(
+            cooc_stats, implementation=implementation, device=device)
+        self.assertTrue(isinstance(found_M, torch.Tensor))
+        self.assertEqual(str(found_M.device), 'cpu')
+
+
+
+    def test_calc_M_pmi_star(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+
+        # First calculate using no options
+        M = h.M.calc_M_pmi_star(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        self.assertTrue(np.allclose(M, expected_M))
+
+        # Test shift option.
+        shift_by = -np.log(15)
+        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats) + shift_by
+        found_M = h.M.calc_M_pmi_star(cooc_stats, shift_by=shift_by)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test undersample option.
+        t_undersample = 0.1
+        usamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
+        usampNxx, usampNx, usampN = usamp_cooc_stats
+        expected_M = h.corpus_stats.calc_PMI_star(usamp_cooc_stats)
+        found_M = h.M.calc_M_pmi_star(cooc_stats, t_undersample=t_undersample)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test setting a clip threshold.
+        clip_thresh = -0.1
+        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        expected_M[expected_M<clip_thresh] = clip_thresh
+        found_M = h.M.calc_M_pmi_star(cooc_stats, clip_thresh=clip_thresh)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test setting diagonal values to a given constant.
+        diag = 5
+        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        np.fill_diagonal(expected_M, diag)
+        found_M = h.M.calc_M_pmi_star(cooc_stats, diag=diag)
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        # Test explicitly choosing implementation.
+        implementation='numpy'
+        found_M = h.M.calc_M_pmi_star(
+            cooc_stats, implementation=implementation)
+        self.assertTrue(isinstance(found_M, np.ndarray))
+
+        # Test explicitly choosing implementation.
+        implementation='torch'
+        device='cpu'
+        found_M = h.M.calc_M_pmi_star(
+            cooc_stats, implementation=implementation, device=device)
+        self.assertTrue(isinstance(found_M, torch.Tensor))
+        self.assertEqual(str(found_M.device), 'cpu')
+
+
+    def test_sample_multi_multinomial(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        # Set k really high, so that sample statistics approach their
+        # limiting values.
+        k = 150000
+        np.random.seed(0)
+        Nxx, Nx, N = cooc_stats
+
+        kNx = k * Nx
+        px = Nx / N
+        sample = h.M.sample_multi_multinomial(kNx, px)
+
+        # The number of samples in each row is exactly equal to the unigram
+        # frequency of the corresponding token, times k
+        self.assertTrue(np.allclose(
+            np.sum(sample, axis=1) / float(k), Nx.reshape(-1)))
+
+        # Given the very high value of k, the number of samples in each column
+        # is approximately equal to the unigram frequency of the corresponding
+        # token, times k.
+        self.assertTrue(np.allclose(
+            np.sum(sample, axis=0) / float(k), Nx.reshape(-1), atol=0.1))
+
+
+
+    def test_calc_M_neg_samp(self):
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+        np.random.seed(0)
+        atol = 0.1
+        usamp_atol = 0.3
+        k_samples = 1000
+
+        # If we take enough samples, then negative sampling simulates PMI
+        k_weight = 1.
+        alpha = 1.
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, 
+            k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            device='cpu'
+        )
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+        # Now try using a k_weight not equal to 1.
+        k_weight = 15.
+        alpha = 1.
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            device='cpu'
+        )
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k_weight)
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+        # Now we will use an alpha value not equal to 1
+        k_weight = 15.
+        alpha = 0.75
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            device='cpu'
+        )
+        distorted_unigram = Nx**alpha
+        distorted_unigram = distorted_unigram / np.sum(distorted_unigram)
+        with np.errstate(divide='ignore'):
+            expected_M = (
+                np.log(Nxx) - np.log(Nx) - np.log(distorted_unigram.T) 
+                - np.log(k_weight)
+            )
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+        # Test shift option.
+        shift_by = -np.log(15)
+        k_weight = 1.
+        alpha = 1.
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            shift_by=-np.log(15), device='cpu'
+        )
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(15)
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+
+        # If we take enough samples, then negative sampling simulates PMI
+        k_weight = 1.
+        alpha = 1.
+        t_undersample = 0.1
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, 
+            k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            t_undersample=t_undersample,
+            device='cpu'
+        )
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = h.M.undersample(cooc_stats, t_undersample)
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
+        self.assertTrue(np.allclose(found_M, expected_M, atol=usamp_atol))
+
+
+        # Test setting a clip threshold.
+        clip_thresh = -0.1
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M[expected_M<clip_thresh] = clip_thresh
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            clip_thresh=clip_thresh, device='cpu'
+        )
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+
+        # Test setting diagonal values to a given constant.
+        diag = 5
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        np.fill_diagonal(expected_M, diag)
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+            diag=diag, device='cpu'
+        )
+        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+
+        # Test explicitly choosing implementation.
+        implementation='numpy'
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, implementation=implementation)
+        self.assertTrue(isinstance(found_M, np.ndarray))
+
+
+        # Test explicitly choosing implementation.
+        implementation='torch'
+        device='cpu'
+        found_M = h.M.calc_M_neg_samp(
+            cooc_stats, implementation=implementation, device=device)
+        self.assertTrue(isinstance(found_M, torch.Tensor))
+        self.assertEqual(str(found_M.device), 'cpu')
 
 
 
@@ -2183,6 +2512,15 @@ class TestDictionary(TestCase):
 class TestCoocStats(TestCase):
 
 
+    def test_cooc_stats_unpacking(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+        self.assertTrue(np.allclose(Nxx, cooc_stats.denseNxx))
+        self.assertTrue(np.allclose(Nx, cooc_stats.Nx))
+        self.assertTrue(np.allclose(N, cooc_stats.N))
+
+
+
     def get_test_cooccurrence_stats(self):
         DICTIONARY = h.dictionary.Dictionary([
             'banana', 'socks', 'car', 'field'])
@@ -3097,11 +3435,12 @@ class TestEmbeddings(TestCase):
         )
 
         # Given a query vector, verify that we can find the other vector having
-        # the greatest dot product.
-        query = embeddings['dog']
-        normed = h.utils.normalize(embeddings.V, axis=0)
-        products = normed @ query
-
+        # the greatest dot product.  We want to test cosine similarity, so we
+        # should take the dot product of normalized vectors.
+        
+        normed_query = h.utils.normalize(embeddings['dog'], axis=0)
+        normed_V = h.utils.normalize(embeddings.V, axis=1)
+        products = normed_V @ normed_query
         ranks = sorted(
             [(p, idx) for idx, p in enumerate(products)], reverse=True)
         expected_ranked_tokens = [
@@ -3110,6 +3449,7 @@ class TestEmbeddings(TestCase):
         ]
         expected_ranked_ids = [
             idx for p, idx in ranks if dictionary.get_token(idx) != 'dog']
+        
 
         found_ranked_tokens = embeddings.greatest_cosine('dog')
 

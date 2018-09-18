@@ -50,10 +50,16 @@ def transpose(array_or_tensor):
     raise ValueError('Expected either numpy ndarray or torch Tensor.')
 
 
-def ensure_implementation_valid(implementation):
+def ensure_implementation_valid(implementation, device=None):
     if implementation != 'torch' and implementation != 'numpy':
         raise ValueError(
             "implementation must be 'torch' or 'numpy'.  Got %s."
             % repr(implementation)
+        )
+
+    if device is not None and device != 'cuda' and device != 'cpu':
+        raise ValueError(
+            "`device` must be None, 'cuda', or 'cpu'.  Got %s."
+            % repr(device)
         )
 

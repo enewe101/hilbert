@@ -221,13 +221,13 @@ class Embeddings:
         highest to lowest cosine similarity with the given one.
         """
         if not self.normed:
-            normed_embeddings = h.utils.normalize(self.V, axis=0)
+            normed_V = h.utils.normalize(self.V, axis=1)
         else:
-            normed_embeddings = self.V
+            normed_V = self.V
 
-        query_vec = self[key]
+        normed_query_vec = h.utils.normalize(self[key], axis=0)
         query_id = self._as_id(key)
-        inner_products = normed_embeddings @ query_vec
+        inner_products = normed_V @ normed_query_vec
         top_indices = np.argsort(-inner_products)
         if isinstance(key, str):
             return [
