@@ -33,6 +33,25 @@ def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
     return f_w2v
 
 
+def get_f_w2v_sh(cooc_stats, M, k, device='cuda'):
+    h.utils.ensure_implementation_valid(implementation)
+    def f_w2v(M_hat, shard, num_shards):
+        Nx = torch.tensor(N_x[shard::num_shards], device=device)
+        Nxx = torch.tensor(
+            Nxx[shard::num_shards,shard::num_shards], device=device)
+        N_neg_xx = k * Nx * Nx.t() / cooc_stats.N
+        multiplier = Nxx + N_neg_xx
+        sigmoid_M = sigmoid(
+            torch.log(Nxx) + torch.log(cooc_stats.N) 
+            - torch.log(Nx) - torch.log(Nx.t())
+        )
+        return multiplier * (sigmoid_M - sigmoid(M_hat))
+
+    return f_w2v
+
+
+
+
 def get_f_glove(
     cooc_stats, M,
     X_max=100.0,

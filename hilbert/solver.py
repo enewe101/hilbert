@@ -212,6 +212,7 @@ class NesterovSolverCautious(object):
 
 
     def allocate(self):
+        self.last_norm = None
         self.momenta = []
         self.updates = []
         self.last_gradient = []
@@ -231,35 +232,47 @@ class NesterovSolverCautious(object):
 
 
     def clear_momenta(self):
+        self.last_norm = None
         for j in range(len(self.momenta)):
             self.momenta[j][...] = 0
+            self.last_gradient[j][...] = 0
+            self.updates.append(np.zeros(param.shape))
 
 
     def cycle(self, times=1, pass_args=None):
         pass_args = pass_args or {}
-        
         for i in range(times):
 
             # Calculate gradients at accellerated position
             gradients = self.objective.get_gradient(pass_args=pass_args)
 
             # Calculate alignment with last gradient
-            norm = 0
-            last_norm = 0
-            product = 0
+            product = 0.
+            norm_squared = sum(
+                h.utils.norm(gradients[j])**2
+                for j in range(len(gradients))
+            )
+            product = sum( 
+                h.utils.dot(gradients[j], self.last_gradient[j])
+                for j in range(len(gradients))
+            )
 
-            for j in range(len(self.last_gradient)):
-                last_norm += h.utils.norm(self.last_gradient[j])
-                norm += h.utils.norm(gradients[j])
-                # TODO: can't use torch.dot this needs to generalize over np 
-                # arrays too.
-                product += h.utils.dot(gradients[j], self.last_gradient[j])
-
-            norms = norm * last_norm
-            if norms == 0:
+            norm = torch.sqrt(norm_squared)
+            if self.last_norm is None:
                 alignment = 1
+                norms = None
             else:
+                norms = self.last_norm * norm
                 alignment = product / norms
+
+            print('\tnorm: ' + str(norm))
+            print('\tlast_norm: ' + str(self.last_norm))
+            print('\tnorms: ' + str(norms))
+            print('\tproduct: ' + str(product))
+            if self.last_norm is not None:
+                print('\tproduct / norms: ' + str(product / norms))
+            print('\talignment: ' + str(alignment))
+            self.last_norm =  norm
 
             if self.implementation == 'torch':
                 self.last_gradient = [

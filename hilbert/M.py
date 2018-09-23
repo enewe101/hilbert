@@ -6,7 +6,6 @@ except ImportError:
     np = None
     torch = None
 
-NOTIFIED_DEPRECATED = False
 
 def apply_effects(base):
     def effected_base(
@@ -37,7 +36,6 @@ def apply_effects(base):
         return use_implementation(M, implementation, device)
 
     return effected_base
-
 
 
 @apply_effects
@@ -76,8 +74,8 @@ def calc_M_neg_samp(
         per corpus sample.  But if the value is provided, then that's what 
         is used as the weight.
     ``alpha`` (float): exponent applied to unigram distribution, which distorts
-        it.  As alpha becomes < 1, it makes the distribution flatter and 
-        more "temperate".  Conceptually, alpha is inverse temperature.
+        it.  As alpha becomes < 1, it makes the distribution flatter.
+        Conceptually, alpha is inverse temperature.
     """
     # Unpack args and apply defaults.
     k_weight = k_samples if k_weight is None else k_weight
@@ -94,6 +92,7 @@ def calc_M_neg_samp(
     # Draw negative samples
     distorted_px = distorted_Nx / distorted_N
     samples = sample_multi_multinomial(k_samples * Nx, distorted_px)
+    print('warning, negative sampling routine truncated for DEBUG')
 
     # Set negative sample wieght, if provided
     # Note that if k_weight is None, effective weight is k_samples
@@ -104,7 +103,6 @@ def calc_M_neg_samp(
         return np.log(Nxx) - np.log(samples)
 
 
-
 def sample_multi_multinomial(kNx, px):
     kNx = kNx.reshape(-1)
     px = px.reshape(-1)
@@ -112,7 +110,6 @@ def sample_multi_multinomial(kNx, px):
     for i in range(len(kNx)):
         samples[i,:] = np.random.multinomial(kNx[i], px)
     return samples
-
 
 
 def set_diag(M, val=None):
@@ -145,7 +142,7 @@ def undersample(cooc_stats, t=None):
     p_x = np.sqrt(t * cooc_stats.N / cooc_stats.Nx)
     p_x[p_x > 1] = 1
 
-    # Probability that, for a particular cooccurrent pair (i, j)
+    # Probability that, for a particular cooccurring pair (i, j)
     # both i and j are kept
     p_xx = p_x * p_x.T
 
@@ -161,7 +158,6 @@ def undersample(cooc_stats, t=None):
     return use_Nxx, use_Nx, use_N
 
 
-
 def use_implementation(M, implementation='torch', device='cuda'):
     h.utils.ensure_implementation_valid(implementation)
     if implementation == 'torch':
@@ -169,70 +165,24 @@ def use_implementation(M, implementation='torch', device='cuda'):
     elif implementation == 'numpy':
         return M
 
+
 def calc_M(
     cooc_stats,
     base,
-    shift=None,
-    no_neg_inf=False,
-    positive=False,
-    diag=None,
-    implementation='torch',
-    device='cuda'
+    *args,
+    **kwargs
 ):
-    """
-    Get the matrix of target dot-products.
-    `base` ('pmi' | 'logNxx' | 'swivel'): 
-        Determines the type of cooccurrence statistic to use as a base for M.
-    `shift` (None | float):
-        If `shift` is not None, add `log(shift)` to all values
-    `no_neg_inf` (False | True):
-        If True, set any negative infinity values to zero.
-    `positive` (False | True):
-        If `positive` is True, set all negative values to 0.
-    `diag` (None | float):
-        If `diag` is not None, set all diagonal cells to to the value of `diag`.
-    """
-
-    global NOTIFIED_DEPRECATED
-    if not NOTIFIED_DEPRECATED:
-        NOTIFIED_DEPRECATED = True
-        print(
-            'M.calc_M is deprecated.  '
-            'Start using one of the more specific M-calculators.'
-        )
-
-
-    # First, get the basic values for M
-    base = base.lower()
     if base == 'pmi':
-        M = h.corpus_stats.calc_PMI(cooc_stats)
-    elif base == 'lognxx':
-        with np.errstate(divide='ignore'):
-            M = np.log(cooc_stats.denseNxx)
-    elif base == 'swivel':
-        M = h.corpus_stats.calc_PMI_star(cooc_stats)
-    else:
-        raise ValueError('Unexpected `base` in get_M: %s' % repr(base))
-
-    if shift is not None:
-        M += shift
-
-    if no_neg_inf:
-        M[M==-np.inf] = 0
-
-    if positive:
-        M[M<0] = 0
-
-    if diag is not None:
-        np.fill_diagonal(M, diag)
-
-    if implementation == 'torch':
-        return torch.tensor(M, dtype=torch.float32, device=device)
-    elif implementation == 'numpy':
-        return M
+        return calc_M_pmi(cooc_stats, *args, **kwargs)
+    elif base == 'logNxx':
+        return calc_M_logNxx(cooc_stats, *args, **kwargs)
+    elif base == 'pmi-star':
+        return calc_M_pmi_star(cooc_stats, *args, **kwargs)
+    elif base == 'neg-samp':
+        return calc_M_neg_samp(cooc_stats, *args, **kwargs)
     else:
         raise ValueError(
-            'Unexpected `implementation` in get_M: %s.  Should be "torch" or '
-            '"numpy".' % repr(base)
+            "Unexpected base for calculating M: %s.  "
+            "Expected one of: 'pmi', 'logNxx', 'pmi-star', or 'neg-samp'."
         )
 

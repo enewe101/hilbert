@@ -20,7 +20,7 @@ def sim(word, context, embedder, dictionary):
 def get_embedder(
     cooc_stats,
     f_delta,            # 'mse' | 'w2v' | 'glove' | 'swivel' | 'mse'
-    base,               # 'pmi' | 'logNxx' | 'swivel'
+    base,               # 'pmi' | 'logNxx' | 'pmi-star' | 'neg-samp'
 
     solver='sgd',       # 'sgd' | 'momentum' | 'nesterov' | 'slosh'
 
@@ -29,19 +29,22 @@ def get_embedder(
     k=None,             # weight of negative samples (w2v only)
 
     # Options for M
-    shift=None,         # None | float -- shift all vals e.g. -np.log(k)
-    no_neg_inf=False,   # whether to set -np.inf values to zero.
-    positive=False,     # whether to clip negative values to zero.
-    diag=None,          # None | float -- set diagonals to this val
+    t_undersample=None,
+    shift_by=None,      # None | float -- shift all vals e.g. -np.log(k)
+    neg_inf_val=None,   # None | float -- set any negative infinities to given
+    clip_thresh=None,   # None | float -- clip values below thresh to thresh.
+    diag=None,          # None | float -- set main diagonal to given value.
 
-    # TODO: Add use noise samples, use noise smoothing
+    # Options for M if base is 'neg-samp':
+    k_samples=1,
+    k_weight=None,
+    alpha=1.0,
 
     # Options for embedder
     d=300,              # embedding dimension
-    learning_rate=1e-5,
+    learning_rate=1e-6,
     one_sided=False,    # whether vectors share parameters with covectors
     constrainer=None,   # constrainer instances can mutate values after update
-    pass_args={},       # kwargs to pass into f_delta when it is called
 
     # Options for solver
     momentum_decay=0.9,
@@ -52,10 +55,18 @@ def get_embedder(
 ):
 
     h.utils.ensure_implementation_valid(implementation)
-    M = h.M.calc_M(
-        cooc_stats, base, shift, no_neg_inf, positive, diag, 
-        implementation, device
-    )
+
+    M_args = {
+        'cooc_stats':cooc_stats, 'base':base, 't_undersample':t_undersample,
+        'shift_by':shift_by, 'neg_inf_val':neg_inf_val,
+        'clip_thresh':clip_thresh, 'diag':diag,
+        'implementation':implementation, 'device':device
+    }
+    if base == 'neg-samp':
+        M_args.update({
+            'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
+    M = h.M.calc_M(**M_args)
+
     f_getter = (
         h.f_delta.get_f_MSE if f_delta=='mse' else
         h.f_delta.get_f_w2v if f_delta=='w2v' else
@@ -100,14 +111,20 @@ def get_embedder(
         device=device, **f_options
     )
 
+    # TODO: delegate validation of option combinations to a validation
+    #   subroutine
+    # TODO: stop supporting torch implementation here.
     if implementation == 'torch':
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate, one_sided, constrainer, pass_args,
-            device,
+            M=M, f_delta=f_delta, d=d, learning_rate=learning_rate, 
+            one_sided=one_sided, constrainer=constrainer,
+            device=device,
         )
     else:
         embedder = HilbertEmbedder(
-            M, f_delta, d, learning_rate, one_sided, constrainer, pass_args)
+            M=M, f_delta=f_delta, d=d, learning_rate=learning_rate, 
+            one_sided=one_sided, constrainer=constrainer,
+        )
 
     solver_instance = (
         embedder if solver=='sgd' else
@@ -140,7 +157,6 @@ class HilbertEmbedder(object):
         learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
-        pass_args={}
     ):
         self.M = M
         self.d = d
@@ -154,7 +170,6 @@ class HilbertEmbedder(object):
         if self.one_sided and self.num_covecs != self.num_vecs:
             raise ValueError('M must be square for a one-sided embedder.')
         self.reset()
-        #self.measure(**pass_args)
 
 
     def sample_sphere(self):
@@ -264,7 +279,6 @@ class HilbertEmbedder(object):
 
 
     def cycle(self, times=1, print_badness=True, pass_args=None):
-        pass_args = pass_args or {}
         for i in range(times):
             self.update_self(pass_args)
             self.apply_constraints()

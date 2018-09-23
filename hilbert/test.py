@@ -16,6 +16,102 @@ except ImportError:
     torch = None
 
 
+class TestGetEmbedder(TestCase):
+
+    def test_get_glove_embedder(self):
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        d=300
+        learning_rate = 1e-6
+        one_sided = False
+        device = 'cpu'
+        constrainer = h.constrainer.glove_constrainer
+        X_max = 100.0
+        base = 'logNxx'
+        neg_inf_val=0
+        solver='sgd'
+
+        np.random.seed(0)
+        torch.manual_seed(0)
+        M = h.M.calc_M(
+            cooc_stats=cooc_stats, 
+            base=base,
+            #t_undersample=None,
+            neg_inf_val=neg_inf_val,
+            device=device,
+        )
+        f_delta_str = 'glove'
+        f_delta = h.f_delta.get_f_glove(
+            cooc_stats=cooc_stats,
+            M=M,
+            X_max=X_max,
+            device=device,
+        )
+        expected_embedder = h.torch_embedder.TorchHilbertEmbedder(
+            M=M,
+            f_delta=f_delta,
+            d=d,
+            learning_rate=learning_rate,
+            one_sided=one_sided,
+            constrainer=constrainer,
+            device=device,
+        )
+
+        np.random.seed(0)
+        torch.manual_seed(0)
+        found_embedder = h.embedder.get_embedder(
+            cooc_stats=cooc_stats,
+            f_delta=f_delta_str,
+            base=base,
+            solver=solver,
+            X_max=X_max,
+
+            # vvv Defaults
+            k=None,
+            t_undersample=None,
+            shift_by=None,
+            # ^^^ Defaults
+
+            neg_inf_val=neg_inf_val,
+
+            # vvv Defaults
+            clip_thresh=None,
+            diag=None,
+            k_samples=1,
+            k_weight=None,
+            alpha=1.0,
+            # ^^^ Defaults
+
+            d=d,
+            learning_rate=learning_rate,
+            one_sided=one_sided,
+            constrainer=constrainer,
+
+            # vvv Defaults
+            momentum_decay=0.9,
+            implementation='torch',
+            # ^^^ Defaults
+
+            device=device
+        )
+
+        expected_embedder.cycle(times=10)
+        print('\n\n\n')
+        found_embedder.cycle(times=10)
+
+        print(expected_embedder.V)
+        print(found_embedder.V)
+        print(expected_embedder.W)
+        print(found_embedder.W)
+
+        print(expected_embedder.badness)
+        print(found_embedder.badness)
+
+        self.assertTrue(torch.allclose(expected_embedder.V, found_embedder.V))
+        self.assertTrue(expected_embedder.badness, found_embedder.badness)
+
+
+
 class TestCorpusStats(TestCase):
 
     UNIQUE_TOKENS = {
@@ -424,6 +520,110 @@ class TestM(TestCase):
         self.assertEqual(str(found_M.device), 'cpu')
 
 
+    def test_calc_M(self):
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
+        t_undersample=0.1
+        shift_by=-np.log(15)
+        neg_inf_val=1
+        clip_thresh=-1
+        diag=2
+        implementation='torch'
+        device='cpu'
+
+        M = h.M.calc_M_pmi(
+            cooc_stats,
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        M_ = h.M.calc_M(
+            cooc_stats,
+            base='pmi',
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        self.assertTrue(torch.allclose(M, M_))
+
+        M = h.M.calc_M_logNxx(
+            cooc_stats,
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        M_ = h.M.calc_M(
+            cooc_stats,
+            base='logNxx',
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        self.assertTrue(torch.allclose(M, M_))
+
+        M = h.M.calc_M_pmi_star(
+            cooc_stats,
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        M_ = h.M.calc_M(
+            cooc_stats,
+            base='pmi-star',
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        self.assertTrue(torch.allclose(M, M_))
+
+        M = h.M.calc_M_neg_samp(
+            cooc_stats,
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        M_ = h.M.calc_M(
+            cooc_stats,
+            base='neg-samp',
+            t_undersample=t_undersample,
+            shift_by=shift_by,
+            neg_inf_val=neg_inf_val,
+            clip_thresh=clip_thresh,
+            diag=diag,
+            implementation=implementation,
+            device=device
+        )
+        self.assertTrue(torch.allclose(M, M_))
+
 
 
 class TestFDeltas(TestCase):
@@ -471,8 +671,9 @@ class TestFDeltas(TestCase):
         expected_multiplier = N_neg_xx + cooc_stats.denseNxx
         expected = expected_multiplier * expected_difference
 
-        M = h.M.calc_M(
-            cooc_stats, 'PMI', shift=-np.log(k), implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, shift_by=-np.log(k), implementation='numpy')
+
         M_hat = M + 1
         f_w2v = h.f_delta.get_f_w2v(cooc_stats, M, k, implementation='numpy')
         found = f_w2v(M_hat)
@@ -497,10 +698,8 @@ class TestFDeltas(TestCase):
             dtype=torch.float32, device=device
         )
 
-        M = h.M.calc_M(
-            cooc_stats, 'PMI', shift=-np.log(k),
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(cooc_stats, shift_by=-np.log(k), 
+            implementation='torch', device=device)
         M_hat = M + 1
         f_w2v = h.f_delta.get_f_w2v(
             cooc_stats, M, k, implementation='torch', device=device)
@@ -531,8 +730,8 @@ class TestFDeltas(TestCase):
             for i in range(cooc_stats.Nxx.shape[0])
         ])
 
-        M = h.M.calc_M(
-            cooc_stats, 'logNxx', implementation='numpy', no_neg_inf=True)
+        M = h.M.calc_M_logNxx(
+            cooc_stats, implementation='numpy', neg_inf_val=0)
         M_hat = M + 1
         f_glove = h.f_delta.get_f_glove(
             cooc_stats, M, implementation='numpy')
@@ -578,8 +777,8 @@ class TestFDeltas(TestCase):
             for i in range(cooc_stats.Nxx.shape[0])
         ]), dtype=torch.float32, device=device)
 
-        M = h.M.calc_M(
-            cooc_stats, 'logNxx', no_neg_inf=True, 
+        M = h.M.calc_M_logNxx(
+            cooc_stats, neg_inf_val=0, 
             implementation='torch', device=device
         )
         M_hat = M_hat = M + 1
@@ -615,7 +814,7 @@ class TestFDeltas(TestCase):
     def test_f_MSE(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
         M_hat = M + 1
         with np.errstate(invalid='ignore'):
             expected = M - M_hat
@@ -627,7 +826,7 @@ class TestFDeltas(TestCase):
 
     def test_f_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, base='swivel', implementation='numpy')
+        M = h.M.calc_M_pmi_star(cooc_stats, implementation='numpy')
         M_hat = M + 1
         expected = np.array([
             [
@@ -648,8 +847,8 @@ class TestFDeltas(TestCase):
     def test_f_swivel_torch(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         device = 'cpu'
-        M = h.M.calc_M(
-            cooc_stats, base='swivel', implementation='torch', device=device)
+        M = h.M.calc_M_pmi_star(
+            cooc_stats, implementation='torch', device=device)
         M_hat = M + 1
         expected = torch.tensor(np.array([
             [
@@ -681,7 +880,7 @@ class TestFDeltas(TestCase):
         expected = N_indep_xx / N_indep_max * (
             np.e**expected_M - np.e**expected_M_hat)
 
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
         M_hat = M + 1
         f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, implementation='numpy')
         found = f_MLE(M_hat)
@@ -743,8 +942,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True,
+        M = h.M.calc_M_pmi(cooc_stats, clip_thresh=0,
             implementation='numpy'
         )
 
@@ -779,8 +977,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -803,8 +1001,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
 
         offset_W = np.random.random(cooc_stats.Nxx.shape)
         offset_V = np.random.random(cooc_stats.Nxx.shape)
@@ -834,8 +1032,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
         
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -861,8 +1059,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
         offset_V = np.random.random(cooc_stats.Nxx.shape)
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
@@ -890,8 +1088,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
         pass_args = {'a':True, 'b':False}
 
         def get_mock_f_delta(cooc_stats, M_):
@@ -931,8 +1129,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
 
         # Define an arbitrary f_delta
         delta_amount = 0.1
@@ -969,8 +1167,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         # First make a non-one-sided embedder.
@@ -1011,8 +1209,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, clip_thresh=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         mse_embedder = h.embedder.HilbertEmbedder(
@@ -1033,8 +1231,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1055,8 +1253,8 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1085,8 +1283,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, neg_inf_val=0, implementation='numpy')
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1114,9 +1311,8 @@ class TestTorchHilbertEmbedder(TestCase):
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True,
-            implementation='torch', device=device
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device
         )
 
         # First make a non-one-sided embedder.
@@ -1180,10 +1376,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         # Make the embedder, whose method we are testing.
         f_MSE = h.f_delta.get_f_MSE(
@@ -1220,10 +1414,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         offset_W = torch.rand(cooc_stats.Nxx.shape)
         offset_V = torch.rand(cooc_stats.Nxx.shape)
@@ -1262,10 +1454,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1299,8 +1489,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, 
             implementation='torch', device=device
         )
         offset_V = torch.rand(cooc_stats.Nxx.shape)
@@ -1340,10 +1530,8 @@ class TestTorchHilbertEmbedder(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         # Make mock f_delta whose integration with an embedder is being tested.
         def get_mock_f_delta(cooc_stats, M_, implementation, device):
@@ -1401,10 +1589,8 @@ class TestTorchHilbertEmbedder(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         delta_amount = 0.1
 
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         # Test integration between an embedder and the following f_delta:
         delta_always = torch.zeros(M.shape) + delta_amount
@@ -1446,10 +1632,8 @@ class TestTorchHilbertEmbedder(TestCase):
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1478,10 +1662,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
@@ -1525,10 +1707,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1555,10 +1735,8 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1606,10 +1784,8 @@ class TestTorchHilbertEmbedder(TestCase):
         tolerance = 0.0001
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(
-            cooc_stats, base='PMI', positive=True, 
-            implementation='torch', device=device
-        )
+        M = h.M.calc_M_pmi(
+            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -2295,7 +2471,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2314,7 +2490,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2332,7 +2508,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='numpy')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2350,7 +2526,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='torch')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2369,7 +2545,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch', device='cpu')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='torch', device='cpu')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2391,7 +2567,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M(cooc_stats, 'PMI', implementation='torch', device='cpu')
+        M = h.M.calc_M_pmi(cooc_stats, implementation='torch', device='cpu')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.

@@ -369,7 +369,7 @@ class Embeddings:
             raise KeyError(
                 'Token %s in out of vocabulary.  Pass ``policy="unk"`` to '
                 'return the centroid embedder for '
-                'out-of-vocaulary tokens.'
+                'out-of-vocaulary tokens.' % repr(key)
             )
 
         # Return whether the key is out of vocabulary

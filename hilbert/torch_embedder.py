@@ -26,7 +26,6 @@ class TorchHilbertEmbedder(object):
         learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
-        pass_args={},
         device='cuda'
     ):
         self.M = torch.tensor(M, dtype=torch.float32, device=device)
@@ -42,7 +41,6 @@ class TorchHilbertEmbedder(object):
         if self.one_sided and self.num_covecs != self.num_vecs:
             raise ValueError('M must be square for a one-sided embedder.')
         self.reset()
-        #self.measure(**pass_args)
 
 
     def sample_sphere(self):
@@ -135,7 +133,6 @@ class TorchHilbertEmbedder(object):
 
 
     def cycle(self, times=1, print_badness=True, pass_args=None):
-        pass_args = pass_args or {}
         for i in range(times):
             self.update_self(pass_args)
             self.apply_constraints()
@@ -157,7 +154,6 @@ class TorchHilbertEmbedderOptimized(object):
         one_sided=False,
         constrainer=None,
         device='cpu',
-        pass_args={}
     ):
         self.M = torch.tensor(M, dtype=torch.float32, device=device)
         self.d = d
@@ -269,7 +265,6 @@ class TorchHilbertEmbedderOptimized(object):
 
 
     def cycle(self, times=1, print_badness=True, pass_args=None):
-        pass_args = pass_args or {}
         for i in range(times):
             self.update_self(pass_args)
             self.apply_constraints()
