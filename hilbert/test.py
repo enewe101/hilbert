@@ -95,17 +95,8 @@ class TestGetEmbedder(TestCase):
             device=device
         )
 
-        expected_embedder.cycle(times=10)
-        print('\n\n\n')
-        found_embedder.cycle(times=10)
-
-        print(expected_embedder.V)
-        print(found_embedder.V)
-        print(expected_embedder.W)
-        print(found_embedder.W)
-
-        print(expected_embedder.badness)
-        print(found_embedder.badness)
+        expected_embedder.cycle(times=10, print_badness=False)
+        found_embedder.cycle(times=10, print_badness=False)
 
         self.assertTrue(torch.allclose(expected_embedder.V, found_embedder.V))
         self.assertTrue(expected_embedder.badness, found_embedder.badness)
@@ -1100,8 +1091,7 @@ class TestHilbertEmbedder(TestCase):
             return mock_f_delta
 
         f_delta = get_mock_f_delta(cooc_stats, M)
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_delta, d, learning_rate, pass_args=pass_args)
+        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
 
         self.assertEqual(embedder.learning_rate, learning_rate)
         self.assertEqual(embedder.d, d)
@@ -1547,7 +1537,7 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate, pass_args=pass_args, device=device)
+            M, f_delta, d, learning_rate, device=device)
 
         # Verify that all settings passed into the ebedder were registered,
         # and that the M matrix has been converted to a torch.Tensor.
@@ -2233,7 +2223,6 @@ class TestSolvers(TestCase):
                 times, learning_rate, momentum_decay, implementation='torch'
         ))
 
-
         # Verify that the solver visited to the expected parameter values
         for i in range(len(params_expected)):
             for param, param_expected in zip(mo.params[i], params_expected[i]):
@@ -2404,18 +2393,20 @@ class TestSolvers(TestCase):
                 (params_expected[-1][0] + 0.1),
                 (params_expected[-1][1] + 0.1)
             )
-            last_gradient_norm = (
-                h.utils.norm(last_gradient[0]) 
-                + h.utils.norm(last_gradient[1])
+
+            last_gradient_norm = np.sqrt(
+                h.utils.norm(last_gradient[0])**2
+                + h.utils.norm(last_gradient[1])**2
             )
-            gradient_norm = (
-                h.utils.norm(gradient[0]) 
-                + h.utils.norm(gradient[1])
+            gradient_norm = np.sqrt(
+                h.utils.norm(gradient[0])**2
+                + h.utils.norm(gradient[1])**2
             )
             product = (
                 h.utils.dot(last_gradient[0], gradient[0])
                 + h.utils.dot(last_gradient[1], gradient[1])
             )
+
             norms = last_gradient_norm * gradient_norm
 
             if norms == 0:

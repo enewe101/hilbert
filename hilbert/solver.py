@@ -257,7 +257,10 @@ class NesterovSolverCautious(object):
                 for j in range(len(gradients))
             )
 
-            norm = torch.sqrt(norm_squared)
+            if self.implementation == 'torch':
+                norm = torch.sqrt(norm_squared)
+            else:
+                norm = np.sqrt(norm_squared)
             if self.last_norm is None:
                 alignment = 1
                 norms = None
@@ -265,13 +268,13 @@ class NesterovSolverCautious(object):
                 norms = self.last_norm * norm
                 alignment = product / norms
 
-            print('\tnorm: ' + str(norm))
-            print('\tlast_norm: ' + str(self.last_norm))
-            print('\tnorms: ' + str(norms))
-            print('\tproduct: ' + str(product))
-            if self.last_norm is not None:
-                print('\tproduct / norms: ' + str(product / norms))
-            print('\talignment: ' + str(alignment))
+            #print('\tnorm: ' + str(norm))
+            #print('\tlast_norm: ' + str(self.last_norm))
+            #print('\tnorms: ' + str(norms))
+            #print('\tproduct: ' + str(product))
+            #if self.last_norm is not None:
+            #    print('\tproduct / norms: ' + str(product / norms))
+            #print('\talignment: ' + str(alignment))
             self.last_norm =  norm
 
             if self.implementation == 'torch':

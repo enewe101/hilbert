@@ -92,7 +92,6 @@ def calc_M_neg_samp(
     # Draw negative samples
     distorted_px = distorted_Nx / distorted_N
     samples = sample_multi_multinomial(k_samples * Nx, distorted_px)
-    print('warning, negative sampling routine truncated for DEBUG')
 
     # Set negative sample wieght, if provided
     # Note that if k_weight is None, effective weight is k_samples
