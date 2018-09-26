@@ -40,7 +40,7 @@ def calc_M_neg_samp(
     """
     # Unpack args and apply defaults.
     k_weight = k_samples if k_weight is None else k_weight
-    Nxx, Nx, N = cooc_stats
+    Nxx, Nx, Nxt, N = cooc_stats
 
     # Calculate the unigram distribution
     maybe_distorted_Nx = Nx if alpha is None else Nx**alpha

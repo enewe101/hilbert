@@ -19,9 +19,8 @@ def get_test_stats(window_size):
 
 
 def calc_PMI(cooc_stats):
-    Nxx, Nx, N = cooc_stats
-    torch_log_Nx = torch.log(Nx)
-    return torch.log(N) + torch.log(Nxx) - torch_log_Nx - torch_log_Nx.t()
+    Nxx, Nx, Nxt, N = cooc_stats
+    return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
 def calc_positive_PMI(cooc_stats):
@@ -35,10 +34,10 @@ def calc_shifted_PMI(cooc_stats, k):
 
 
 def calc_PMI_star(cooc_stats):
-    Nxx, Nx, N = cooc_stats
+    Nxx, Nx, Nxt, N = cooc_stats
     useNxx = Nxx.clone()
     useNxx[useNxx==0] = 1
-    return calc_PMI((useNxx, Nx, N))
+    return calc_PMI((useNxx, Nx, Nxt, N))
 
 
 def get_stats(token_list, window_size, verbose=True):

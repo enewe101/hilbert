@@ -42,7 +42,7 @@ def get_f_w2v_sh(cooc_stats, M, k, device='cuda'):
     h.utils.ensure_implementation_valid(implementation)
 
     def f_w2v(M_hat_shard, shard):
-        Nxx, Nx, N = h.cooc_stats.load_shard(cooc_stats, shard, device)
+        Nxx, Nx, Nxt, N = h.cooc_stats.load_shard(cooc_stats, shard, device)
         N_neg_shard = k * Nx * Nx.t() / N
         multiplier_shard = Nxx + N_neg_shard
         return multiplier * (sigmoid(M[shard]) - sigmoid(M_hat_shard))

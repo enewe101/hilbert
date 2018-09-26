@@ -53,11 +53,11 @@ class M:
 
         # Copy the relevant portion of cooccurrence statistics to matrix device
         # TODO: make CoocStats use torch.sparse so we don't have to worry
-        #   about Nxx, Nx, and N being numpy.
-        Nxx, Nx, N = self.cooc_stats.load_shard(shard, device=self.device)
+        #   about Nxx, Nx, Nxt, and N being numpy.
+        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard, device=self.device)
 
         # Calculate the basic elements of M.
-        M_shard = self.base((Nxx, Nx, N), **self.base_args)
+        M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
 
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
         use_diag = self.diag if h.shards.on_diag(shard) else None
@@ -123,7 +123,7 @@ def calc_M_pmi(cooc_stats):
 
 
 def calc_M_logNxx(cooc_stats):
-    Nxx, Nx, N = cooc_stats
+    Nxx, Nx, Nxt, N = cooc_stats
     return torch.log(Nxx)
 
 
@@ -140,7 +140,7 @@ def undersample(cooc_stats, t=None):
     undersampled simulating the rejection of common words in word2vec.
 
     Returns a true h.cooc_stats.CoocStats instance.
-    (In many places, a tuple of (Nxx, Nx, N) tensors are treated in a way that
+    (In many places, a tuple of (Nxx, Nx, Nxt, N) tensors are treated in a way that
     is equivalent to a h.cooc_stats.CoocStats instance).
     """
     if t is None:

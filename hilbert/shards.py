@@ -31,12 +31,23 @@ class Shards:
         self.num_shards = shard_factor * shard_factor
 
     def __getitem__(self, shard_num):
+        if shard_num >= self.num_shards:
+            raise IndexError('Shards index out of range: {}'.format(shard_num))
+        if shard_num < 0:
+            old_shard_num = shard_num
+            shard_num += self.num_shards
+            if shard_num < 0:
+                raise IndexError(
+                    'Shards index out of range: {}'.format(old_shard_num))
         shard_i = shard_num // self.shard_factor
         shard_j = shard_num % self.shard_factor
         return (
             slice(shard_i, None, self.shard_factor), 
             slice(shard_j, None, self.shard_factor)
         )
+
+    def __len__(self):
+        return self.num_shards
 
     def __iter__(self):
         return self.copy()

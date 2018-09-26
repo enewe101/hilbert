@@ -197,7 +197,7 @@ class TestM(TestCase):
         # Setup
         t_undersample = 0.1
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
+        Nxx, Nx, Nxt, N = cooc_stats
         Nx_ = Nx.reshape(-1)
 
         # Manually calculate probability that a token is kept.
@@ -214,26 +214,31 @@ class TestM(TestCase):
         # Expectation counts given undersampling
         expectedNxx = Nxx * p_xx
         expectedNx = torch.sum(expectedNxx, dim=1, keepdim=True)
+        expectedNxt = torch.sum(expectedNxx, dim=0, keepdim=True)
         expectedN = torch.sum(expectedNx)
 
         # Do the undersampling many times.  Then we can expect the average
         # count to become close to expectation
         foundNxx = torch.zeros(Nxx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
         foundNx = torch.zeros(Nx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
+        foundNxt = torch.zeros(Nx.t().shape, device=h.CONSTANTS.MATRIX_DEVICE)
         foundN = torch.zeros(N.shape, device=h.CONSTANTS.MATRIX_DEVICE)
         num_replicates = 100
         for i in range(num_replicates):
             cooc_stats_undersamp = h.M.undersample(cooc_stats, t_undersample)
-            one_Nxx, one_Nx, one_N = cooc_stats_undersamp
+            one_Nxx, one_Nx, one_Nxt, one_N = cooc_stats_undersamp
             foundNxx += one_Nxx
             foundNx += one_Nx
+            foundNxt += one_Nxt
             foundN += one_N
         foundNxx /= num_replicates
         foundNx /= num_replicates
+        foundNxt /= num_replicates
         foundN /= num_replicates
 
         self.assertTrue(np.allclose(foundNxx, expectedNxx, atol=0.5))
         self.assertTrue(np.allclose(foundNx, expectedNx, atol=0.7))
+        self.assertTrue(np.allclose(foundNxt, expectedNxt, atol=0.7))
         self.assertTrue(np.allclose(foundN, expectedN, atol=1.5))
 
         # Look more closely at the last instance returned by undersamp
@@ -251,19 +256,19 @@ class TestM(TestCase):
 
     def test_calc_M_pmi(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
+        Nxx, Nx, Nxt, N = cooc_stats
 
         # First calculate using no options
         found_M = h.M.M(cooc_stats, 'pmi').load_all()
 
-        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         self.assertTrue(np.allclose(found_M, expected_M))
 
         shift_by = -torch.log(torch.tensor(
             15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
-        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N)) + shift_by
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
         found_M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
@@ -295,7 +300,7 @@ class TestM(TestCase):
 
     def test_calc_M_logNxx(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
+        Nxx, Nx, Nxt, N = cooc_stats
 
         # First calculate using no options.
         M = h.M.M(cooc_stats, 'logNxx').load_all()
@@ -316,7 +321,8 @@ class TestM(TestCase):
         # the routine being tested
         t_undersample = 0.1
         np.random.seed(0)
-        usampNxx, usampNx, usampN = h.M.undersample(cooc_stats, t_undersample)
+        usampNxx, usampNx, usampNxt, usampN = h.M.undersample(
+            cooc_stats, t_undersample)
         expected_M = torch.log(usampNxx)
         np.random.seed(0)
         found_M = h.M.M(
@@ -341,7 +347,7 @@ class TestM(TestCase):
 
     def test_calc_M_pmi_star(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
+        Nxx, Nx, Nxt, N = cooc_stats
 
         # First calculate using no options
         M = h.M.M(cooc_stats, 'pmi-star').load_all()
@@ -385,6 +391,70 @@ class TestM(TestCase):
         self.assertTrue(np.allclose(found_M, expected_M))
 
 
+    def test_sharding(self):
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        cooc_stats.truncate(6)
+        Nxx, Nx, Nxt, N = cooc_stats
+
+        # First calculate using no options
+        shards = h.shards.Shards(2)
+        M = h.M.M(cooc_stats, 'pmi')
+        found_M = np.zeros(Nxx.shape)
+        for shard_num, shard in enumerate(shards):
+            found_M[shard] = M[shard]
+
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        shift_by = -torch.log(torch.tensor(
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            device=h.CONSTANTS.MATRIX_DEVICE
+        ))
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
+
+        M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
+        found_M = np.zeros(Nxx.shape)
+        for shard_num, shard in enumerate(shards):
+            found_M[shard] = M[shard]
+
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+
+        # Test undersample option.  Fix randomness so that samples come out
+        # the same when calling undersample directly, and when called within
+        # the routine being tested
+        t_undersample = 0.1
+        np.random.seed(0)
+        undersamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
+        expected_M = h.corpus_stats.calc_PMI(undersamp_cooc_stats)
+        np.random.seed(0)
+        M = h.M.M(cooc_stats, 'pmi', t_undersample=t_undersample).load_all()
+        found_M = np.zeros(Nxx.shape)
+        for shard_num, shard in enumerate(shards):
+            found_M[shard] = M[shard]
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        clip_thresh = -0.1
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M[expected_M<clip_thresh] = clip_thresh
+        M = h.M.M(cooc_stats, 'pmi', clip_thresh=clip_thresh).load_all()
+        found_M = np.zeros(Nxx.shape)
+        for shard_num, shard in enumerate(shards):
+            found_M[shard] = M[shard]
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+        diag = 5
+        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        h.utils.fill_diagonal(expected_M, diag)
+        M = h.M.M(cooc_stats, 'pmi', diag=diag).load_all()
+        found_M = np.zeros(Nxx.shape)
+        for shard_num, shard in enumerate(shards):
+            found_M[shard] = M[shard]
+        self.assertTrue(np.allclose(found_M, expected_M))
+
+
+
     ####################################################################
     #
     #   Deactivate all these tests until I find an approach with good enough
@@ -396,7 +466,7 @@ class TestM(TestCase):
     #    # limiting values.
     #    k = 150000
     #    np.random.seed(0)
-    #    Nxx, Nx, N = cooc_stats
+    #    Nxx, Nx, Nxt, N = cooc_stats
 
     #    kNx = k * Nx
     #    px = Nx / N
@@ -420,7 +490,7 @@ class TestM(TestCase):
     #    # limiting values.
     #    k = 150000
     #    torch.random.manual_seed(0)
-    #    Nxx, Nx, N = cooc_stats
+    #    Nxx, Nx, Nxt, N = cooc_stats
 
     #    kNx = k * Nx
     #    px = Nx / N
@@ -442,7 +512,7 @@ class TestM(TestCase):
     #def test_calc_M_neg_samp(self):
 
     #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, N = cooc_stats
+    #    Nxx, Nx, Nxt, N = cooc_stats
     #    np.random.seed(0)
     #    atol = 0.1
     #    usamp_atol = 0.3
@@ -511,8 +581,8 @@ class TestM(TestCase):
     #        device='cpu'
     #    )
     #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, N = h.M.undersample(cooc_stats, t_undersample)
-    #    expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
+    #    Nxx, Nx, Nxt, N = h.M.undersample(cooc_stats, t_undersample)
+    #    expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
     #    self.assertTrue(np.allclose(found_M, expected_M, atol=usamp_atol))
 
 
@@ -561,7 +631,7 @@ class TestM(TestCase):
     #def test_calc_M(self):
 
     #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, N = cooc_stats
+    #    Nxx, Nx, Nxt, N = cooc_stats
     #    t_undersample=0.1
     #    shift_by=-np.log(15)
     #    neg_inf_val=1
@@ -2695,7 +2765,7 @@ class TestCoocStats(TestCase):
 
     def test_cooc_stats_unpacking(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
+        Nxx, Nx, Nxt, N = cooc_stats
         self.assertTrue(np.allclose(Nxx, cooc_stats.denseNxx))
         self.assertTrue(np.allclose(Nx, cooc_stats.Nx))
         self.assertTrue(np.allclose(N, cooc_stats.N))
@@ -2954,14 +3024,17 @@ class TestCoocStats(TestCase):
         cooccurrence = h.cooc_stats.CoocStats(
             dictionary, counts, verbose=False)
         cooccurrence.truncate(3)
-        truncated_array = np.array([
+        trunc_Nxx = np.array([
             [0,3,1],
             [3,0,1],
             [1,1,0],
         ])
+        trunc_Nx = np.sum(trunc_Nxx, axis=1, keepdims=True)
+        trunc_N = np.sum(trunc_Nx)
 
-        self.assertTrue(
-            np.allclose(cooccurrence.denseNxx, truncated_array))
+        self.assertTrue(np.allclose(cooccurrence.denseNxx, trunc_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.Nx, trunc_Nx))
+        self.assertTrue(np.allclose(cooccurrence.N, trunc_N))
 
 
     def test_dict_to_sparse(self):

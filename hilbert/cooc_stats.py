@@ -98,9 +98,11 @@ class CoocStats(object):
                 self.Nxx, shard, from_sparse=True, device=device)
             self.loaded_Nx = h.utils.load_shard(
                 self.Nx, shard[0], device=device)
+            self.loaded_Nxt = h.utils.load_shard(
+                self.Nx.T, (slice(None), shard[1]), device=device)
             self.loaded_N = h.utils.load_shard(self.N, device=device)
 
-        return self.loaded_Nxx, self.loaded_Nx, self.loaded_N
+        return self.loaded_Nxx, self.loaded_Nx, self.loaded_Nxt, self.loaded_N
         
 
     def __copy__(self):
@@ -119,7 +121,7 @@ class CoocStats(object):
 
     def __iter__(self):
         """
-        Returns Nxx, Nx, N, which means that the CoocStats instance can easily
+        Returns Nxx, Nx, Nxt, N, which means that the CoocStats instance can easily
         unpack into cooccurrence counts, unigram counts, and the total number
         of tokens.  Useful for functions expecting such a stats triplet, and
         for getting raw access to the data.
@@ -270,7 +272,7 @@ class CoocStats(object):
         id2 = self._dictionary.add_token(token2)
         self.counts[id1, id2] += count
 
-        # Nxx, Nx, and N are all stale, so set them to None.
+        # Nxx, Nx, Nxt, and N are all stale, so set them to None.
         self._Nxx = None
         self._Nx = None
         self._N = None
@@ -306,7 +308,7 @@ class CoocStats(object):
         vocab_size = len(self._dictionary)
         self._Nxx = dict_to_sparse(
             self.counts, (vocab_size,vocab_size))
-        self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1,1)
+        self._Nx = np.array(np.sum(self._Nxx, axis=1))
         self._N = np.sum(self._Nx)
         self.sort(True)
 
@@ -360,7 +362,8 @@ class CoocStats(object):
     def truncate(self, k):
         """Drop all but the `k` most common words."""
         self._Nxx = self.Nxx[:k][:,:k]
-        self._Nx = self.Nx[:k]
+        self._Nx = np.array(np.sum(self._Nxx, axis=1))
+        self._N = np.sum(self._Nx)
         dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
 
 
