@@ -5,9 +5,11 @@ from collections import Counter
 try:
     import numpy as np
     from scipy import sparse
+    import torch
 except ImportError:
     np = None
     scipy = None
+    torch = None
 
 import hilbert as h
 
@@ -73,12 +75,33 @@ class CoocStats(object):
             self._Nx = np.asarray(np.sum(self._Nxx, axis=1).reshape(-1,1))
             self._N = np.sum(self._Nx)
 
+        self.loaded_shard = None
+        self.loaded_Nxx = None
+        self.loaded_Nx = None
+        self.loaded_N = None
+
         # If no prior cooccurrence stats are given, start as empty.
         if counts is None and Nxx is None:
             self._counts = Counter()
 
         self.verbose = verbose
 
+
+    def __getitem__(self, shard):
+        return self.load_shard(shard)
+
+    def load_shard(self, shard, device=h.CONSTANTS.MATRIX_DEVICE):
+
+        if not self.loaded_shard == shard:
+            self.loaded_shard = shard
+            self.loaded_Nxx = h.utils.load_shard(
+                self.Nxx, shard, from_sparse=True, device=device)
+            self.loaded_Nx = h.utils.load_shard(
+                self.Nx, shard[0], device=device)
+            self.loaded_N = h.utils.load_shard(self.N, device=device)
+
+        return self.loaded_Nxx, self.loaded_Nx, self.loaded_N
+        
 
     def __copy__(self):
         return deepcopy(self)
@@ -101,7 +124,7 @@ class CoocStats(object):
         of tokens.  Useful for functions expecting such a stats triplet, and
         for getting raw access to the data.
         """
-        return iter((self.denseNxx, self.Nx, self.N))
+        return iter(self[h.shards.whole])
 
     
     #def __radd__(self, other):

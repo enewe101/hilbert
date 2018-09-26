@@ -33,13 +33,13 @@ class TestGetEmbedder(TestCase):
 
         np.random.seed(0)
         torch.manual_seed(0)
-        M = h.M.calc_M(
+        M = h.M.M(
             cooc_stats=cooc_stats, 
             base=base,
             #t_undersample=None,
             neg_inf_val=neg_inf_val,
             device=device,
-        )
+        ).load_all()
         f_delta_str = 'glove'
         f_delta = h.f_delta.get_f_glove(
             cooc_stats=cooc_stats,
@@ -160,7 +160,8 @@ class TestCorpusStats(TestCase):
             h.CONSTANTS.TEST_DIR, 'expected_PMI.npz')
         expected_PMI = np.load(expected_PMI_path)['arr_0']
         expected_shifted_PMI = expected_PMI - np.log(k)
-        found = h.corpus_stats.calc_shifted_PMI(cooc_stats, k)
+        found = h.corpus_stats.calc_shifted_PMI(
+            cooc_stats, torch.tensor(k, device='cuda'))
         self.assertTrue(np.allclose(found, expected_shifted_PMI))
 
 
@@ -189,78 +190,107 @@ class TestM(TestCase):
 
     def test_undersample(self):
 
+        # Fix the seed for a replicable test.  In this case, numpy is the
+        # source of randomness.
+        np.random.seed(0)
+
         # Setup
         t_undersample = 0.1
         cooc_stats = h.corpus_stats.get_test_stats(2)
         Nxx, Nx, N = cooc_stats
-        Nx = Nx.reshape(-1)
+        Nx_ = Nx.reshape(-1)
 
         # Manually calculate probability that a token is kept.
-        p_xx = np.array([
+        p_xx = torch.tensor([
             [
-                min(1, np.sqrt(t_undersample * N / Nx[i])) 
-                    * min(1, np.sqrt(t_undersample * N / Nx[j]))
-                for i in range(Nx.shape[0])
+                min(1, np.sqrt(t_undersample * N / Nx_[i])) 
+                    * min(1, np.sqrt(t_undersample * N / Nx_[j]))
+                for i in range(Nx_.shape[0])
             ]
-            for j in range(Nx.shape[0])
-        ])
+            for j in range(Nx_.shape[0])
+        ], device=h.CONSTANTS.MATRIX_DEVICE)
 
-        # Expected expectation counts given undersampling
+
+        # Expectation counts given undersampling
         expectedNxx = Nxx * p_xx
-        expectedNx = np.sum(expectedNxx, axis=1, keepdims=True)
-        expectedN = np.sum(expectedNx)
+        expectedNx = torch.sum(expectedNxx, dim=1, keepdim=True)
+        expectedN = torch.sum(expectedNx)
 
-        # Found expectation counts given undersampling
-        foundNxx, foundNx, foundN = h.M.undersample(cooc_stats, t_undersample)
+        # Do the undersampling many times.  Then we can expect the average
+        # count to become close to expectation
+        foundNxx = torch.zeros(Nxx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
+        foundNx = torch.zeros(Nx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
+        foundN = torch.zeros(N.shape, device=h.CONSTANTS.MATRIX_DEVICE)
+        num_replicates = 100
+        for i in range(num_replicates):
+            cooc_stats_undersamp = h.M.undersample(cooc_stats, t_undersample)
+            one_Nxx, one_Nx, one_N = cooc_stats_undersamp
+            foundNxx += one_Nxx
+            foundNx += one_Nx
+            foundN += one_N
+        foundNxx /= num_replicates
+        foundNx /= num_replicates
+        foundN /= num_replicates
 
-        # Verify Nxx and its roll-ups.
-        self.assertTrue(np.allclose(foundNxx, expectedNxx))
-        self.assertTrue(np.allclose(foundNx, expectedNx))
-        self.assertTrue(np.allclose(foundN, expectedN))
+        self.assertTrue(np.allclose(foundNxx, expectedNxx, atol=0.5))
+        self.assertTrue(np.allclose(foundNx, expectedNx, atol=0.7))
+        self.assertTrue(np.allclose(foundN, expectedN, atol=1.5))
+
+        # Look more closely at the last instance returned by undersamp
+        # It should be a CoocStats instance, and it's Nxx array should be
+        # a sparse csr matrix with dtype int64.
+        self.assertTrue(isinstance(
+            cooc_stats_undersamp, h.cooc_stats.CoocStats))
+        self.assertTrue(isinstance(
+            cooc_stats_undersamp.Nxx, sparse.csr_matrix))
+        self.assertEqual(cooc_stats_undersamp.Nxx.dtype, np.dtype('int64'))
+
+        
 
 
 
     def test_calc_M_pmi(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
+        Nxx, Nx, N = cooc_stats
 
         # First calculate using no options
-        found_M = h.M.calc_M_pmi(cooc_stats)
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        found_M = h.M.M(cooc_stats, 'pmi').load_all()
+
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
         self.assertTrue(np.allclose(found_M, expected_M))
 
-        shift_by = -np.log(15)
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats) + shift_by
-        found_M = h.M.calc_M_pmi(cooc_stats, shift_by=shift_by)
+        shift_by = -torch.log(torch.tensor(
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            device=h.CONSTANTS.MATRIX_DEVICE
+        ))
+        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N)) + shift_by
+        found_M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
+
+        # Test undersample option.  Fix randomness so that samples come out
+        # the same when calling undersample directly, and when called within
+        # the routine being tested
         t_undersample = 0.1
+        np.random.seed(0)
         undersamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
         expected_M = h.corpus_stats.calc_PMI(undersamp_cooc_stats)
-        found_M = h.M.calc_M_pmi(cooc_stats, t_undersample=t_undersample)
+        np.random.seed(0)
+        found_M = h.M.M(
+            cooc_stats, 'pmi', t_undersample=t_undersample).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         clip_thresh = -0.1
         expected_M = h.corpus_stats.calc_PMI(cooc_stats)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.calc_M_pmi(cooc_stats, clip_thresh=clip_thresh)
+        found_M = h.M.M(cooc_stats, 'pmi', clip_thresh=clip_thresh).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         diag = 5
         expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-        np.fill_diagonal(expected_M, diag)
-        found_M = h.M.calc_M_pmi(cooc_stats, diag=diag)
+        h.utils.fill_diagonal(expected_M, diag)
+        found_M = h.M.M(cooc_stats, 'pmi', diag=diag).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
-
-        implementation='numpy'
-        found_M = h.M.calc_M_pmi(cooc_stats, implementation=implementation)
-        self.assertTrue(isinstance(found_M, np.ndarray))
-
-        implementation='torch'
-        device='cpu'
-        found_M = h.M.calc_M_pmi(
-            cooc_stats, implementation=implementation, device=device)
-        self.assertTrue(isinstance(found_M, torch.Tensor))
-        self.assertEqual(str(found_M.device), 'cpu')
 
 
     def test_calc_M_logNxx(self):
@@ -268,55 +298,45 @@ class TestM(TestCase):
         Nxx, Nx, N = cooc_stats
 
         # First calculate using no options.
-        M = h.M.calc_M_logNxx(cooc_stats)
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx)
-        self.assertTrue(np.allclose(M, expected_M))
+        M = h.M.M(cooc_stats, 'logNxx').load_all()
+        expected_M = torch.log(Nxx)
+        self.assertTrue(torch.allclose(M, expected_M))
 
         # Test shift option.
-        shift_by = -np.log(15)
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx) + shift_by
-        found_M = h.M.calc_M_logNxx(cooc_stats, shift_by=shift_by)
-        self.assertTrue(np.allclose(found_M, expected_M))
+        shift_by = -torch.log(torch.tensor(
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            device=h.CONSTANTS.MATRIX_DEVICE
+        ))
+        expected_M = torch.log(Nxx) + shift_by
+        found_M = h.M.M(cooc_stats, 'logNxx', shift_by=shift_by).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
 
-        # Test undersample option.
+        # Test undersample option.  Fix randomness so that samples come out
+        # the same when calling undersample directly, and when called within
+        # the routine being tested
         t_undersample = 0.1
+        np.random.seed(0)
         usampNxx, usampNx, usampN = h.M.undersample(cooc_stats, t_undersample)
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(usampNxx)
-        found_M = h.M.calc_M_logNxx(cooc_stats, t_undersample=t_undersample)
-        self.assertTrue(np.allclose(found_M, expected_M))
+        expected_M = torch.log(usampNxx)
+        np.random.seed(0)
+        found_M = h.M.M(
+            cooc_stats, 'logNxx', t_undersample=t_undersample).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
         clip_thresh = -0.1
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx)
+        expected_M = torch.log(Nxx)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.calc_M_logNxx(cooc_stats, clip_thresh=clip_thresh)
-        self.assertTrue(np.allclose(found_M, expected_M))
+        found_M = h.M.M(
+            cooc_stats, 'logNxx', clip_thresh=clip_thresh).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
 
         # Test setting diagonal values to a given constant.
         diag = 5
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx)
-        np.fill_diagonal(expected_M, diag)
-        found_M = h.M.calc_M_logNxx(cooc_stats, diag=diag)
-        self.assertTrue(np.allclose(found_M, expected_M))
-
-        # Test explicitly choosing implementation.
-        implementation='numpy'
-        found_M = h.M.calc_M_logNxx(cooc_stats, implementation=implementation)
-        self.assertTrue(isinstance(found_M, np.ndarray))
-
-        # Test explicitly choosing implementation.
-        implementation='torch'
-        device='cpu'
-        found_M = h.M.calc_M_logNxx(
-            cooc_stats, implementation=implementation, device=device)
-        self.assertTrue(isinstance(found_M, torch.Tensor))
-        self.assertEqual(str(found_M.device), 'cpu')
-
+        expected_M = torch.log(Nxx)
+        h.utils.fill_diagonal(expected_M, diag)
+        found_M = h.M.M(cooc_stats, 'logNxx', diag=diag).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
 
 
     def test_calc_M_pmi_star(self):
@@ -324,296 +344,323 @@ class TestM(TestCase):
         Nxx, Nx, N = cooc_stats
 
         # First calculate using no options
-        M = h.M.calc_M_pmi_star(cooc_stats)
+        M = h.M.M(cooc_stats, 'pmi-star').load_all()
         expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
         self.assertTrue(np.allclose(M, expected_M))
 
         # Test shift option.
-        shift_by = -np.log(15)
+        shift_by = -torch.log(torch.tensor(
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            device=h.CONSTANTS.MATRIX_DEVICE
+        ))
         expected_M = h.corpus_stats.calc_PMI_star(cooc_stats) + shift_by
-        found_M = h.M.calc_M_pmi_star(cooc_stats, shift_by=shift_by)
+        found_M = h.M.M(cooc_stats, 'pmi-star', shift_by=shift_by).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
-        # Test undersample option.
+        # Test undersample option.  Fix randomness so that samples come out
+        # the same when calling undersample directly, and when called within
+        # the routine being tested
         t_undersample = 0.1
+        np.random.seed(0)
         usamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
-        usampNxx, usampNx, usampN = usamp_cooc_stats
         expected_M = h.corpus_stats.calc_PMI_star(usamp_cooc_stats)
-        found_M = h.M.calc_M_pmi_star(cooc_stats, t_undersample=t_undersample)
+        np.random.seed(0)
+        found_M = h.M.M(
+            cooc_stats, 'pmi-star', t_undersample=t_undersample).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
         clip_thresh = -0.1
         expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.calc_M_pmi_star(cooc_stats, clip_thresh=clip_thresh)
+        found_M = h.M.M(
+            cooc_stats, 'pmi-star', clip_thresh=clip_thresh).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         # Test setting diagonal values to a given constant.
         diag = 5
         expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
-        np.fill_diagonal(expected_M, diag)
-        found_M = h.M.calc_M_pmi_star(cooc_stats, diag=diag)
+        h.utils.fill_diagonal(expected_M, diag)
+        found_M = h.M.M(cooc_stats, 'pmi-star', diag=diag).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
-        # Test explicitly choosing implementation.
-        implementation='numpy'
-        found_M = h.M.calc_M_pmi_star(
-            cooc_stats, implementation=implementation)
-        self.assertTrue(isinstance(found_M, np.ndarray))
 
-        # Test explicitly choosing implementation.
-        implementation='torch'
-        device='cpu'
-        found_M = h.M.calc_M_pmi_star(
-            cooc_stats, implementation=implementation, device=device)
-        self.assertTrue(isinstance(found_M, torch.Tensor))
-        self.assertEqual(str(found_M.device), 'cpu')
+    ####################################################################
+    #
+    #   Deactivate all these tests until I find an approach with good enough
+    #   performance for this to even be worth it.
+    #
+    #def test_sample_multi_multinomial(self):
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    # Set k really high, so that sample statistics approach their
+    #    # limiting values.
+    #    k = 150000
+    #    np.random.seed(0)
+    #    Nxx, Nx, N = cooc_stats
 
+    #    kNx = k * Nx
+    #    px = Nx / N
+    #    sample = h.M._sample_multi_multinomial(kNx, px)
 
-    def test_sample_multi_multinomial(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        # Set k really high, so that sample statistics approach their
-        # limiting values.
-        k = 150000
-        np.random.seed(0)
-        Nxx, Nx, N = cooc_stats
+    #    # The number of samples in each row is exactly equal to the unigram
+    #    # frequency of the corresponding token, times k
+    #    self.assertTrue(np.allclose(
+    #        np.sum(sample, axis=1) / float(k), Nx.reshape(-1)))
 
-        kNx = k * Nx
-        px = Nx / N
-        sample = h.M.sample_multi_multinomial(kNx, px)
-
-        # The number of samples in each row is exactly equal to the unigram
-        # frequency of the corresponding token, times k
-        self.assertTrue(np.allclose(
-            np.sum(sample, axis=1) / float(k), Nx.reshape(-1)))
-
-        # Given the very high value of k, the number of samples in each column
-        # is approximately equal to the unigram frequency of the corresponding
-        # token, times k.
-        self.assertTrue(np.allclose(
-            np.sum(sample, axis=0) / float(k), Nx.reshape(-1), atol=0.1))
+    #    # Given the very high value of k, the number of samples in each column
+    #    # is approximately equal to the unigram frequency of the corresponding
+    #    # token, times k.
+    #    self.assertTrue(np.allclose(
+    #        np.sum(sample, axis=0) / float(k), Nx.reshape(-1), atol=0.1))
 
 
+    #def test_sample_multi_multinomial_torch(self):
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    # Set k really high, so that sample statistics approach their
+    #    # limiting values.
+    #    k = 150000
+    #    torch.random.manual_seed(0)
+    #    Nxx, Nx, N = cooc_stats
 
-    def test_calc_M_neg_samp(self):
+    #    kNx = k * Nx
+    #    px = Nx / N
+    #    sample = h.M._sample_multi_multinomial_torch(kNx, px)
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
-        np.random.seed(0)
-        atol = 0.1
-        usamp_atol = 0.3
-        k_samples = 1000
+    #    # The number of samples in each row is exactly equal to the unigram
+    #    # frequency of the corresponding token, times k
+    #    self.assertTrue(torch.allclose(
+    #        torch.sum(sample, dim=1) / float(k), Nx.view(-1)))
 
-        # If we take enough samples, then negative sampling simulates PMI
-        k_weight = 1.
-        alpha = 1.
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, 
-            k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            device='cpu'
-        )
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-        # Now try using a k_weight not equal to 1.
-        k_weight = 15.
-        alpha = 1.
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            device='cpu'
-        )
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k_weight)
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-        # Now we will use an alpha value not equal to 1
-        k_weight = 15.
-        alpha = 0.75
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            device='cpu'
-        )
-        distorted_unigram = Nx**alpha
-        distorted_unigram = distorted_unigram / np.sum(distorted_unigram)
-        with np.errstate(divide='ignore'):
-            expected_M = (
-                np.log(Nxx) - np.log(Nx) - np.log(distorted_unigram.T) 
-                - np.log(k_weight)
-            )
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-        # Test shift option.
-        shift_by = -np.log(15)
-        k_weight = 1.
-        alpha = 1.
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            shift_by=-np.log(15), device='cpu'
-        )
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(15)
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+    #    # Given the very high value of k, the number of samples in each column
+    #    # is approximately equal to the unigram frequency of the corresponding
+    #    # token, times k.
+    #    self.assertTrue(np.allclose(
+    #        torch.sum(sample, dim=0) / float(k), Nx.view(-1), atol=0.1))
 
 
-        # If we take enough samples, then negative sampling simulates PMI
-        k_weight = 1.
-        alpha = 1.
-        t_undersample = 0.1
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, 
-            k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            t_undersample=t_undersample,
-            device='cpu'
-        )
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = h.M.undersample(cooc_stats, t_undersample)
-        expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
-        self.assertTrue(np.allclose(found_M, expected_M, atol=usamp_atol))
+
+    #def test_calc_M_neg_samp(self):
+
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    Nxx, Nx, N = cooc_stats
+    #    np.random.seed(0)
+    #    atol = 0.1
+    #    usamp_atol = 0.3
+    #    k_samples = 1000
+
+    #    # If we take enough samples, then negative sampling simulates PMI
+    #    k_weight = 1.
+    #    alpha = 1.
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, 
+    #        k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        device='cpu'
+    #    )
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+    #    # Now try using a k_weight not equal to 1.
+    #    k_weight = 15.
+    #    alpha = 1.
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        device='cpu'
+    #    )
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k_weight)
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+    #    # Now we will use an alpha value not equal to 1
+    #    k_weight = 15.
+    #    alpha = 0.75
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        device='cpu'
+    #    )
+    #    distorted_unigram = Nx**alpha
+    #    distorted_unigram = distorted_unigram / np.sum(distorted_unigram)
+    #    with np.errstate(divide='ignore'):
+    #        expected_M = (
+    #            np.log(Nxx) - np.log(Nx) - np.log(distorted_unigram.T) 
+    #            - np.log(k_weight)
+    #        )
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+
+    #    # Test shift option.
+    #    shift_by = -np.log(15)
+    #    k_weight = 1.
+    #    alpha = 1.
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        shift_by=-np.log(15), device='cpu'
+    #    )
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(15)
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
 
 
-        # Test setting a clip threshold.
-        clip_thresh = -0.1
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-        expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            clip_thresh=clip_thresh, device='cpu'
-        )
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+    #    # If we take enough samples, then negative sampling simulates PMI
+    #    k_weight = 1.
+    #    alpha = 1.
+    #    t_undersample = 0.1
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, 
+    #        k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        t_undersample=t_undersample,
+    #        device='cpu'
+    #    )
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    Nxx, Nx, N = h.M.undersample(cooc_stats, t_undersample)
+    #    expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, N))
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=usamp_atol))
 
 
-        # Test setting diagonal values to a given constant.
-        diag = 5
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-        np.fill_diagonal(expected_M, diag)
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-            diag=diag, device='cpu'
-        )
-        self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
+    #    # Test setting a clip threshold.
+    #    clip_thresh = -0.1
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+    #    expected_M[expected_M<clip_thresh] = clip_thresh
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        clip_thresh=clip_thresh, device='cpu'
+    #    )
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
 
 
-        # Test explicitly choosing implementation.
-        implementation='numpy'
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, implementation=implementation)
-        self.assertTrue(isinstance(found_M, np.ndarray))
+    #    # Test setting diagonal values to a given constant.
+    #    diag = 5
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+    #    np.fill_diagonal(expected_M, diag)
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
+    #        diag=diag, device='cpu'
+    #    )
+    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
 
 
-        # Test explicitly choosing implementation.
-        implementation='torch'
-        device='cpu'
-        found_M = h.M.calc_M_neg_samp(
-            cooc_stats, implementation=implementation, device=device)
-        self.assertTrue(isinstance(found_M, torch.Tensor))
-        self.assertEqual(str(found_M.device), 'cpu')
+    #    # Test explicitly choosing implementation.
+    #    implementation='numpy'
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, implementation=implementation)
+    #    self.assertTrue(isinstance(found_M, np.ndarray))
 
 
-    def test_calc_M(self):
+    #    # Test explicitly choosing implementation.
+    #    implementation='torch'
+    #    device='cpu'
+    #    found_M = h.M.calc_M_neg_samp(
+    #        cooc_stats, implementation=implementation, device=device)
+    #    self.assertTrue(isinstance(found_M, torch.Tensor))
+    #    self.assertEqual(str(found_M.device), 'cpu')
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, N = cooc_stats
-        t_undersample=0.1
-        shift_by=-np.log(15)
-        neg_inf_val=1
-        clip_thresh=-1
-        diag=2
-        implementation='torch'
-        device='cpu'
 
-        M = h.M.calc_M_pmi(
-            cooc_stats,
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        M_ = h.M.calc_M(
-            cooc_stats,
-            base='pmi',
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        self.assertTrue(torch.allclose(M, M_))
+    ########################################################
+    #
+    #   I'm not supporting this method anymore.  Use the class M.
+    #
+    #def test_calc_M(self):
 
-        M = h.M.calc_M_logNxx(
-            cooc_stats,
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        M_ = h.M.calc_M(
-            cooc_stats,
-            base='logNxx',
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        self.assertTrue(torch.allclose(M, M_))
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    Nxx, Nx, N = cooc_stats
+    #    t_undersample=0.1
+    #    shift_by=-np.log(15)
+    #    neg_inf_val=1
+    #    clip_thresh=-1
+    #    diag=2
+    #    implementation='torch'
+    #    device='cpu'
 
-        M = h.M.calc_M_pmi_star(
-            cooc_stats,
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        M_ = h.M.calc_M(
-            cooc_stats,
-            base='pmi-star',
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        self.assertTrue(torch.allclose(M, M_))
+    #    M = h.M.calc_M_pmi(
+    #        cooc_stats,
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    M_ = h.M.calc_M(
+    #        cooc_stats,
+    #        base='pmi',
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    self.assertTrue(torch.allclose(M, M_))
 
-        M = h.M.calc_M_neg_samp(
-            cooc_stats,
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        M_ = h.M.calc_M(
-            cooc_stats,
-            base='neg-samp',
-            t_undersample=t_undersample,
-            shift_by=shift_by,
-            neg_inf_val=neg_inf_val,
-            clip_thresh=clip_thresh,
-            diag=diag,
-            implementation=implementation,
-            device=device
-        )
-        self.assertTrue(torch.allclose(M, M_))
+    #    M = h.M.calc_M_logNxx(
+    #        cooc_stats,
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    M_ = h.M.calc_M(
+    #        cooc_stats,
+    #        base='logNxx',
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    self.assertTrue(torch.allclose(M, M_))
+
+    #    M = h.M.calc_M_pmi_star(
+    #        cooc_stats,
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    M_ = h.M.calc_M(
+    #        cooc_stats,
+    #        base='pmi-star',
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    self.assertTrue(torch.allclose(M, M_))
+
+    #    M = h.M.calc_M_neg_samp(
+    #        cooc_stats,
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    M_ = h.M.calc_M(
+    #        cooc_stats,
+    #        base='neg-samp',
+    #        t_undersample=t_undersample,
+    #        shift_by=shift_by,
+    #        neg_inf_val=neg_inf_val,
+    #        clip_thresh=clip_thresh,
+    #        diag=diag,
+    #        implementation=implementation,
+    #        device=device
+    #    )
+    #    self.assertTrue(torch.allclose(M, M_))
 
 
 
@@ -662,8 +709,7 @@ class TestFDeltas(TestCase):
         expected_multiplier = N_neg_xx + cooc_stats.denseNxx
         expected = expected_multiplier * expected_difference
 
-        M = h.M.calc_M_pmi(
-            cooc_stats, shift_by=-np.log(k), implementation='numpy')
+        M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k)).load_all()
 
         M_hat = M + 1
         f_w2v = h.f_delta.get_f_w2v(cooc_stats, M, k, implementation='numpy')
@@ -675,7 +721,7 @@ class TestFDeltas(TestCase):
     def test_f_w2v_torch(self):
 
         k = 15
-        device = 'cpu'
+        device = 'cuda'
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
         expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
@@ -689,8 +735,8 @@ class TestFDeltas(TestCase):
             dtype=torch.float32, device=device
         )
 
-        M = h.M.calc_M_pmi(cooc_stats, shift_by=-np.log(k), 
-            implementation='torch', device=device)
+        M = h.M.M(
+            cooc_stats,'pmi', shift_by=-np.log(k), device=device).load_all()
         M_hat = M + 1
         f_w2v = h.f_delta.get_f_w2v(
             cooc_stats, M, k, implementation='torch', device=device)
@@ -721,8 +767,7 @@ class TestFDeltas(TestCase):
             for i in range(cooc_stats.Nxx.shape[0])
         ])
 
-        M = h.M.calc_M_logNxx(
-            cooc_stats, implementation='numpy', neg_inf_val=0)
+        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
         M_hat = M + 1
         f_glove = h.f_delta.get_f_glove(
             cooc_stats, M, implementation='numpy')
@@ -749,7 +794,7 @@ class TestFDeltas(TestCase):
 
     def test_f_glove_torch(self):
 
-        device = 'cpu'
+        device = 'cuda'
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
         with np.errstate(divide='ignore'):
@@ -768,10 +813,8 @@ class TestFDeltas(TestCase):
             for i in range(cooc_stats.Nxx.shape[0])
         ]), dtype=torch.float32, device=device)
 
-        M = h.M.calc_M_logNxx(
-            cooc_stats, neg_inf_val=0, 
-            implementation='torch', device=device
-        )
+        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
+
         M_hat = M_hat = M + 1
         f_glove = h.f_delta.get_f_glove(
             cooc_stats, M, implementation='torch', device=device)
@@ -805,19 +848,17 @@ class TestFDeltas(TestCase):
     def test_f_MSE(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all()
         M_hat = M + 1
-        with np.errstate(invalid='ignore'):
-            expected = M - M_hat
-        delta = np.zeros(M.shape)
+        expected = M - M_hat
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         found = f_MSE(M_hat)
-        np.testing.assert_equal(expected, found)
+        self.assertTrue(torch.allclose(expected, found))
 
 
     def test_f_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi_star(cooc_stats, implementation='numpy')
+        M = h.M.M(cooc_stats, 'pmi-star').load_all()
         M_hat = M + 1
         expected = np.array([
             [
@@ -830,7 +871,7 @@ class TestFDeltas(TestCase):
             for i in range(M.shape[0])
         ])
         f_swivel = h.f_delta.get_f_swivel(
-            cooc_stats, M, implementation='numpy')
+            cooc_stats, M, implementation='torch')
         found = f_swivel(M_hat)
         self.assertTrue(np.allclose(found, expected))
 
@@ -838,8 +879,7 @@ class TestFDeltas(TestCase):
     def test_f_swivel_torch(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         device = 'cpu'
-        M = h.M.calc_M_pmi_star(
-            cooc_stats, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi-star', device=device).load_all()
         M_hat = M + 1
         expected = torch.tensor(np.array([
             [
@@ -871,7 +911,7 @@ class TestFDeltas(TestCase):
         expected = N_indep_xx / N_indep_max * (
             np.e**expected_M - np.e**expected_M_hat)
 
-        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
+        M = h.M.M(cooc_stats, 'pmi').load_all()
         M_hat = M + 1
         f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, implementation='numpy')
         found = f_MLE(M_hat)
@@ -933,9 +973,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, clip_thresh=0,
-            implementation='numpy'
-        )
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -968,8 +1006,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -992,8 +1029,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         offset_W = np.random.random(cooc_stats.Nxx.shape)
         offset_V = np.random.random(cooc_stats.Nxx.shape)
@@ -1023,8 +1059,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
         
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1050,8 +1085,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
         offset_V = np.random.random(cooc_stats.Nxx.shape)
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
@@ -1079,8 +1113,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
         pass_args = {'a':True, 'b':False}
 
         def get_mock_f_delta(cooc_stats, M_):
@@ -1119,8 +1152,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         # Define an arbitrary f_delta
         delta_amount = 0.1
@@ -1157,8 +1189,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         # First make a non-one-sided embedder.
@@ -1199,8 +1230,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, clip_thresh=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         mse_embedder = h.embedder.HilbertEmbedder(
@@ -1221,8 +1251,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1243,8 +1272,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1273,7 +1301,7 @@ class TestHilbertEmbedder(TestCase):
         d = 11
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, neg_inf_val=0, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
 
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
         embedder = h.embedder.HilbertEmbedder(
@@ -1301,9 +1329,7 @@ class TestTorchHilbertEmbedder(TestCase):
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device
-        )
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu').load_all()
 
         # First make a non-one-sided embedder.
         f_MSE = h.f_delta.get_f_MSE(
@@ -1366,8 +1392,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         # Make the embedder, whose method we are testing.
         f_MSE = h.f_delta.get_f_MSE(
@@ -1404,8 +1429,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         offset_W = torch.rand(cooc_stats.Nxx.shape)
         offset_V = torch.rand(cooc_stats.Nxx.shape)
@@ -1444,8 +1468,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1479,10 +1502,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, 
-            implementation='torch', device=device
-        )
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
         offset_V = torch.rand(cooc_stats.Nxx.shape)
 
         f_MSE = h.f_delta.get_f_MSE(
@@ -1520,8 +1540,7 @@ class TestTorchHilbertEmbedder(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         # Make mock f_delta whose integration with an embedder is being tested.
         def get_mock_f_delta(cooc_stats, M_, implementation, device):
@@ -1579,8 +1598,7 @@ class TestTorchHilbertEmbedder(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(2)
         delta_amount = 0.1
 
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         # Test integration between an embedder and the following f_delta:
         delta_always = torch.zeros(M.shape) + delta_amount
@@ -1622,8 +1640,7 @@ class TestTorchHilbertEmbedder(TestCase):
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
 
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1652,8 +1669,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
@@ -1697,8 +1713,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1725,8 +1740,7 @@ class TestTorchHilbertEmbedder(TestCase):
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -1774,8 +1788,7 @@ class TestTorchHilbertEmbedder(TestCase):
         tolerance = 0.0001
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(
-            cooc_stats, neg_inf_val=0, implementation='torch', device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
 
         f_MSE = h.f_delta.get_f_MSE(
             cooc_stats, M, implementation='torch', device=device)
@@ -2462,7 +2475,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2481,7 +2494,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2499,7 +2512,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='numpy')
+        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2517,15 +2530,16 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='torch')
+        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
         f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='torch')
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate)
+            M, f_MSE, d, learning_rate, device='cpu')
         solver = h.solver.NesterovSolver(
-            embedder, learning_rate, momentum_decay, implementation='torch')
+            embedder, learning_rate, momentum_decay, 
+            implementation='torch', device='cpu')
         solver.cycle(times=times)
 
 
@@ -2536,7 +2550,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='torch', device='cpu')
+        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -2558,7 +2572,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.calc_M_pmi(cooc_stats, implementation='torch', device='cpu')
+        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -3772,6 +3786,40 @@ class TestUtils(TestCase):
         expected = torch.norm(V_torch, p=3, dim=1, keepdim=False)
         found = h.utils.norm(V_torch, ord=3, axis=1, keepdims=False)
         self.assertTrue(np.allclose(found, expected))
+
+
+
+class TestShards(TestCase):
+
+    def test_shards_iteration(self):
+        shard_factor = 4
+        shards = h.shards.Shards(shard_factor)
+        M = torch.arange(64, dtype=torch.float32).view(8,8)
+        self.assertTrue(len(list(shards)))
+        for i, shard in enumerate(shards):
+            if i == 0:
+                expected = torch.Tensor([[0,4],[32,36]])
+                self.assertTrue(torch.allclose(M[shard], expected))
+            elif i == 1:
+                expected = torch.Tensor([[1,5],[33,37]])
+                self.assertTrue(torch.allclose(M[shard], expected))
+            else:
+                expected_shard = torch.Tensor([
+                    j for j in range(64) 
+                    # If the row is among allowed rows
+                    if (j // 8) % shard_factor == i // shard_factor
+                    # If the column is among alowed columns
+                    and (j % 8) % shard_factor == i % shard_factor
+                ]).view(2,2)
+                self.assertTrue(torch.allclose(
+                    M[shard], expected_shard
+                ))
+
+                        
+
+
+
+            
 
 
 if __name__ == '__main__':

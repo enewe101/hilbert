@@ -60,12 +60,15 @@ def get_embedder(
         'cooc_stats':cooc_stats, 'base':base, 't_undersample':t_undersample,
         'shift_by':shift_by, 'neg_inf_val':neg_inf_val,
         'clip_thresh':clip_thresh, 'diag':diag,
-        'implementation':implementation, 'device':device
+        'device':device
     }
     if base == 'neg-samp':
         M_args.update({
             'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
-    M = h.M.calc_M(**M_args)
+
+    # TODO: don't load all!  f_delta function should be made to be shard aware!
+    #   Not implemented yet.
+    M = h.M.M(**M_args).load_all()
 
     f_getter = (
         h.f_delta.get_f_MSE if f_delta=='mse' else

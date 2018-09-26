@@ -9,11 +9,16 @@ except ImportError:
 
 import hilbert as h
 
+
+
+
+
 def get_f_MSE(cooc_stats, M, implementation='torch', device='cuda'):
     def f_MSE(M_hat):
         with np.errstate(invalid='ignore'):
             return M - M_hat
     return f_MSE
+
 
 
 def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
@@ -26,7 +31,7 @@ def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
             multiplier, dtype=torch.float32, device=device)
         sigmoid_M = torch.tensor(
             sigmoid_M, dtype=torch.float32, device=device)
-    
+
     def f_w2v(M_hat):
         return multiplier * (sigmoid_M - sigmoid(M_hat))
 
@@ -35,17 +40,12 @@ def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
 
 def get_f_w2v_sh(cooc_stats, M, k, device='cuda'):
     h.utils.ensure_implementation_valid(implementation)
-    def f_w2v(M_hat, shard, num_shards):
-        Nx = torch.tensor(N_x[shard::num_shards], device=device)
-        Nxx = torch.tensor(
-            Nxx[shard::num_shards,shard::num_shards], device=device)
-        N_neg_xx = k * Nx * Nx.t() / cooc_stats.N
-        multiplier = Nxx + N_neg_xx
-        sigmoid_M = sigmoid(
-            torch.log(Nxx) + torch.log(cooc_stats.N) 
-            - torch.log(Nx) - torch.log(Nx.t())
-        )
-        return multiplier * (sigmoid_M - sigmoid(M_hat))
+
+    def f_w2v(M_hat_shard, shard):
+        Nxx, Nx, N = h.cooc_stats.load_shard(cooc_stats, shard, device)
+        N_neg_shard = k * Nx * Nx.t() / N
+        multiplier_shard = Nxx + N_neg_shard
+        return multiplier * (sigmoid(M[shard]) - sigmoid(M_hat_shard))
 
     return f_w2v
 

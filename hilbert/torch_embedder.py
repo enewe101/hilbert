@@ -86,16 +86,36 @@ class TorchHilbertEmbedder(object):
         else:
             use_W, use_V = self.W, self.V
 
+        # Determine the errors.
         M_hat = torch.mm(use_W, use_V)
 
-        # Determine the errors.
         delta = self.f_delta(M_hat, **pass_args)
         self.badness = torch.sum(abs(delta)) / (
             self.M.shape[0] * self.M.shape[1])
 
         # Determine the gradient
-        nabla_V = torch.mm(use_W.t(), delta)
+        #  (Here is where we want to sum over shards of delta)
+        #self.badness = 0
+        #nabla_V = torch.empty_like(self.V)
+        #if not self.one_sided:
+        #    nabla_W = torch.empty_like(self.W)
+        #for shard in shards:
 
+        #    # Determine the errors.
+        #    M_hat_shard = torch.mm(use_W[shard[0]], use_V[shard[1]])
+
+        #    delta_shard = self.f_delta(M_hat_shard, shard, **pass_args)
+        #    self.badness += torch.sum(abs(delta_shard))/(
+        #        delta_shard.shape[0] * delta_shard.shape[1])
+
+        #    nabla_V[shard[1]] = torch.mm(use_W.t(), delta_shard)
+        #    if not self.one_sided:
+        #        nabla_W[shard[0]] = torch.mm(delta_shard, use_V.t())
+
+        #return nabla_V if self.one_sided else nabla_V, nabla_W
+
+        
+        nabla_V = torch.mm(use_W.t(), delta)
         if self.one_sided:
             return nabla_V
 

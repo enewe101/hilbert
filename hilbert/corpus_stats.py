@@ -1,9 +1,9 @@
 import hilbert as h
 
 try:
-    import numpy as np
+    import torch
 except ImportError:
-    np = None
+    torch = None
 
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
@@ -20,8 +20,8 @@ def get_test_stats(window_size):
 
 def calc_PMI(cooc_stats):
     Nxx, Nx, N = cooc_stats
-    with np.errstate(divide='ignore'):
-        return np.array(np.log(N) + np.log(Nxx) - np.log(Nx) - np.log(Nx.T))
+    torch_log_Nx = torch.log(Nx)
+    return torch.log(N) + torch.log(Nxx) - torch_log_Nx - torch_log_Nx.t()
 
 
 def calc_positive_PMI(cooc_stats):
@@ -31,12 +31,12 @@ def calc_positive_PMI(cooc_stats):
 
 
 def calc_shifted_PMI(cooc_stats, k):
-    return calc_PMI(cooc_stats) - np.log(k)
+    return calc_PMI(cooc_stats) - torch.log(k)
 
 
 def calc_PMI_star(cooc_stats):
     Nxx, Nx, N = cooc_stats
-    useNxx = Nxx.copy()
+    useNxx = Nxx.clone()
     useNxx[useNxx==0] = 1
     return calc_PMI((useNxx, Nx, N))
 
