@@ -20,42 +20,49 @@ class TorchHilbertEmbedder(object):
 
     def __init__(
         self,
-        M,
-        f_delta,
+        delta,
         d=300,
+        num_vecs=None,
+        num_covecs=None,
         learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
+        shard_factor=10,
         device='cuda'
     ):
-        self.M = torch.tensor(M, dtype=torch.float32, device=device)
+
+        self.delta = delta
         self.d = d
-        self.f_delta = f_delta
+        self.num_vecs = num_vecs or self.delta.M.shape[1]
+        self.num_covecs = num_covecs or self.delta.M.shape[0]
         self.learning_rate = learning_rate
         self.one_sided = one_sided
         self.constrainer = constrainer
+        self.shard_factor = shard_factor
         self.device = device
 
-        self.num_covecs, self.num_vecs = self.M.shape
         self.num_pairs = self.num_covecs * self.num_vecs
         if self.one_sided and self.num_covecs != self.num_vecs:
-            raise ValueError('M must be square for a one-sided embedder.')
+            raise ValueError(
+                'A one-sided embedder must have the same number of vectors '
+                'and covectors.'
+            )
         self.reset()
 
 
     def sample_sphere(self):
         sample = torch.rand(
-            (self.d, self.num_vecs), device=self.device
+            (self.num_vecs, self.d), device=self.device
         ).mul_(2).sub_(1)
-        return sample.div_(torch.norm(sample, 2, dim=1).view(self.d, 1))
+        return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
 
 
     def reset(self):
         self.V = self.sample_sphere()
         if self.one_sided:
-            self.W = self.V.t()
+            self.W = self.V
         else:
-            self.W = self.sample_sphere().t()
+            self.W = self.sample_sphere()
         self.badness = None
 
 
@@ -68,7 +75,7 @@ class TorchHilbertEmbedder(object):
                 dV and self.W += dW before calculating the gradient.
             `pass_args`:
                 Allowed values: dict of keyword arguments.  Supplies the
-                keyword arguments to f_delta.
+                keyword arguments to delta.
         """
 
         pass_args = pass_args or {}
@@ -82,46 +89,45 @@ class TorchHilbertEmbedder(object):
             else:
                 dV = offsets
                 use_V = self.V + dV
-                use_W = use_V.t()
+                use_W = use_V
         else:
             use_W, use_V = self.W, self.V
 
-        # Determine the errors.
-        M_hat = torch.mm(use_W, use_V)
+        # Determine the gradient, one shard at a time
+        nabla_V = torch.zeros_like(self.V)
+        if not self.one_sided:
+            nabla_W = torch.zeros_like(self.W)
+        self.badness = 0
+        for shard in h.shards.Shards(self.shard_factor):
+            # Determine the errors.
+            M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
+            delta = self.delta.calc_shard(M_hat, shard, **pass_args)
+            self.badness += torch.sum(abs(delta))
+            nabla_V[shard[1]] += torch.mm(delta.t(), use_W[shard[0]])
+            if not self.one_sided:
+                nabla_W[shard[0]] += torch.mm(delta, use_V[shard[1]])
 
-        delta = self.f_delta(M_hat, **pass_args)
-        self.badness = torch.sum(abs(delta)) / (
-            self.M.shape[0] * self.M.shape[1])
+        self.badness /= self.num_pairs
 
-        # Determine the gradient
-        #  (Here is where we want to sum over shards of delta)
-        #self.badness = 0
-        #nabla_V = torch.empty_like(self.V)
-        #if not self.one_sided:
-        #    nabla_W = torch.empty_like(self.W)
-        #for shard in shards:
-
-        #    # Determine the errors.
-        #    M_hat_shard = torch.mm(use_W[shard[0]], use_V[shard[1]])
-
-        #    delta_shard = self.f_delta(M_hat_shard, shard, **pass_args)
-        #    self.badness += torch.sum(abs(delta_shard))/(
-        #        delta_shard.shape[0] * delta_shard.shape[1])
-
-        #    nabla_V[shard[1]] = torch.mm(use_W.t(), delta_shard)
-        #    if not self.one_sided:
-        #        nabla_W[shard[0]] = torch.mm(delta_shard, use_V.t())
-
-        #return nabla_V if self.one_sided else nabla_V, nabla_W
-
-        
-        nabla_V = torch.mm(use_W.t(), delta)
         if self.one_sided:
             return nabla_V
-
-        nabla_W = torch.mm(delta, use_V.t())
         return nabla_V, nabla_W
 
+
+        ## Determine the errors.
+        #M_hat = torch.mm(use_W, use_V)
+
+        #delta = self.f_delta(M_hat, **pass_args)
+        #self.badness = torch.sum(abs(delta)) / (
+        #    self.M.shape[0] * self.M.shape[1])
+
+        #
+        #nabla_V = torch.mm(use_W.t(), delta)
+        #if self.one_sided:
+        #    return nabla_V
+
+        #nabla_W = torch.mm(delta, use_V.t())
+        #return nabla_V, nabla_W
 
 
     def update(self, delta_V=None, delta_W=None):

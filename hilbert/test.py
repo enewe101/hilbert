@@ -41,15 +41,14 @@ class TestGetEmbedder(TestCase):
             device=device,
         ).load_all()
         f_delta_str = 'glove'
-        f_delta = h.f_delta.get_f_glove(
+        f_delta = h.f_delta.DeltaGlove(
             cooc_stats=cooc_stats,
             M=M,
             X_max=X_max,
             device=device,
         )
         expected_embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M=M,
-            f_delta=f_delta,
+            delta=f_delta,
             d=d,
             learning_rate=learning_rate,
             one_sided=one_sided,
@@ -89,7 +88,6 @@ class TestGetEmbedder(TestCase):
 
             # vvv Defaults
             momentum_decay=0.9,
-            implementation='torch',
             # ^^^ Defaults
 
             device=device
@@ -1105,361 +1103,365 @@ class TestConstrainer(TestCase):
         W, V = np.zeros((3,3)), np.zeros((3,3))
         h.constrainer.glove_constrainer(W, V)
         self.assertTrue(np.allclose(W, np.array([[0,1,0]]*3)))
-        self.assertTrue(np.allclose(V, np.array([[1,0,0]]*3).T))
-
-
-
-class TestHilbertEmbedder(TestCase):
-
-    def test_integration_with_constrainer(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate,
-            constrainer=h.constrainer.glove_constrainer
-        )
-
-        old_V = embedder.V.copy()
-        old_W = embedder.W.copy()
-
-        embedder.cycle(print_badness=False)
-
-        # Check that the update was performed, and constraints applied.
-        new_V = old_V + learning_rate * np.dot(old_W.T, M - embedder.M_hat)
-        new_W = old_W + learning_rate * np.dot(M - embedder.M_hat, old_V.T)
-        h.constrainer.glove_constrainer(new_W, new_V)
-        self.assertTrue(np.allclose(embedder.V, new_V))
-        self.assertTrue(np.allclose(embedder.W, new_W))
-
-        # Check that the badness is correct 
-        # (badness is based on the error before last update)
-        embedder.calc_badness()
-        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-        self.assertEqual(badness, embedder.badness)
-
-
-
-    def test_get_gradient(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate)
-
-        W, V = embedder.W.copy(), embedder.V.copy()
-        M_hat = np.dot(W,V)
-        delta = M - M_hat
-        expected_nabla_W = np.dot(delta, V.T)
-        expected_nabla_V = np.dot(W.T, delta)
-
-        nabla_V, nabla_W = embedder.get_gradient()
-
-        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
-        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-
-
-    def test_get_gradient_with_offsets(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        offset_W = np.random.random(cooc_stats.Nxx.shape)
-        offset_V = np.random.random(cooc_stats.Nxx.shape)
-        
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
-
-        original_W, original_V = embedder.W.copy(), embedder.V.copy()
-        W, V =  original_W + offset_W,  original_V + offset_V
-        M_hat = np.dot(W,V)
-        delta = M - M_hat
-        expected_nabla_W = np.dot(delta, V.T)
-        expected_nabla_V = np.dot(W.T, delta)
-
-        nabla_V, nabla_W = embedder.get_gradient(offsets=(offset_V, offset_W))
-
-        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
-        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-
-        # Verify that the embeddings were not altered by the offset
-        self.assertTrue(np.allclose(original_W, embedder.W))
-        self.assertTrue(np.allclose(original_V, embedder.V))
-
-
-    def test_get_gradient_one_sided(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-        
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
-
-        original_V = embedder.V.copy()
-        V =  original_V
-        M_hat = np.dot(V.T,V)
-        delta = M - M_hat
-        expected_nabla_V = np.dot(V, delta)
-
-        nabla_V = embedder.get_gradient()
-
-        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-
-        # Verify that the embeddings were not altered by the offset
-        self.assertTrue(np.allclose(original_V.T, embedder.W))
-        self.assertTrue(np.allclose(original_V, embedder.V))
-
-
-    def test_get_gradient_one_sided_with_offset(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-        offset_V = np.random.random(cooc_stats.Nxx.shape)
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
-
-        original_V = embedder.V.copy()
-        V =  original_V + offset_V
-        M_hat = np.dot(V.T,V)
-        delta = M - M_hat
-        expected_nabla_V = np.dot(V, delta)
-
-        nabla_V = embedder.get_gradient(offsets=offset_V)
-
-        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-
-        # Verify that the embeddings were not altered by the offset
-        self.assertTrue(np.allclose(original_V.T, embedder.W))
-        self.assertTrue(np.allclose(original_V, embedder.V))
-
-
-
-    def test_integration_with_f_delta(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-        pass_args = {'a':True, 'b':False}
-
-        def get_mock_f_delta(cooc_stats, M_):
-            def mock_f_delta(M_hat_, **kwargs):
-                self.assertTrue(M_ is M)
-                self.assertEqual(kwargs, {'a':True, 'b':False})
-                return M_ - M_hat_
-            return mock_f_delta
-
-        f_delta = get_mock_f_delta(cooc_stats, M)
-        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
-
-        self.assertEqual(embedder.learning_rate, learning_rate)
-        self.assertEqual(embedder.d, d)
-        self.assertTrue(embedder.M is M)
-        self.assertEqual(embedder.f_delta, f_delta)
-
-        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-
-        embedder.cycle(pass_args=pass_args, print_badness=False)
-
-        # Check that the update was performed
-        new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
-        new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
-        self.assertTrue(np.allclose(embedder.V, new_V))
-        self.assertTrue(np.allclose(embedder.W, new_W))
-
-        # Check that the badness is correct 
-        # (badness is based on the error before last update)
-        embedder.calc_badness()
-        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-        self.assertEqual(badness, embedder.badness)
-
-
-    def test_arbitrary_f_delta(self):
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        # Define an arbitrary f_delta
-        delta_amount = 0.1
-        delta_always = np.zeros(M.shape) + delta_amount
-        def get_f_delta(cooc_stats, M, implementation):
-            def f_delta(M_hat):
-                return np.ones(M_hat.shape) * delta_amount
-            return f_delta
-
-        f_delta = get_f_delta(cooc_stats, M, implementation='numpy')
-        # First make a non-one-sided embedder.
-        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
-
-        old_V = embedder.V.copy()
-        old_W = embedder.W.copy()
-
-        embedder.cycle(print_badness=False)
-
-        # Check that the update was performed.  Notice that the update of W
-        # uses the old value of V, hence a synchronous update.
-        new_V = old_V + learning_rate * np.dot(old_W.T, delta_always)
-        new_W = old_W + learning_rate * np.dot(delta_always, old_V.T)
-        self.assertTrue(np.allclose(embedder.V, new_V))
-        self.assertTrue(np.allclose(embedder.W, new_W))
-
-        # Check that the badness is correct 
-        # (badness is based on the error before last update)
-        embedder.calc_badness()
-        badness = np.sum(delta_always) / (d*d)
-        self.assertEqual(badness, embedder.badness)
-
-
-    def test_one_sided(self):
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        # First make a non-one-sided embedder.
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate
-        )
-
-        # The covectors and vectors are not the same.
-        self.assertFalse(np.allclose(embedder.W, embedder.V.T))
-
-        # Now make a one-sided embedder.
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True
-        )
-
-        # The covectors and vectors are the same.
-        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
-
-        old_V = embedder.V.copy()
-        embedder.cycle(print_badness=False)
-
-        # Check that the update was performed.
-        new_V = old_V + learning_rate * np.dot(old_V, embedder.delta)
-        self.assertTrue(np.allclose(embedder.V, new_V))
-
-        # Check that the vectors and covectors are still identical after the
-        # update.
-        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
-
-        # Check that the badness is correct 
-        # (badness is based on the error before last update)
-        embedder.calc_badness()
-        badness = np.sum(abs(M - np.dot(old_V.T, old_V))) / (d*d)
-        self.assertEqual(badness, embedder.badness)
-
-
-    def test_mse_embedder(self):
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        mse_embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate)
-        mse_embedder.cycle(100000, print_badness=False)
-
-        self.assertEqual(mse_embedder.V.shape, (M.shape[1],d))
-        self.assertEqual(mse_embedder.W.shape, (d,M.shape[0]))
-
-        delta = np.zeros(M.shape, dtype='float64')
-        residual = f_MSE(mse_embedder.M_hat)
-
-        self.assertTrue(np.allclose(residual, delta))
-        
-
-    def test_update(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats= h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate)
-
-        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-
-        delta_V = np.random.random(M.shape)
-        delta_W = np.random.random(M.shape)
-        updates = delta_V, delta_W
-        embedder.update(*updates)
-        self.assertTrue(np.allclose(old_W + delta_W, embedder.W))
-        self.assertTrue(np.allclose(old_V + delta_V, embedder.V))
-
-
-    def test_update_with_constraints(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate,
-            constrainer=h.constrainer.glove_constrainer
-        )
-
-        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-
-        delta_V = np.random.random(M.shape)
-        delta_W = np.random.random(M.shape)
-        updates = delta_V, delta_W
-        embedder.update(*updates)
-
-        expected_updated_W = old_W + delta_W
-        expected_updated_V = old_V + delta_V
-        h.constrainer.glove_constrainer(expected_updated_W, expected_updated_V)
-
-        self.assertTrue(np.allclose(expected_updated_W, embedder.W))
-        self.assertTrue(np.allclose(expected_updated_V, embedder.V))
-
-
-
-    def test_update_one_sided_rejects_delta_W(self):
-
-        d = 11
-        learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate)
-
-        # Show that we can update covector embeddings for a non-one-sided model
-        delta_W = np.ones(M.shape)
-        embedder.update(delta_W=delta_W)
-
-        # Now show that a one-sided embedder rejects updates to covectors
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
-        delta_W = np.ones(M.shape)
-        with self.assertRaises(ValueError):
-            embedder.update(delta_W=delta_W)
+        self.assertTrue(np.allclose(V, np.array([[1,0,0]]*3)))
+
+
+
+#
+#   The numpy implementation of the Hilbert Embedder has been removed. These
+#   tests are obsolete.
+#
+#class TestHilbertEmbedder(TestCase):
+#
+#    def test_integration_with_constrainer(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate,
+#            constrainer=h.constrainer.glove_constrainer
+#        )
+#
+#        old_V = embedder.V.copy()
+#        old_W = embedder.W.copy()
+#
+#        embedder.cycle(print_badness=False)
+#
+#        # Check that the update was performed, and constraints applied.
+#        new_V = old_V + learning_rate * np.dot(old_W.T, M - embedder.M_hat)
+#        new_W = old_W + learning_rate * np.dot(M - embedder.M_hat, old_V.T)
+#        h.constrainer.glove_constrainer(new_W, new_V)
+#        self.assertTrue(np.allclose(embedder.V, new_V))
+#        self.assertTrue(np.allclose(embedder.W, new_W))
+#
+#        # Check that the badness is correct 
+#        # (badness is based on the error before last update)
+#        embedder.calc_badness()
+#        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
+#        self.assertEqual(badness, embedder.badness)
+#
+#
+#
+#    def test_get_gradient(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate)
+#
+#        W, V = embedder.W.copy(), embedder.V.copy()
+#        M_hat = np.dot(W,V)
+#        delta = M - M_hat
+#        expected_nabla_W = np.dot(delta, V.T)
+#        expected_nabla_V = np.dot(W.T, delta)
+#
+#        nabla_V, nabla_W = embedder.get_gradient()
+#
+#        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
+#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
+#
+#
+#    def test_get_gradient_with_offsets(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        offset_W = np.random.random(cooc_stats.Nxx.shape)
+#        offset_V = np.random.random(cooc_stats.Nxx.shape)
+#        
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
+#
+#        original_W, original_V = embedder.W.copy(), embedder.V.copy()
+#        W, V =  original_W + offset_W,  original_V + offset_V
+#        M_hat = np.dot(W,V)
+#        delta = M - M_hat
+#        expected_nabla_W = np.dot(delta, V.T)
+#        expected_nabla_V = np.dot(W.T, delta)
+#
+#        nabla_V, nabla_W = embedder.get_gradient(offsets=(offset_V, offset_W))
+#
+#        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
+#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
+#
+#        # Verify that the embeddings were not altered by the offset
+#        self.assertTrue(np.allclose(original_W, embedder.W))
+#        self.assertTrue(np.allclose(original_V, embedder.V))
+#
+#
+#    def test_get_gradient_one_sided(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#        
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate, one_sided=True)
+#
+#        original_V = embedder.V.copy()
+#        V =  original_V
+#        M_hat = np.dot(V.T,V)
+#        delta = M - M_hat
+#        expected_nabla_V = np.dot(V, delta)
+#
+#        nabla_V = embedder.get_gradient()
+#
+#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
+#
+#        # Verify that the embeddings were not altered by the offset
+#        self.assertTrue(np.allclose(original_V.T, embedder.W))
+#        self.assertTrue(np.allclose(original_V, embedder.V))
+#
+#
+#    def test_get_gradient_one_sided_with_offset(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#        offset_V = np.random.random(cooc_stats.Nxx.shape)
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate, one_sided=True)
+#
+#        original_V = embedder.V.copy()
+#        V =  original_V + offset_V
+#        M_hat = np.dot(V.T,V)
+#        delta = M - M_hat
+#        expected_nabla_V = np.dot(V, delta)
+#
+#        nabla_V = embedder.get_gradient(offsets=offset_V)
+#
+#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
+#
+#        # Verify that the embeddings were not altered by the offset
+#        self.assertTrue(np.allclose(original_V.T, embedder.W))
+#        self.assertTrue(np.allclose(original_V, embedder.V))
+#
+#
+#
+#    def test_integration_with_f_delta(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#        pass_args = {'a':True, 'b':False}
+#
+#        def get_mock_f_delta(cooc_stats, M_):
+#            def mock_f_delta(M_hat_, **kwargs):
+#                self.assertTrue(M_ is M)
+#                self.assertEqual(kwargs, {'a':True, 'b':False})
+#                return M_ - M_hat_
+#            return mock_f_delta
+#
+#        f_delta = get_mock_f_delta(cooc_stats, M)
+#        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
+#
+#        self.assertEqual(embedder.learning_rate, learning_rate)
+#        self.assertEqual(embedder.d, d)
+#        self.assertTrue(embedder.M is M)
+#        self.assertEqual(embedder.f_delta, f_delta)
+#
+#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
+#
+#        embedder.cycle(pass_args=pass_args, print_badness=False)
+#
+#        # Check that the update was performed
+#        new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
+#        new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
+#        self.assertTrue(np.allclose(embedder.V, new_V))
+#        self.assertTrue(np.allclose(embedder.W, new_W))
+#
+#        # Check that the badness is correct 
+#        # (badness is based on the error before last update)
+#        embedder.calc_badness()
+#        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
+#        self.assertEqual(badness, embedder.badness)
+#
+#
+#    def test_arbitrary_f_delta(self):
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        # Define an arbitrary f_delta
+#        delta_amount = 0.1
+#        delta_always = np.zeros(M.shape) + delta_amount
+#        def get_f_delta(cooc_stats, M, implementation):
+#            def f_delta(M_hat):
+#                return np.ones(M_hat.shape) * delta_amount
+#            return f_delta
+#
+#        f_delta = get_f_delta(cooc_stats, M, implementation='numpy')
+#        # First make a non-one-sided embedder.
+#        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
+#
+#        old_V = embedder.V.copy()
+#        old_W = embedder.W.copy()
+#
+#        embedder.cycle(print_badness=False)
+#
+#        # Check that the update was performed.  Notice that the update of W
+#        # uses the old value of V, hence a synchronous update.
+#        new_V = old_V + learning_rate * np.dot(old_W.T, delta_always)
+#        new_W = old_W + learning_rate * np.dot(delta_always, old_V.T)
+#        self.assertTrue(np.allclose(embedder.V, new_V))
+#        self.assertTrue(np.allclose(embedder.W, new_W))
+#
+#        # Check that the badness is correct 
+#        # (badness is based on the error before last update)
+#        embedder.calc_badness()
+#        badness = np.sum(delta_always) / (d*d)
+#        self.assertEqual(badness, embedder.badness)
+#
+#
+#    def test_one_sided(self):
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        # First make a non-one-sided embedder.
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate
+#        )
+#
+#        # The covectors and vectors are not the same.
+#        self.assertFalse(np.allclose(embedder.W, embedder.V.T))
+#
+#        # Now make a one-sided embedder.
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate, one_sided=True
+#        )
+#
+#        # The covectors and vectors are the same.
+#        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
+#
+#        old_V = embedder.V.copy()
+#        embedder.cycle(print_badness=False)
+#
+#        # Check that the update was performed.
+#        new_V = old_V + learning_rate * np.dot(old_V, embedder.delta)
+#        self.assertTrue(np.allclose(embedder.V, new_V))
+#
+#        # Check that the vectors and covectors are still identical after the
+#        # update.
+#        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
+#
+#        # Check that the badness is correct 
+#        # (badness is based on the error before last update)
+#        embedder.calc_badness()
+#        badness = np.sum(abs(M - np.dot(old_V.T, old_V))) / (d*d)
+#        self.assertEqual(badness, embedder.badness)
+#
+#
+#    def test_mse_embedder(self):
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        mse_embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate)
+#        mse_embedder.cycle(100000, print_badness=False)
+#
+#        self.assertEqual(mse_embedder.V.shape, (M.shape[1],d))
+#        self.assertEqual(mse_embedder.W.shape, (d,M.shape[0]))
+#
+#        delta = np.zeros(M.shape, dtype='float64')
+#        residual = f_MSE(mse_embedder.M_hat)
+#
+#        self.assertTrue(np.allclose(residual, delta))
+#        
+#
+#    def test_update(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats= h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate)
+#
+#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
+#
+#        delta_V = np.random.random(M.shape)
+#        delta_W = np.random.random(M.shape)
+#        updates = delta_V, delta_W
+#        embedder.update(*updates)
+#        self.assertTrue(np.allclose(old_W + delta_W, embedder.W))
+#        self.assertTrue(np.allclose(old_V + delta_V, embedder.V))
+#
+#
+#    def test_update_with_constraints(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate,
+#            constrainer=h.constrainer.glove_constrainer
+#        )
+#
+#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
+#
+#        delta_V = np.random.random(M.shape)
+#        delta_W = np.random.random(M.shape)
+#        updates = delta_V, delta_W
+#        embedder.update(*updates)
+#
+#        expected_updated_W = old_W + delta_W
+#        expected_updated_V = old_V + delta_V
+#        h.constrainer.glove_constrainer(expected_updated_W, expected_updated_V)
+#
+#        self.assertTrue(np.allclose(expected_updated_W, embedder.W))
+#        self.assertTrue(np.allclose(expected_updated_V, embedder.V))
+#
+#
+#
+#    def test_update_one_sided_rejects_delta_W(self):
+#
+#        d = 11
+#        learning_rate = 0.01
+#        cooc_stats = h.corpus_stats.get_test_stats(2)
+#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
+#
+#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate)
+#
+#        # Show that we can update covector embeddings for a non-one-sided model
+#        delta_W = np.ones(M.shape)
+#        embedder.update(delta_W=delta_W)
+#
+#        # Now show that a one-sided embedder rejects updates to covectors
+#        embedder = h.embedder.HilbertEmbedder(
+#            M, f_MSE, d, learning_rate, one_sided=True)
+#        delta_W = np.ones(M.shape)
+#        with self.assertRaises(ValueError):
+#            embedder.update(delta_W=delta_W)
 
 
 
@@ -1467,39 +1469,43 @@ class TestTorchHilbertEmbedder(TestCase):
 
 
     def test_one_sided(self):
-        d = 11
+        torch.random.manual_seed(0)
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
+        vocab = len(cooc_stats.Nx)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu').load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M_ = M.load_all()
 
         # First make a non-one-sided embedder.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
-
-        # Ensure that the relevant variables are tensors
-        self.assertTrue(isinstance(embedder.V, torch.Tensor))
-        self.assertTrue(isinstance(embedder.W, torch.Tensor))
-        self.assertTrue(isinstance(embedder.M, torch.Tensor))
-
-        # The covectors and vectors are not the same.
-        self.assertFalse(torch.allclose(embedder.W, embedder.V.t()))
-
-        # Now make a one-sided embedder.
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True, device=device
+            f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            device=device
         )
 
         # Ensure that the relevant variables are tensors
         self.assertTrue(isinstance(embedder.V, torch.Tensor))
         self.assertTrue(isinstance(embedder.W, torch.Tensor))
-        self.assertTrue(isinstance(embedder.M, torch.Tensor))
+        self.assertTrue(isinstance(M_, torch.Tensor))
+
+        # The covectors and vectors are not the same.
+        self.assertFalse(torch.allclose(embedder.W, embedder.V))
+
+        # Now make a one-sided embedder.
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            shard_factor=3, device=device
+        )
+
+        # Ensure that the relevant variables are tensors
+        self.assertTrue(isinstance(embedder.V, torch.Tensor))
+        self.assertTrue(isinstance(embedder.W, torch.Tensor))
 
         # Now, the covectors and vectors are the same.
-        self.assertTrue(torch.allclose(embedder.W, embedder.V.t()))
+        self.assertTrue(torch.allclose(embedder.W, embedder.V))
 
         old_V = embedder.V.clone()
         embedder.cycle(print_badness=False)
@@ -1507,41 +1513,45 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertTrue(isinstance(old_V, torch.Tensor))
 
         # Check that the update was performed.
-        M_hat = torch.mm(old_V.t(), old_V)
-        M = torch.tensor(M, dtype=torch.float32)
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        delta = f_MSE(M_hat)
-        nabla_V = torch.mm(old_V, delta)
+        M_hat = torch.mm(old_V, old_V.t())
+        #M_ = torch.tensor(M_, dtype=torch.float32)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        delta = f_MSE.calc_shard(M_hat) # No shard -> calculates full matrix
+        nabla_V = torch.mm(delta.t(), old_V)
         new_V = old_V + learning_rate * nabla_V
         self.assertTrue(torch.allclose(embedder.V, new_V))
 
         # Check that the vectors and covectors are still identical after the
         # update.
-        self.assertTrue(torch.allclose(embedder.W, embedder.V.t()))
+        self.assertTrue(torch.allclose(embedder.W, embedder.V))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        delta = abs(M - M_hat)
-        badness = torch.sum(delta) / (d*d)
-        self.assertEqual(badness, embedder.badness)
+        delta = abs(M_ - M_hat)
+        badness = torch.sum(delta) / (vocab * vocab)
+        self.assertTrue(torch.allclose(badness, embedder.badness))
 
 
 
     def test_get_gradient(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for the test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+        #cooc_stats.truncate(10)
+
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
         # Make the embedder, whose method we are testing.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
+        delta_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
+            delta_MSE, d, learning_rate=learning_rate, device=device,
+            shard_factor=2
+        )
 
         # Take the random starting embeddings.  We will compute the gradient
         # manually here to see if it matches what the embedder's method
@@ -1549,48 +1559,53 @@ class TestTorchHilbertEmbedder(TestCase):
         W, V = embedder.W.clone(), embedder.V.clone()
 
         # Since we are not doing one-sided, W and V should be unrelated.
-        self.assertFalse(torch.allclose(W.t(), V))
+        self.assertFalse(torch.allclose(W, V))
 
         # Calculate the expected gradient.
-        M_hat = torch.mm(W,V)
-        delta = M - M_hat
-        expected_nabla_W = torch.mm(delta, V.t())
-        expected_nabla_V = torch.mm(W.t(), delta)
+        M_hat = torch.mm(W,V.t())
+        delta = M_ - M_hat
+
+        expected_nabla_W = torch.mm(delta, V)
+        expected_nabla_V = torch.mm(delta.t(), W)
 
         # Get the gradient according to the embedder.
         nabla_V, nabla_W = embedder.get_gradient()
 
         # Embedder's gradients should match manually calculated expectation.
-        self.assertTrue(torch.allclose(nabla_W, expected_nabla_W))
         self.assertTrue(torch.allclose(nabla_V, expected_nabla_V))
+        self.assertTrue(torch.allclose(nabla_W, expected_nabla_W))
 
 
     def test_get_gradient_with_offsets(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for the test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        offset_W = torch.rand(cooc_stats.Nxx.shape)
-        offset_V = torch.rand(cooc_stats.Nxx.shape)
+        offset_W = torch.rand(len(cooc_stats.Nx), d)
+        offset_V = torch.rand(len(cooc_stats.Nx), d)
 
         # Create an embedder, whose get_gradient method we are testing.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            device=device
+        )
 
         # Manually calculate the gradients we expect, applying offsets to the
         # current embeddings first.
         original_W, original_V = embedder.W.clone(), embedder.V.clone()
         W, V =  original_W + offset_W,  original_V + offset_V
-        M_hat = torch.mm(W,V)
-        delta = M - M_hat
-        expected_nabla_W = torch.mm(delta, V.t())
-        expected_nabla_V = torch.mm(W.t(), delta)
+        M_hat = torch.mm(W,V.t())
+        delta = M_ - M_hat
+
+        expected_nabla_W = torch.mm(delta, V)
+        expected_nabla_V = torch.mm(delta.t(), W)
 
         # Get the gradient using the embedder's method
         nabla_V, nabla_W = embedder.get_gradient(offsets=(offset_V, offset_W))
@@ -1606,61 +1621,65 @@ class TestTorchHilbertEmbedder(TestCase):
 
     def test_get_gradient_one_sided(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for the test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True, device=device)
+            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            device=device
+        )
 
         # Calculate the gradient manually here.
         original_V = embedder.V.clone()
         V = original_V
-        M_hat = torch.mm(V.t(),V)
-        #M = torch.tensor(M, dtype=torch.float32)
-        delta = M - M_hat
-        expected_nabla_V = torch.mm(V, delta)
+        M_hat = torch.mm(V,V.t())
+        delta = M_ - M_hat
+        expected_nabla_V = torch.mm(delta.t(), V)
 
         # Get the gradient using the embedders method (which we are testing).
         nabla_V = embedder.get_gradient()
 
         # Gradient from embedder should match that manually calculated.
-        self.assertTrue(torch.allclose(nabla_V, expected_nabla_V))
+        self.assertTrue(torch.allclose(nabla_V, expected_nabla_V, atol=1e-6))
 
         # Verify that the embeddings were not altered by the offset
-        self.assertTrue(torch.allclose(original_V.t(), embedder.W))
+        self.assertTrue(torch.allclose(original_V, embedder.W))
         self.assertTrue(torch.allclose(original_V, embedder.V))
 
 
     def test_get_gradient_one_sided_with_offset(self):
 
+        torch.random.manual_seed(0)
         # Set up test conditions.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
-        offset_V = torch.rand(cooc_stats.Nxx.shape)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        # Make an embedder, whose get_gradient method we are testing.
+        offset_V = torch.rand(len(cooc_stats.Nx), d)
+
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True, device=device)
+            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            device=device
+        )
 
         # Manually calculate expected gradients
         original_V = embedder.V.clone()
         V =  original_V + offset_V
-        M_hat = torch.mm(V.t(),V)
-        #M = torch.tensor(M, dtype=torch.float32)
-        delta = M - M_hat
-        expected_nabla_V = torch.mm(V, delta)
+        M_hat = torch.mm(V,V.t())
+        delta = M_ - M_hat
+        expected_nabla_V = torch.mm(delta.t(), V)
 
         # Calculate gradients using embedder's method (which we are testing).
         nabla_V = embedder.get_gradient(offsets=offset_V)
@@ -1669,45 +1688,60 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(nabla_V, expected_nabla_V))
 
         # Verify that the embeddings were not altered by the offset.
-        self.assertTrue(torch.allclose(original_V.t(), embedder.W))
+        self.assertTrue(torch.allclose(original_V, embedder.W))
         self.assertTrue(torch.allclose(original_V, embedder.V))
 
 
 
     def test_integration_with_f_delta(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
+        vocab = len(cooc_stats.Nx)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
         # Make mock f_delta whose integration with an embedder is being tested.
-        def get_mock_f_delta(cooc_stats, M_, implementation, device):
-            def mock_f_delta(M_hat_, **kwargs):
-                self.assertTrue(torch.allclose(
-                    M_, torch.tensor(M, dtype=torch.float32)))
-                self.assertEqual(kwargs, {'a':True, 'b':False})
-                return M_ - M_hat_
-            return mock_f_delta
+        class DeltaMock:
 
-        f_delta = get_mock_f_delta(
-            cooc_stats, M, implementation='torch', device=device)
+            def __init__(
+                self,
+                cooc_stats,
+                M,
+                test_case,
+                device=h.CONSTANTS.MATRIX_DEVICE,
+            ):
+                self.cooc_stats = cooc_stats
+                self.M = M
+                self.test_case = test_case
+                self.device=device
+
+            def calc_shard(self, M_hat, shard=None, **kwargs):
+                self.test_case.assertTrue(self.M is M)
+                self.test_case.assertEqual(kwargs, {'a':True, 'b':False})
+                return self.M[shard] - M_hat
+                
+
+        f_delta = DeltaMock(cooc_stats, M, self, device=device)
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate, device=device)
+            f_delta, d, learning_rate=learning_rate, shard_factor=3,
+            device=device
+        )
 
         # Verify that all settings passed into the ebedder were registered,
         # and that the M matrix has been converted to a torch.Tensor.
         self.assertEqual(embedder.learning_rate, learning_rate)
         self.assertEqual(embedder.d, d)
-        self.assertTrue(torch.allclose(
-            embedder.M, torch.tensor(M, dtype=torch.float32)))
-        self.assertEqual(embedder.f_delta, f_delta)
+        self.assertTrue(f_delta.M is M)
+        self.assertEqual(embedder.delta, f_delta)
 
         # Clone current embeddings so we can manually calculate the expected
         # effect of one update cycle.
@@ -1718,10 +1752,10 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Calculate teh expected changes due to the update.
         #M = torch.tensor(M, dtype=torch.float32)
-        M_hat = torch.mm(old_W, old_V)
-        delta = M - M_hat
-        new_V = old_V + learning_rate * torch.mm(old_W.t(), delta)
-        new_W = old_W + learning_rate * torch.mm(delta, old_V.t())
+        M_hat = torch.mm(old_W, old_V.t())
+        delta = M_ - M_hat
+        new_V = old_V + learning_rate * torch.mm(delta.t(), old_W)
+        new_W = old_W + learning_rate * torch.mm(delta, old_V)
 
         # New embeddings in embedder should match manually updated ones.
         self.assertTrue(torch.allclose(embedder.V, new_V))
@@ -1729,32 +1763,38 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        expected_badness = torch.sum(abs(M - torch.mm(old_W, old_V))) / (d*d)
-        self.assertEqual(expected_badness, embedder.badness)
+        expected_badness = torch.sum(abs(M_ - M_hat)) / (vocab**2)
+        self.assertTrue(torch.allclose(expected_badness, embedder.badness))
 
 
     def test_arbitrary_f_delta(self):
+        torch.random.manual_seed(0)
         # Set up conditions for test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
+        vocab = len(cooc_stats.Nx)
         delta_amount = 0.1
+        delta_always = torch.zeros(cooc_stats.Nxx.shape) + delta_amount
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
         # Test integration between an embedder and the following f_delta:
-        delta_always = torch.zeros(M.shape) + delta_amount
-        def get_f_delta(cooc_stats, M, implementation, device):
-            def f_delta(M_hat):
-                return delta_always
-            return f_delta
+        class DeltaMock:
+            def __init__(self, cooc_stats, M):
+                self.M = M
+            def calc_shard(self, M_hat, shard=None, **kwargs):
+                return delta_always[shard]
+                
 
         # Make the embedder whose integration with f_delta we are testing.
-        f_delta = get_f_delta(
-            cooc_stats, M, implementation='torch', device=device)
+        f_delta = DeltaMock(cooc_stats, M)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_delta, d, learning_rate, device=device)
+            delta=f_delta, d=d, learning_rate=learning_rate, shard_factor=3,
+            device=device
+        )
 
         # Clone current embeddings to manually calculate expected update.
         old_V = embedder.V.clone()
@@ -1764,37 +1804,39 @@ class TestTorchHilbertEmbedder(TestCase):
         embedder.cycle(print_badness=False)
 
         # Check that the update was performed.
-        new_V = old_V + learning_rate * torch.mm(old_W.t(), delta_always)
-        new_W = old_W + learning_rate * torch.mm(delta_always, old_V.t())
+        new_V = old_V + learning_rate * torch.mm(delta_always.t(), old_W)
+        new_W = old_W + learning_rate * torch.mm(delta_always, old_V)
         self.assertTrue(torch.allclose(embedder.V, new_V))
         self.assertTrue(torch.allclose(embedder.W, new_W))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        expected_badness = torch.sum(delta_always) / (d*d)
-        self.assertEqual(expected_badness, embedder.badness)
+        expected_badness = torch.sum(delta_always) / (vocab**2)
+        self.assertTrue(torch.allclose(expected_badness, embedder.badness))
 
 
     def test_update(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        # Make the embedder whose update method we are testing.
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
+            f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            device=device
+        )
 
         # Generate some random update to be applied
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
-        delta_V = torch.rand(M.shape)
-        delta_W = torch.rand(M.shape)
+        delta_V = torch.rand(len(cooc_stats.Nx), d)
+        delta_W = torch.rand(len(cooc_stats.Nx), d)
         updates = delta_V, delta_W
 
         # Apply the updates.
@@ -1807,19 +1849,21 @@ class TestTorchHilbertEmbedder(TestCase):
 
     def test_update_with_constraints(self):
 
+        torch.random.manual_seed(0)
         # Set up test conditions.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        vocab = len(cooc_stats.Nx)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate,
+            f_MSE, d, learning_rate=learning_rate, shard_factor = 3,
             constrainer=h.constrainer.glove_constrainer,
             device='cpu'
         )
@@ -1828,8 +1872,8 @@ class TestTorchHilbertEmbedder(TestCase):
         # using the embedders update method.  Internally, the embedder should
         # apply the constraints after the update
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
-        delta_V = torch.rand(M.shape)
-        delta_W = torch.rand(M.shape)
+        delta_V = torch.rand(vocab, d)
+        delta_W = torch.rand(vocab, d)
         updates = delta_V, delta_W
         embedder.update(*updates)
 
@@ -1845,51 +1889,57 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(expected_updated_V, embedder.V))
 
         # Verify that the contstraints really were applied.
-        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(d)))
-        self.assertTrue(torch.allclose(embedder.V[0,:], torch.ones(d)))
+        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(vocab)))
+        self.assertTrue(torch.allclose(embedder.V[:,0], torch.ones(vocab)))
 
 
     def test_update_one_sided_rejects_delta_W(self):
 
+        torch.random.manual_seed(0)
         # Set up conditions for test.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        vocab = len(cooc_stats.Nx)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        # Make a NON-one-sided embedder, whose `update` method we are testing.
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
+            f_MSE, d, learning_rate=learning_rate, shard_factor=5,
+            device=device
+        )
 
         # Show that we can update covector embeddings for a non-one-sided model
-        delta_W = torch.ones(M.shape)
+        delta_W = torch.ones(vocab, d)
         embedder.update(delta_W=delta_W)
 
         # Now make a ONE-SIDED embedder, which should reject covector updates.
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate, one_sided=True)
-        delta_W = torch.ones(M.shape)
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            shard_factor=5
+        )
+        delta_W = torch.ones(vocab, d)
         with self.assertRaises(ValueError):
             embedder.update(delta_W=delta_W)
 
 
     def test_integration_with_constrainer(self):
 
+        torch.random.manual_seed(0)
         # Set up test conditions.
-        d = 11
+        d = 3
         device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        vocab = len(cooc_stats.Nx)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        # Make an embedder, to test its integration with constrainer.
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate,
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             constrainer=h.constrainer.glove_constrainer, device=device
         )
 
@@ -1902,10 +1952,10 @@ class TestTorchHilbertEmbedder(TestCase):
         embedder.cycle(print_badness=False)
 
         # Calculate the expected update, with constraints applied.
-        M_hat = torch.mm(old_W, old_V)
-        delta = M - M_hat
-        new_V = old_V + learning_rate * torch.mm(old_W.t(), delta)
-        new_W = old_W + learning_rate * torch.mm(delta, old_V.t())
+        M_hat = torch.mm(old_W, old_V.t())
+        delta = M_ - M_hat
+        new_V = old_V + learning_rate * torch.mm(delta.t(), old_W)
+        new_W = old_W + learning_rate * torch.mm(delta, old_V)
 
         # Apply the constraints.  Note that the constrainer operates in_place.
 
@@ -1915,41 +1965,46 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.W, new_W))
 
         # Verify that the contstraints really were applied.
-        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(d)))
-        self.assertTrue(torch.allclose(embedder.V[0,:], torch.ones(d)))
+        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(vocab)))
+        self.assertTrue(torch.allclose(embedder.V[:,0], torch.ones(vocab)))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        expected_badness = torch.sum(abs(delta)) / (d*d)
-        self.assertEqual(expected_badness, embedder.badness)
+        expected_badness = torch.sum(abs(delta)) / (vocab*vocab)
+        self.assertTrue(torch.allclose(expected_badness, embedder.badness))
 
 
     def test_mse_embedder(self):
+        torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 11
-        device = 'cpu'
-        tolerance = 0.0001
+        device = 'cuda'
+        num_cycles = 1000
+        tolerance = 0.0004
         learning_rate = 0.01
+        torch.random.manual_seed(0)
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device).load_all()
+        vocab = len(cooc_stats.Nx)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M_ = M.load_all()
 
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device=device)
-        # Make the embedder, whose convergence we are testing.
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device=device)
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3, 
+            device=device
+        )
 
-        # Run the embdder for one hundred thousand update cycles.
-        embedder.cycle(100000, print_badness=False)
+        # Run the embdder for many update cycles.
+        embedder.cycle(num_cycles, print_badness=False)
 
         # Ensure that the embeddings have the right shape.
-        self.assertEqual(embedder.V.shape, (M.shape[1],d))
-        self.assertEqual(embedder.W.shape, (d,M.shape[0]))
+        self.assertEqual(embedder.V.shape, (vocab,d))
+        self.assertEqual(embedder.W.shape, (vocab,d))
 
         # Check that we have essentially reached convergence, based on the 
         # fact that the delta value for the embedder is near zero.
-        M_hat = torch.mm(embedder.W, embedder.V)
-        delta = f_MSE(M_hat)
+        M_hat = torch.mm(embedder.W, embedder.V.t())
+        delta = f_MSE.calc_shard(M_hat) # shard is None -> calculate full delta
         self.assertTrue(torch.sum(delta) < tolerance)
         
 
@@ -2618,15 +2673,14 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
+        M = h.M.M(cooc_stats, 'pmi')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(
-            M, f_MSE, d, learning_rate)
-        solver = h.solver.NesterovSolver(
-            embedder, learning_rate, momentum_decay, implementation='numpy')
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
+        solver = h.solver.NesterovSolver(embedder,learning_rate,momentum_decay)
         solver.cycle(times=times)
 
 
@@ -2637,14 +2691,14 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
+        M = h.M.M(cooc_stats, 'pmi')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
-        solver = h.solver.MomentumSolver(
-            embedder, learning_rate, momentum_decay, implementation='numpy')
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
+        solver = h.solver.MomentumSolver(embedder,learning_rate,momentum_decay)
         solver.cycle(times=times)
 
 
@@ -2655,79 +2709,92 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = np.array(h.M.M(cooc_stats, 'pmi').load_all())
+        M = h.M.M(cooc_stats, 'pmi')
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        embedder = h.torch_embedder.TorchHilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
         solver = h.solver.NesterovSolverOptimized(
-            embedder, learning_rate, momentum_decay, implementation='numpy')
+            embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
 
 
-    def test_embedder_solver_integration_torch(self):
+    #
+    #   The numpy implementation of the Hilbert Embedder has been removed.
+    #   These tests are obsolete.
+    #
+    #def test_embedder_solver_integration_torch(self):
 
-        d = 5
-        times = 3
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
+    #    d = 5
+    #    times = 3
+    #    learning_rate = 0.01
+    #    momentum_decay = 0.8
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
 
-        # This test just makes sure that the solver and embedder interface
-        # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='torch')
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device='cpu')
-        solver = h.solver.NesterovSolver(
-            embedder, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu')
-        solver.cycle(times=times)
-
-
-    def test_embedder_momentum_solver_integration_torch(self):
-
-        d = 5
-        times = 3
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
-
-        # This test just makes sure that the solver and embedder interface
-        # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device='cpu')
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device='cpu')
-        solver = h.solver.MomentumSolver(
-            embedder, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
-        solver.cycle(times=times)
+    #    # This test just makes sure that the solver and embedder interface
+    #    # properly.  All is good as long as this doesn't throw errors.
+    #    f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='torch')
+    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
+    #        M, f_MSE, d, learning_rate, device='cpu')
+    #    solver = h.solver.NesterovSolver(
+    #        embedder, learning_rate, momentum_decay, 
+    #        implementation='torch', device='cpu')
+    #    solver.cycle(times=times)
 
 
-    def test_embedder_nesterov_solver_optimized_integration_torch(self):
+    #
+    #   The numpy implementation of the Hilbert Embedder has been removed.
+    #   These tests are obsolete.
+    #
+    #def test_embedder_momentum_solver_integration_torch(self):
 
-        d = 5
-        times = 3
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
+    #    d = 5
+    #    times = 3
+    #    learning_rate = 0.01
+    #    momentum_decay = 0.8
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
 
-        # This test just makes sure that the solver and embedder interface
-        # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.get_f_MSE(
-            cooc_stats, M, implementation='torch', device='cpu')
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M, f_MSE, d, learning_rate, device='cpu')
-        solver = h.solver.NesterovSolverOptimized(
-            embedder, learning_rate, momentum_decay,
-            implementation='torch', device='cpu'
-        )
-        solver.cycle(times=times)
+    #    # This test just makes sure that the solver and embedder interface
+    #    # properly.  All is good as long as this doesn't throw errors.
+    #    f_MSE = h.f_delta.get_f_MSE(
+    #        cooc_stats, M, implementation='torch', device='cpu')
+    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
+    #        M, f_MSE, d, learning_rate, device='cpu')
+    #    solver = h.solver.MomentumSolver(
+    #        embedder, learning_rate, momentum_decay, 
+    #        implementation='torch', device='cpu'
+    #    )
+    #    solver.cycle(times=times)
+
+
+    #
+    #   The numpy implementation of the Hilbert Embedder has been removed.
+    #   These tests are obsolete.
+    #
+    #def test_embedder_nesterov_solver_optimized_integration_torch(self):
+
+    #    d = 5
+    #    times = 3
+    #    learning_rate = 0.01
+    #    momentum_decay = 0.8
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
+
+    #    # This test just makes sure that the solver and embedder interface
+    #    # properly.  All is good as long as this doesn't throw errors.
+    #    f_MSE = h.f_delta.get_f_MSE(
+    #        cooc_stats, M, implementation='torch', device='cpu')
+    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
+    #        M, f_MSE, d, learning_rate, device='cpu')
+    #    solver = h.solver.NesterovSolverOptimized(
+    #        embedder, learning_rate, momentum_decay,
+    #        implementation='torch', device='cpu'
+    #    )
+    #    solver.cycle(times=times)
 
 
 

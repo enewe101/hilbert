@@ -42,6 +42,7 @@ def get_embedder(
 
     # Options for embedder
     d=300,              # embedding dimension
+    shard_factor=10,
     learning_rate=1e-6,
     one_sided=False,    # whether vectors share parameters with covectors
     constrainer=None,   # constrainer instances can mutate values after update
@@ -50,11 +51,8 @@ def get_embedder(
     momentum_decay=0.9,
 
     # Implementation details
-    implementation='torch',
     device='cuda'
 ):
-
-    h.utils.ensure_implementation_valid(implementation)
 
     M_args = {
         'cooc_stats':cooc_stats, 'base':base, 't_undersample':t_undersample,
@@ -62,24 +60,28 @@ def get_embedder(
         'clip_thresh':clip_thresh, 'diag':diag,
         'device':device
     }
-    if base == 'neg-samp':
-        M_args.update({
-            'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
+
+    #
+    #   The negative sampling base is not currently available.
+    #
+    #if base == 'neg-samp':
+    #    M_args.update({
+    #        'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
 
     # TODO: don't load all!  f_delta function should be made to be shard aware!
     #   Not implemented yet.
     M = h.M.M(**M_args).load_all()
 
-    f_getter = (
-        h.f_delta.get_f_MSE if f_delta=='mse' else
-        h.f_delta.get_f_w2v if f_delta=='w2v' else
-        h.f_delta.get_f_glove if f_delta=='glove' else
-        h.f_delta.get_f_swivel if f_delta=='swivel' else
-        h.f_delta.get_f_MLE if f_delta=='mle' else
+    DeltaClass = (
+        h.f_delta.DeltaMSE if f_delta=='mse' else
+        h.f_delta.DeltaW2V if f_delta=='w2v' else
+        h.f_delta.DeltaGlove if f_delta=='glove' else
+        h.f_delta.DeltaSwivel if f_delta=='swivel' else
+        h.f_delta.DeltaMLE if f_delta=='mle' else
         None
     )
 
-    if f_getter is None: 
+    if DeltaClass is None: 
         raise ValueError('Unexpected value for f_delta: %s' % repr(f_delta))
 
     f_options = {}
@@ -109,34 +111,28 @@ def get_embedder(
             '"glove".'
         )
 
-    f_delta = f_getter(
-        cooc_stats, M, implementation=implementation,
-        device=device, **f_options
+    f_delta = DeltaClass(
+        cooc_stats, M, device=device, **f_options
     )
 
     # TODO: delegate validation of option combinations to a validation
     #   subroutine
-    # TODO: stop supporting torch implementation here.
-    if implementation == 'torch':
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            M=M, f_delta=f_delta, d=d, learning_rate=learning_rate, 
-            one_sided=one_sided, constrainer=constrainer,
-            device=device,
-        )
-    else:
-        embedder = HilbertEmbedder(
-            M=M, f_delta=f_delta, d=d, learning_rate=learning_rate, 
-            one_sided=one_sided, constrainer=constrainer,
-        )
+    # TODO: stop supporting alternative implementations here (torch only).
+    embedder = h.torch_embedder.TorchHilbertEmbedder(
+        delta=f_delta, d=d, learning_rate=learning_rate, 
+        shard_factor=shard_factor,
+        one_sided=one_sided, constrainer=constrainer,
+        device=device,
+    )
 
     solver_instance = (
         embedder if solver=='sgd' else
         h.solver.MomentumSolver(embedder, learning_rate, momentum_decay,
-            implementation, device) if solver=='momentum' else
+            device) if solver=='momentum' else
         h.solver.NesterovSolverOptimized(embedder, learning_rate,
-            momentum_decay, implementation, device) if solver=='nesterov' else
+            momentum_decay, device) if solver=='nesterov' else
         h.solver.NesterovSolverCautious(embedder, learning_rate,
-            momentum_decay, implementation, device) if solver=='slosh' else
+            momentum_decay, device) if solver=='slosh' else
         None
     )
     if solver_instance is None:

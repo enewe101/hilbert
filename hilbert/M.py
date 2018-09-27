@@ -49,6 +49,9 @@ class M:
         self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
         self.base_args = kwargs
 
+        self.shape = self.cooc_stats.Nxx.shape
+
+
 
     # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
     #   which will be sparse
