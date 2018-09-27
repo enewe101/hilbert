@@ -90,7 +90,10 @@ class CoocStats(object):
     def __getitem__(self, shard):
         return self.load_shard(shard)
 
-    def load_shard(self, shard, device=h.CONSTANTS.MATRIX_DEVICE):
+    def load_shard(self, shard=None, device=h.CONSTANTS.MATRIX_DEVICE):
+
+        if shard is None:
+            shard = h.shards.whole
 
         if not self.loaded_shard == shard:
             self.loaded_shard = shard
@@ -103,7 +106,7 @@ class CoocStats(object):
             self.loaded_N = h.utils.load_shard(self.N, device=device)
 
         return self.loaded_Nxx, self.loaded_Nx, self.loaded_Nxt, self.loaded_N
-        
+
 
     def __copy__(self):
         return deepcopy(self)
@@ -251,6 +254,13 @@ class CoocStats(object):
         if self._denseNxx is None:
             self._denseNxx = self.Nxx.toarray()
         return self._denseNxx
+
+
+    @property
+    def Nxt(self):
+        if self._Nx is None:
+            self.compile()
+        return self._Nx.T
 
 
     @property

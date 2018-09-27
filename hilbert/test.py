@@ -144,6 +144,16 @@ class TestCorpusStats(TestCase):
         found_PMI = h.corpus_stats.calc_PMI(cooc_stats)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
+    def test_sparse_PMI(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
+        # PMI sparse treats all negative infinite values as zero
+        expected_PMI[expected_PMI==-np.inf] = 0
+        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(cooc_stats)
+        self.assertTrue(len(pmi_data) < np.product(cooc_stats.Nxx.shape))
+        found_PMI = sparse.coo_matrix((pmi_data,(I,J)),cooc_stats.Nxx.shape)
+        self.assertTrue(np.allclose(found_PMI.toarray(), expected_PMI))
+
 
     def test_calc_positive_PMI(self):
         expected_positive_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
@@ -757,269 +767,334 @@ class TestFDeltas(TestCase):
         self.assertTrue(torch.allclose(expected, result))
 
 
-
-
-    def test_N_xx_neg(self):
+    def test_N_neg(self):
         k = 15.0
         cooc_stats = h.corpus_stats.get_test_stats(2)
         expected = k * cooc_stats.Nx * cooc_stats.Nx.T / cooc_stats.N
-        found = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
+        found = h.f_delta.calc_N_neg(cooc_stats, k)
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_w2v(self):
         k = 15
         cooc_stats = h.corpus_stats.get_test_stats(2)
-
+        Nxx, Nx, Nxt, N = cooc_stats
         expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
         expected_M_hat = expected_M + 1
-        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
+        N_neg = h.f_delta.calc_N_neg(cooc_stats, k)
         expected_difference = (
             h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
-        expected_multiplier = N_neg_xx + cooc_stats.denseNxx
+        expected_multiplier = N_neg + Nxx
         expected = expected_multiplier * expected_difference
 
-        M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k)).load_all()
+        M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k))
+        M_ = M.load_all()
+        M_hat = M_ + 1
 
-        M_hat = M + 1
-        f_w2v = h.f_delta.get_f_w2v(cooc_stats, M, k, implementation='numpy')
-        found = f_w2v(M_hat)
+        delta_w2v = h.f_delta.DeltaW2V(cooc_stats, M, k)
+        found = torch.zeros(cooc_stats.Nxx.shape)
+        shards = h.shards.Shards(2)
+        for shard in shards:
+            found[shard] = delta_w2v.calc_shard(M_hat[shard], shard)
 
         self.assertTrue(np.allclose(expected, found))
 
 
-    def test_f_w2v_torch(self):
+    #
+    #   Now that np is deprecated, this test is redundnat.  We *only* test
+    #   torch.
+    #
+    #def test_f_w2v_torch(self):
 
-        k = 15
-        device = 'cuda'
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    k = 15
+    #    device = 'cuda'
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    Nxx, Nx, Nxt, N = cooc_stats
 
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
-        expected_M_hat = expected_M + 1
-        N_neg_xx = h.f_delta.calc_N_neg_xx(cooc_stats.Nx, k)
-        expected_difference = (
-            h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
-        expected_multiplier = N_neg_xx + cooc_stats.denseNxx
-        expected = torch.tensor(
-            expected_multiplier * expected_difference,
-            dtype=torch.float32, device=device
-        )
+    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
+    #    expected_M_hat = expected_M + 1
+    #    N_neg = h.f_delta.calc_N_neg(cooc_stats, k)
+    #    expected_difference = (
+    #        h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
+    #    expected_multiplier = N_neg + Nxx
+    #    expected = torch.tensor(
+    #        expected_multiplier * expected_difference,
+    #        dtype=torch.float32, device=device
+    #    )
 
-        M = h.M.M(
-            cooc_stats,'pmi', shift_by=-np.log(k), device=device).load_all()
-        M_hat = M + 1
-        f_w2v = h.f_delta.get_f_w2v(
-            cooc_stats, M, k, implementation='torch', device=device)
-        found = f_w2v(M_hat)
+    #    M = h.M.M(cooc_stats,'pmi', shift_by=-np.log(k), device=device)
+    #    M_ = M.load_all()
+    #    M_hat = M_ + 1
+    #    delta_w2v = h.f_delta.DeltaW2V(cooc_stats, M, k, device=device)
+    #    found = torch.zeros(cooc_stats.Nxx.shape)
+    #    shards = h.shards.Shards(2)
+    #    for shard in shards:
+    #        found[shard] = delta_w2v(M_hat[shard], shard)
 
-        self.assertTrue(torch.allclose(expected, found))
+    #    self.assertTrue(torch.allclose(expected, found))
 
 
 
     def test_f_glove(self):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx)
-            # Zero out cells containing negative infinity, which are ignored
-            # by glove.  We still need to zero them out to avoid nans.
-            expected_M[expected_M==-np.inf] = 0
+        cooc_stats.truncate(10)
 
-        expected_M_hat = expected_M + 1
-
-        expected = np.array([
-            [
-                2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
-                    * (expected_M[i,j] - expected_M_hat[i,j])
-                if cooc_stats.Nxx[i,j] > 0 else 0 
-                for j in range(cooc_stats.Nxx.shape[1])
-            ]
-            for i in range(cooc_stats.Nxx.shape[0])
-        ])
-
-        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
-        M_hat = M + 1
-        f_glove = h.f_delta.get_f_glove(
-            cooc_stats, M, implementation='numpy')
-        found = f_glove(M_hat)
-        self.assertTrue(np.allclose(expected, found))
-
-        f_glove = h.f_delta.get_f_glove(
-            cooc_stats, M, 10, implementation='numpy')
-        found2 = f_glove(M_hat)
-
-        expected2 = np.array([
-            [
-                2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
-                    * (expected_M[i,j] - expected_M_hat[i,j])
-                if cooc_stats.Nxx[i,j] > 0 else 0 
-                for j in range(cooc_stats.Nxx.shape[1])
-            ]
-            for i in range(cooc_stats.Nxx.shape[0])
-        ])
-
-        self.assertTrue(np.allclose(expected2, found2))
-        self.assertFalse(np.allclose(expected2, expected))
-
-
-    def test_f_glove_torch(self):
-
-        device = 'cuda'
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-
-        with np.errstate(divide='ignore'):
-            expected_M = np.log(cooc_stats.denseNxx)
+        Nxx, Nx, Nxt, N = cooc_stats
+        expected_M = torch.log(Nxx)
         # Zero out cells containing negative infinity, which are ignored
         # by glove.  We still need to zero them out to avoid nans.
         expected_M[expected_M==-np.inf] = 0
         expected_M_hat = expected_M + 1
-        expected = torch.tensor(np.array([
-            [
+        multiplier = torch.tensor([[
                 2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
-                    * (expected_M[i,j] - expected_M_hat[i,j])
+                for j in range(cooc_stats.Nxx.shape[1])
+            ] for i in range(cooc_stats.Nxx.shape[0])
+        ])
+        difference = torch.tensor([[
+                expected_M[i,j] - expected_M_hat[i,j]
                 if cooc_stats.Nxx[i,j] > 0 else 0 
                 for j in range(cooc_stats.Nxx.shape[1])
-            ]
-            for i in range(cooc_stats.Nxx.shape[0])
-        ]), dtype=torch.float32, device=device)
+            ] for i in range(cooc_stats.Nxx.shape[0])
+        ])
+        expected = multiplier * difference
 
-        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
+        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0)
+        M_ = M.load_all()
+        M_hat = M_ + 1
+        delta_glove = h.f_delta.DeltaGlove(cooc_stats, M)
+        found = torch.zeros(cooc_stats.Nxx.shape)
+        shards = h.shards.Shards(2)
+        for shard in shards:
+            found[shard] = delta_glove.calc_shard(M_hat[shard], shard)
 
-        M_hat = M_hat = M + 1
-        f_glove = h.f_delta.get_f_glove(
-            cooc_stats, M, implementation='torch', device=device)
-        found = f_glove(M_hat)
         self.assertTrue(np.allclose(expected, found))
 
-        # Verify that x_max takes effect, by passing in a non-default value.
-        x_max_non_default = 10
-        f_glove = h.f_delta.get_f_glove(
-            cooc_stats, M, x_max_non_default,
-            implementation='torch', device=device
-        )
-        found2 = f_glove(M_hat)
-
-        expected2 = torch.tensor(np.array([
+        # Try varying the X_max and alpha settings.
+        alpha = 0.8
+        X_max = 10
+        delta_glove = h.f_delta.DeltaGlove(
+            cooc_stats, M, X_max=X_max, alpha=alpha)
+        found2 = torch.zeros(cooc_stats.Nxx.shape)
+        shards = h.shards.Shards(2)
+        for shard in shards:
+            found2[shard] = delta_glove.calc_shard(M_hat[shard], shard)
+        expected2 = torch.tensor([
             [
-                2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
+                2 * min(1, (cooc_stats.Nxx[i,j] / X_max)**alpha) 
                     * (expected_M[i,j] - expected_M_hat[i,j])
                 if cooc_stats.Nxx[i,j] > 0 else 0 
                 for j in range(cooc_stats.Nxx.shape[1])
             ]
             for i in range(cooc_stats.Nxx.shape[0])
-        ]), dtype=torch.float32, device=device)
-
-        # We should find what we expected.
+        ])
+        # The X_max setting has an effect, and matches a different expectation
         self.assertTrue(np.allclose(expected2, found2))
-        # It should be different from last time (hence x_max takes effect.)
         self.assertFalse(np.allclose(expected2, expected))
 
 
-    def test_f_MSE(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+    #
+    #   Now that np is deprecated, this test is redundnat.  We *only* test
+    #   torch.
+    #
+    #def test_f_glove_torch(self):
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all()
-        M_hat = M + 1
-        expected = M - M_hat
-        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-        found = f_MSE(M_hat)
+    #    device = 'cuda'
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+
+    #    with np.errstate(divide='ignore'):
+    #        expected_M = np.log(cooc_stats.denseNxx)
+    #    # Zero out cells containing negative infinity, which are ignored
+    #    # by glove.  We still need to zero them out to avoid nans.
+    #    expected_M[expected_M==-np.inf] = 0
+    #    expected_M_hat = expected_M + 1
+    #    expected = torch.tensor(np.array([
+    #        [
+    #            2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
+    #                * (expected_M[i,j] - expected_M_hat[i,j])
+    #            if cooc_stats.Nxx[i,j] > 0 else 0 
+    #            for j in range(cooc_stats.Nxx.shape[1])
+    #        ]
+    #        for i in range(cooc_stats.Nxx.shape[0])
+    #    ]), dtype=torch.float32, device=device)
+
+    #    M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
+
+    #    M_hat = M_hat = M + 1
+    #    f_glove = h.f_delta.get_f_glove(
+    #        cooc_stats, M, implementation='torch', device=device)
+    #    found = f_glove(M_hat)
+    #    self.assertTrue(np.allclose(expected, found))
+
+    #    # Verify that x_max takes effect, by passing in a non-default value.
+    #    x_max_non_default = 10
+    #    f_glove = h.f_delta.get_f_glove(
+    #        cooc_stats, M, x_max_non_default,
+    #        implementation='torch', device=device
+    #    )
+    #    found2 = f_glove(M_hat)
+
+    #    expected2 = torch.tensor(np.array([
+    #        [
+    #            2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
+    #                * (expected_M[i,j] - expected_M_hat[i,j])
+    #            if cooc_stats.Nxx[i,j] > 0 else 0 
+    #            for j in range(cooc_stats.Nxx.shape[1])
+    #        ]
+    #        for i in range(cooc_stats.Nxx.shape[0])
+    #    ]), dtype=torch.float32, device=device)
+
+    #    # We should find what we expected.
+    #    self.assertTrue(np.allclose(expected2, found2))
+    #    # It should be different from last time (hence x_max takes effect.)
+    #    self.assertFalse(np.allclose(expected2, expected))
+
+
+    def test_f_MSE(self):
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        cooc_stats.truncate(10)  # Need a compound number for sharding
+
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M_ = M.load_all()
+        M_hat = M_ + 1
+        expected = M_ - M_hat
+        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M, device='cpu')
+        found = delta_mse.calc_shard(M_hat)
+        self.assertTrue(torch.allclose(expected, found))
+
+        shards = h.shards.Shards(5)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M_ = M.load_all()
+        M_hat = M_ + 1
+        expected = M_ - M_hat
+        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M, device='cpu')
+        found = torch.zeros(cooc_stats.Nxx.shape)
+        for shard in shards:
+            found[shard] = delta_mse.calc_shard(M_hat[shard], shard)
         self.assertTrue(torch.allclose(expected, found))
 
 
     def test_f_swivel(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi-star').load_all()
-        M_hat = M + 1
+
+        M = h.M.M(cooc_stats, 'pmi-star')
+        M_ = M.load_all()
+        M_hat = M_ + 1
+
         expected = np.array([
             [
-                np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
+                np.sqrt(cooc_stats.Nxx[i,j]) * (M_[i,j] - M_hat[i,j]) 
                 if cooc_stats.Nxx[i,j] > 0 else
-                (np.e**(M[i,j] - M_hat[i,j]) /
-                    (1 + np.e**(M[i,j] - M_hat[i,j])))
-                for j in range(M.shape[1])
+                (np.e**(M_[i,j] - M_hat[i,j]) /
+                    (1 + np.e**(M_[i,j] - M_hat[i,j])))
+                for j in range(M_.shape[1])
             ]
-            for i in range(M.shape[0])
+            for i in range(M_.shape[0])
         ])
-        f_swivel = h.f_delta.get_f_swivel(
-            cooc_stats, M, implementation='torch')
-        found = f_swivel(M_hat)
+
+        delta_swivel = h.f_delta.DeltaSwivel(cooc_stats, M)
+        found = torch.zeros(cooc_stats.Nxx.shape)
+        shards = h.shards.Shards(5)
+        for shard in shards:
+            found[shard] = delta_swivel.calc_shard(M_hat[shard], shard)
+
         self.assertTrue(np.allclose(found, expected))
 
 
-    def test_f_swivel_torch(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        device = 'cpu'
-        M = h.M.M(cooc_stats, 'pmi-star', device=device).load_all()
-        M_hat = M + 1
-        expected = torch.tensor(np.array([
-            [
-                np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
+    #
+    #   Now that np is deprecated, this test is redundnat.  We *only* test
+    #   torch.
+    #
+    #def test_f_swivel_torch(self):
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
+    #    device = 'cpu'
+    #    M = h.M.M(cooc_stats, 'pmi-star', device=device).load_all()
+    #    M_hat = M + 1
+    #    expected = torch.tensor(np.array([
+    #        [
+    #            np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
 
-                if cooc_stats.Nxx[i,j] > 0 else
+    #            if cooc_stats.Nxx[i,j] > 0 else
 
-                (np.e**(M[i,j] - M_hat[i,j]) /
-                    (1 + np.e**(M[i,j] - M_hat[i,j])))
-                for j in range(M.shape[1])
-            ]
-            for i in range(M.shape[0])
-        ]), dtype=torch.float32, device=device)
-        f_swivel = h.f_delta.get_f_swivel(
-            cooc_stats, M, implementation='torch', device=device)
-        found = f_swivel(M_hat)
-        self.assertTrue(torch.allclose(found, expected))
-        self.assertTrue(isinstance(found, torch.Tensor))
+    #            (np.e**(M[i,j] - M_hat[i,j]) /
+    #                (1 + np.e**(M[i,j] - M_hat[i,j])))
+    #            for j in range(M.shape[1])
+    #        ]
+    #        for i in range(M.shape[0])
+    #    ]), dtype=torch.float32, device=device)
+    #    f_swivel = h.f_delta.get_f_swivel(
+    #        cooc_stats, M, implementation='torch', device=device)
+    #    found = f_swivel(M_hat)
+    #    self.assertTrue(torch.allclose(found, expected))
+    #    self.assertTrue(isinstance(found, torch.Tensor))
 
 
     def test_f_MLE(self):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
+        cooc_stats.truncate(10)
+        Nxx, Nx, Nxt, N = cooc_stats
 
         expected_M = h.corpus_stats.calc_PMI(cooc_stats)
         expected_M_hat = expected_M + 1
         N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
         N_indep_max = np.max(N_indep_xx)
-        expected = N_indep_xx / N_indep_max * (
-            np.e**expected_M - np.e**expected_M_hat)
+        multiplier = N_indep_xx / N_indep_max
+        difference = np.e**expected_M - np.e**expected_M_hat
+        expected = multiplier * difference
 
-        M = h.M.M(cooc_stats, 'pmi').load_all()
-        M_hat = M + 1
-        f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, implementation='numpy')
-        found = f_MLE(M_hat)
-
+        M = h.M.M(cooc_stats, 'pmi')
+        M_ = M.load_all()
+        M_hat = M_ + 1
+        delta_mle = h.f_delta.DeltaMLE(cooc_stats, M)
+        found = torch.zeros(Nxx.shape)
+        shards = h.shards.Shards(2)
+        for shard in shards:
+            found[shard] = delta_mle.calc_shard(M_hat[shard], shard)
         self.assertTrue(np.allclose(found, expected))
 
+        # Now test with a different setting for temperature (t).
         t = 10
         expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
             np.e**expected_M - np.e**expected_M_hat)
 
-        found = f_MLE(M_hat, t=t)
+        found = torch.zeros(Nxx.shape)
+        shards = h.shards.Shards(2)
+        for shard in shards:
+            found[shard] = delta_mle.calc_shard(M_hat[shard], shard, t=t)
         self.assertTrue(np.allclose(found, expected))
 
 
-    def test_torch_f_MLE(self):
 
-        device = 'cpu'
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+    #
+    #   Now that np is deprecated, this test is redundnat.  We *only* test
+    #   torch.
+    #
+    #def test_torch_f_MLE(self):
 
-        M = torch.tensor(
-            h.corpus_stats.calc_PMI(cooc_stats), dtype=torch.float32)
-        M_hat = M + 1
-        N_indep_xx = torch.tensor(
-            cooc_stats.Nx * cooc_stats.Nx.T, dtype=torch.float32)
-        N_indep_max = torch.max(N_indep_xx)
-        expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
+    #    device = 'cpu'
+    #    cooc_stats = h.corpus_stats.get_test_stats(2)
 
-        delta = np.zeros(M.shape)
-        f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, device=device)
-        found = f_MLE(M_hat)
+    #    M = torch.tensor(
+    #        h.corpus_stats.calc_PMI(cooc_stats), dtype=torch.float32)
+    #    M_hat = M + 1
+    #    N_indep_xx = torch.tensor(
+    #        cooc_stats.Nx * cooc_stats.Nx.T, dtype=torch.float32)
+    #    N_indep_max = torch.max(N_indep_xx)
+    #    expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
 
-        self.assertTrue(np.allclose(found, expected))
+    #    delta = np.zeros(M.shape)
+    #    f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, device=device)
+    #    found = f_MLE(M_hat)
 
-        t = 10
-        expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
-            np.e**M - np.e**M_hat)
-        found = f_MLE(M_hat, t=t)
-        self.assertTrue(np.allclose(found, expected))
+    #    self.assertTrue(np.allclose(found, expected))
+
+    #    t = 10
+    #    expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
+    #        np.e**M - np.e**M_hat)
+    #    found = f_MLE(M_hat, t=t)
+    #    self.assertTrue(np.allclose(found, expected))
 
 
 
@@ -1031,8 +1106,6 @@ class TestConstrainer(TestCase):
         h.constrainer.glove_constrainer(W, V)
         self.assertTrue(np.allclose(W, np.array([[0,1,0]]*3)))
         self.assertTrue(np.allclose(V, np.array([[1,0,0]]*3).T))
-
-
 
 
 

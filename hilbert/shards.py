@@ -68,4 +68,4 @@ def on_diag(shard):
     """
     Check if this shard contains elements from the main diagonal.
     """
-    return shard[0] == shard[1]
+    return shard is None or shard[0] == shard[1]

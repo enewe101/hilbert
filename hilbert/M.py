@@ -49,16 +49,13 @@ class M:
         self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
         self.base_args = kwargs
 
+
+    # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
+    #   which will be sparse
     def __getitem__(self, shard):
-
-        # Copy the relevant portion of cooccurrence statistics to matrix device
-        # TODO: make CoocStats use torch.sparse so we don't have to worry
-        #   about Nxx, Nx, Nxt, and N being numpy.
         Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard, device=self.device)
-
         # Calculate the basic elements of M.
         M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
-
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
         use_diag = self.diag if h.shards.on_diag(shard) else None
         return apply_effects(
