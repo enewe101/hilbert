@@ -10,20 +10,17 @@ except ImportError:
     torch = None
 
 
-#def calc_M(
-#    cooc_stats,
-#    base,
-#    t_undersample=None,
-#    shift_by=None,
-#    neg_inf_val=None,
-#    clip_thresh=None,
-#    diag=None,
-#    **kwargs
-#):
-#    cooc_stats = undersample(cooc_stats, t_undersample)
-#    base = _get_base(base)
-#    M = base(cooc_stats, **kwargs)
-#    return apply_effects(M, shift_by, neg_inf_val, clip_thresh, diag)
+def get_expectation_M_w2v(cooc_stats, k, t, alpha):
+    return M(
+        cooc_stats, 'pmi', t_undersample=t, undersample_method='expectation',
+        unigram_exponent=alpha, shift_by=-np.log(k)
+    )
+
+def get_sample_M_w2v(cooc_stats, k, t, alpha):
+    return M(
+        cooc_stats, 'pmi', t_undersample=t, undersample_method='sample',
+        unigram_exponent=alpha, shift_by=-np.log(k)
+    )
 
 
 class M:
@@ -33,15 +30,36 @@ class M:
         cooc_stats, 
         base,
         t_undersample=None,
+        undersample_method=None,
+        unigram_exponent=None,
         shift_by=None,
         neg_inf_val=None,
         clip_thresh=None,
         diag=None,
         **kwargs
     ):
-        self.cooc_stats = undersample(cooc_stats, t_undersample)
+
+        # First do undersampling on cooc_stats if desired
+        if t_undersample is None:
+            self.cooc_stats = cooc_stats
+        else:
+            if undersample_method == 'sample':
+                self.cooc_stats = h.cooc_stats.w2v_undersample(
+                    cooc_stats, t_undersample)
+            elif undersample_method == 'expectation':
+                self.cooc_stats = h.cooc_stats.expectation_w2v_undersample(
+                    cooc_stats, t_undersample)
+            else:
+                raise ValueError(
+                    'Undersample method must be either "sample" or '
+                    '"expectation".'
+                )
+
+        # Applies unigram_distortion if unigram_exponent is not None
+        self.cooc_stats = h.cooc_stats.smooth_unigram(
+            self.cooc_stats, unigram_exponent)
+
         self.base = _get_base(base)
-        self.t_undersample = t_undersample
         self.shift_by = shift_by
         self.neg_inf_val = neg_inf_val
         self.clip_thresh = clip_thresh
@@ -50,7 +68,6 @@ class M:
         self.base_args = kwargs
 
         self.shape = self.cooc_stats.Nxx.shape
-
 
 
     # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
@@ -115,6 +132,7 @@ def apply_effects(
     return M
 
 
+
 ## BASES ##
 
 
@@ -131,47 +149,9 @@ def calc_M_pmi_star(cooc_stats):
     return h.corpus_stats.calc_PMI_star(cooc_stats)
 
 
-### PRE-EFFECTS ###
 
-def undersample(cooc_stats, t=None):
-    """
-    Given a true h.cooc_stats.CoocStats instance, produces a new
-    h.cooc_stats.CoocStats instance in which common words have been 
-    undersampled simulating the rejection of common words in word2vec.
+### EFFECTS ###
 
-    Returns a true h.cooc_stats.CoocStats instance.
-    (In many places, a tuple of (Nxx, Nx, Nxt, N) tensors are treated in a way that
-    is equivalent to a h.cooc_stats.CoocStats instance).
-    """
-    if t is None:
-        return cooc_stats
-
-    # Probability that token of a given type is kept.
-    p_x = np.sqrt(t * cooc_stats.N / cooc_stats.Nx)
-    p_x[p_x > 1] = 1
-
-    # Calculate the elements of p_x * p_x.T that correspond to nonzero elements
-    # of Nxx.  That way we keep it sparse.
-    p_x = sparse.csr_matrix(p_x)
-    I, J = cooc_stats.Nxx.nonzero()
-    nonzero_mask = sparse.coo_matrix(
-        (np.ones(I.shape),(I,J)),cooc_stats.Nxx.shape).tocsr()
-    p_xx = nonzero_mask.multiply(p_x).multiply(p_x.T)
-
-    # Now interpret the non-zero elements of Nxx and corresponding elements
-    # as p_xx each as the number of trials and probability of success in 
-    # a series of binomial distributions.
-    kept_Nxx = stats.binom.rvs(cooc_stats.Nxx[I,J], p_xx[I,J])
-    use_Nxx = sparse.coo_matrix((kept_Nxx, (I,J)), cooc_stats.Nxx.shape).tocsr()
-
-    # Expected number of cooccurrences after applying, undersampling.
-    use_dictionary = h.dictionary.Dictionary(cooc_stats.dictionary.tokens)
-
-    return h.cooc_stats.CoocStats(dictionary=use_dictionary, Nxx=use_Nxx)
-
-
-
-### POST-EFFECTS ###
 
 def set_diag(M, val=None):
     if val is not None:
@@ -191,6 +171,5 @@ def set_neg_inf(M, val=None):
 def shift(M, val=None):
     if val is not None:
         M += val
-
 
 

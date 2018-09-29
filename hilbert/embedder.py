@@ -1,9 +1,8 @@
 import hilbert as h
+import time
 try:
-    import numpy as np
     import torch
 except ImportError:
-    np = None
     torch = None
 
 
@@ -11,16 +10,17 @@ def sim(word, context, embedder, dictionary):
     word_id = dictionary.get_id(word)
     context_id = dictionary.get_id(context)
     word_vec, context_vec = embedder.W[word_id], embedder.W[context_id]
-    product = np.dot(word_vec, context_vec) 
-    word_norm = np.linalg.norm(word_vec)
-    context_norm =  np.linalg.norm(context_vec)
+    product = torch.mm(word_vec, context_vec) 
+    word_norm = torch.norm(word_vec)
+    context_norm =  torch.norm(context_vec)
     return product / (word_norm * context_norm)
 
 
+# TODO: test that all options are respected
 def get_embedder(
     cooc_stats,
     f_delta,            # 'mse' | 'w2v' | 'glove' | 'swivel' | 'mse'
-    base,               # 'pmi' | 'logNxx' | 'pmi-star' | 'neg-samp'
+    base,               # 'pmi' | 'logNxx' | 'pmi-star' | ('neg-samp')
 
     solver='sgd',       # 'sgd' | 'momentum' | 'nesterov' | 'slosh'
 
@@ -29,7 +29,9 @@ def get_embedder(
     k=None,             # weight of negative samples (w2v only)
 
     # Options for M
-    t_undersample=None,
+    undersample=None,   # None|'sample'|'expectation' Whether/how to undersample
+    t=None,             # Tokens more common than this are undersampled.
+    smooth_unigram=None,# Exponent used to smooth unigram.  Use 0.75 for w2v.
     shift_by=None,      # None | float -- shift all vals e.g. -np.log(k)
     neg_inf_val=None,   # None | float -- set any negative infinities to given
     clip_thresh=None,   # None | float -- clip values below thresh to thresh.
@@ -51,26 +53,41 @@ def get_embedder(
     momentum_decay=0.9,
 
     # Implementation details
+    verbose=True,
     device='cuda'
 ):
 
+    if undersample is 'sample':
+        cooc_stats = w2v_undersample(cooc_stats, t)
+    elif undersample is 'expectation':
+        cooc_stats = expectation_w2v_undersample(cooc_stats, t)
+    elif undersample is not None:
+        raise ValueError(
+            "Expected None, 'sample', or 'expectation' as values for "
+            "undersample.  Found %s" % repr(undersample)
+        )
+
     M_args = {
-        'cooc_stats':cooc_stats, 'base':base, 't_undersample':t_undersample,
+        'cooc_stats':cooc_stats, 'base':base, #'t_undersample':t_undersample,
         'shift_by':shift_by, 'neg_inf_val':neg_inf_val,
         'clip_thresh':clip_thresh, 'diag':diag,
         'device':device
     }
 
+    ###
     #
     #   The negative sampling base is not currently available.
     #
     #if base == 'neg-samp':
     #    M_args.update({
     #        'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
+    #
+    ###
+    if base == 'neg-samp':
+        raise NotImplemented(
+            'The negative sampling base is not currently available.')
 
-    # TODO: don't load all!  f_delta function should be made to be shard aware!
-    #   Not implemented yet.
-    M = h.M.M(**M_args).load_all()
+    M = h.M.M(**M_args)
 
     DeltaClass = (
         h.f_delta.DeltaMSE if f_delta=='mse' else
@@ -117,11 +134,11 @@ def get_embedder(
 
     # TODO: delegate validation of option combinations to a validation
     #   subroutine
-    # TODO: stop supporting alternative implementations here (torch only).
-    embedder = h.torch_embedder.TorchHilbertEmbedder(
+    embedder = h.embedder.HilbertEmbedder(
         delta=f_delta, d=d, learning_rate=learning_rate, 
         shard_factor=shard_factor,
         one_sided=one_sided, constrainer=constrainer,
+        verbose=verbose,
         device=device,
     )
 
@@ -143,111 +160,128 @@ def get_embedder(
 
 
 
-
-
-# TODO: enable sharding
 class HilbertEmbedder(object):
 
     def __init__(
         self,
-        M,
-        f_delta,
+        delta,
         d=300,
+        num_vecs=None,
+        num_covecs=None,
         learning_rate=1e-6,
         one_sided=False,
         constrainer=None,
+        shard_factor=10,
+        verbose=True,
+        device='cuda',
     ):
-        self.M = M
+
+        self.delta = delta
         self.d = d
-        self.f_delta = f_delta
+        self.num_vecs = num_vecs or self.delta.M.shape[1]
+        self.num_covecs = num_covecs or self.delta.M.shape[0]
         self.learning_rate = learning_rate
         self.one_sided = one_sided
         self.constrainer = constrainer
+        self.shard_factor = shard_factor
+        self.verbose = verbose
+        self.device = device
 
-        self.num_covecs, self.num_vecs = self.M.shape
         self.num_pairs = self.num_covecs * self.num_vecs
         if self.one_sided and self.num_covecs != self.num_vecs:
-            raise ValueError('M must be square for a one-sided embedder.')
+            raise ValueError(
+                'A one-sided embedder must have the same number of vectors '
+                'and covectors.'
+            )
         self.reset()
 
 
     def sample_sphere(self):
-        sample = np.random.random(
-            (self.d, self.num_vecs)) * 2 - 1
-        norms = np.linalg.norm(sample, axis=1).reshape((-1,1))
-        return np.divide(sample, norms, sample)
+        sample = torch.rand(
+            (self.num_vecs, self.d), device=self.device
+        ).mul_(2).sub_(1)
+        return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
 
 
     def reset(self):
         self.V = self.sample_sphere()
-        self.temp_V = np.zeros(self.V.shape)
-        self.nabla_V = np.zeros(self.V.shape)
-        self.update_V = np.zeros(self.V.shape)
         if self.one_sided:
-            self.W = self.V.T
-            self.temp_W = self.temp_V.T
-            self.nabla_W = self.nabla_V.T
-            self.update_W = self.update_V.T
+            self.W = self.V
         else:
-            self.W = self.sample_sphere().T
-            self.temp_W = np.zeros(self.W.shape)
-            self.nabla_W = np.zeros(self.W.shape)
-            self.update_W = np.zeros(self.W.shape)
-        self.M_hat = np.zeros(self.M.shape)
-        self.delta = np.zeros(self.M.shape)
+            self.W = self.sample_sphere()
         self.badness = None
 
 
-    def calc_badness(self):
-        total_absolute_error = np.sum(abs(self.delta))
-        num_cells = (self.M.shape[0] * self.M.shape[1])
-        self.badness = total_absolute_error / num_cells
-        return self.badness
-
-
-    # TODO: Test. (esp. that offsets work.)
-    def get_gradient(self, offsets=None, pass_args=None):
+    def get_gradient(self, offsets=None, pass_args=None, verbose=None):
         """ 
         Calculate and return the current gradient.  
-            offsets: 
-                Allowed values: None, (dV, dW)
-                    where dV and dW are is a V.shape and W.shape numpy arrays
-                Temporarily applies self.V += dV and self.W += dW before 
-                calculating the gradient.
-            pass_args:
-                Allowed values: dict of keyword arguments.
-                Supplies the keyword arguments to f_delta.
+            `offsets`: 
+                Allowed values: None, dV, (dV, dW) where dV and dW are are
+                V.shape and W.shape numpy arrays. Temporarily applies self.V +=
+                dV and self.W += dW before calculating the gradient.
+            `pass_args`:
+                Allowed values: dict of keyword arguments.  Supplies the
+                keyword arguments to delta.
         """
+        if verbose is None:
+            verbose = self.verbose
 
         pass_args = pass_args or {}
         # Determine the prediction for current embeddings.  Allow an offset to
         # be specified for solvers like Nesterov Accelerated Gradient.
         if offsets is not None:
-            use_W, use_V = self.temp_W, self.temp_V
             if not self.one_sided:
                 dV, dW = offsets
-                np.add(self.V, dV, use_V)
-                np.add(self.W, dW, use_W)
+                use_V = self.V + dV
+                use_W = self.W + dW
             else:
                 dV = offsets
-                np.add(self.V, dV, use_V)
+                use_V = self.V + dV
+                use_W = use_V
         else:
             use_W, use_V = self.W, self.V
 
-        np.dot(use_W, use_V, self.M_hat)
+        # Determine the gradient, one shard at a time
+        nabla_V = torch.zeros_like(self.V)
+        if not self.one_sided:
+            nabla_W = torch.zeros_like(self.W)
+        self.badness = 0
+        shards = h.shards.Shards(self.shard_factor)
+        for i, shard in enumerate(shards):
+            if self.verbose:
+                print('Shard ', i)
+            # Determine the errors.
+            M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
+            start = time.time()
+            delta = self.delta.calc_shard(M_hat, shard, **pass_args)
+            if self.verbose:
+                print('delta calc time: ', time.time() - start)
+            self.badness += torch.sum(abs(delta))
+            nabla_V[shard[1]] += torch.mm(delta.t(), use_W[shard[0]])
+            if not self.one_sided:
+                nabla_W[shard[0]] += torch.mm(delta, use_V[shard[1]])
 
-        # Determine the errors.
-        self.delta = self.f_delta(self.M_hat, **pass_args)
+        self.badness /= self.num_pairs
 
-        # Determine the gradient
-        np.dot(use_W.T, self.delta, self.nabla_V)
-        
         if self.one_sided:
-            return self.nabla_V
+            return nabla_V
+        return nabla_V, nabla_W
 
-        np.dot(self.delta, use_V.T, self.nabla_W)
-        return self.nabla_V, self.nabla_W
 
+        ## Determine the errors.
+        #M_hat = torch.mm(use_W, use_V)
+
+        #delta = self.f_delta(M_hat, **pass_args)
+        #self.badness = torch.sum(abs(delta)) / (
+        #    self.M.shape[0] * self.M.shape[1])
+
+        #
+        #nabla_V = torch.mm(use_W.t(), delta)
+        #if self.one_sided:
+        #    return nabla_V
+
+        #nabla_W = torch.mm(delta, use_V.t())
+        #return nabla_V, nabla_W
 
 
     def update(self, delta_V=None, delta_W=None):
@@ -257,19 +291,20 @@ class HilbertEmbedder(object):
                 "Update V instead."
             )
         if delta_V is not None:
-            np.add(delta_V, self.V, self.V)
+            self.V += delta_V
         if delta_W is not None:
-            np.add(delta_W, self.W, self.W)
+            self.W += delta_W
         self.apply_constraints()
 
 
     def update_self(self, pass_args=None):
-        self.get_gradient(pass_args=pass_args)
-        np.multiply(self.learning_rate, self.nabla_V, self.update_V)
-        np.add(self.V, self.update_V, self.V)
-        if not self.one_sided:
-            np.multiply(self.learning_rate, self.nabla_W, self.update_W)
-            np.add(self.W, self.update_W, self.W)
+        if self.one_sided:
+            nabla_V = self.get_gradient(pass_args=pass_args)
+            self.V += nabla_V * self.learning_rate
+        else:
+            nabla_V, nabla_W = self.get_gradient(pass_args=pass_args)
+            self.V += nabla_V * self.learning_rate
+            self.W += nabla_W * self.learning_rate
 
 
     def apply_constraints(self):
@@ -282,32 +317,8 @@ class HilbertEmbedder(object):
             self.update_self(pass_args)
             self.apply_constraints()
             if print_badness:
-                print(self.calc_badness())
+                print(self.badness)
 
-
-    def project(self, new_d):
-
-        delta_dim = abs(self.d - new_d)
-        if delta_dim == 0:
-            print('warning: no change during projection.')
-            return
-
-        elif new_d < self.d:
-            mass = 1.0 / new_d
-            random_projector = np.random.random((delta_dim, new_d)) * mass
-            downsampler = np.append(np.eye(new_d), random_projector, axis=0)
-            self.W = np.dot(self.W, downsampler)
-            self.V = np.dot(downsampler.T, self.V)
-
-        else:
-            old_mass = float(self.d) / new_d
-            new_mass = float(delta_dim) / new_d
-            covector_extension = (np.random.random((
-                self.num_covecs, delta_dim)) * 2 - 1) * new_mass
-            self.W = np.append(self.W * old_mass, covector_extension, axis=1)
-            vector_extension = (np.random.random((
-                delta_dim, self.num_vecs)) * 2 - 1) * new_mass
-            self.V = np.append(self.V * old_mass, vector_extension, axis=0)
 
 
 

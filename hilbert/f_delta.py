@@ -85,10 +85,10 @@ class DeltaMLE:
 
     def calc_shard(self, M_hat, shard=None, t=1):
         Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard, device=self.device)
-        Nx = h.utils.load_shard(
-            self.cooc_stats.Nx, shard[0], device=self.device)
-        Nxt = h.utils.load_shard(
-            self.cooc_stats.Nx.T, (slice(None), shard[1]), device=self.device)
+        #Nx = h.utils.load_shard(
+        #    self.cooc_stats.Nx, shard[0], device=self.device)
+        #Nxt = h.utils.load_shard(
+        #    self.cooc_stats.Nx.T, (slice(None), shard[1]), device=self.device)
         multiplier = Nx * Nxt / self.max_multiplier
         exp_M = h.utils.load_shard(
             self.exp_M, shard, from_sparse=True, device=self.device)

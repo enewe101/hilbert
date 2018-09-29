@@ -4,11 +4,12 @@ from collections import Counter
 
 try:
     import numpy as np
-    from scipy import sparse
+    from scipy import sparse, stats
     import torch
 except ImportError:
     np = None
-    scipy = None
+    sparse = None
+    stats = None
     torch = None
 
 import hilbert as h
@@ -68,16 +69,19 @@ class CoocStats(object):
 
         self._Nxx = Nxx
         self._Nx = None
+        self._Nxt = None
         self._N = None
         self._denseNxx = None
         if Nxx is not None:
             self._Nxx = sparse.csr_matrix(Nxx)
-            self._Nx = np.asarray(np.sum(self._Nxx, axis=1).reshape(-1,1))
+            self._Nx = np.asarray(np.sum(self._Nxx, axis=1))
+            self._Nxt = np.asarray(np.sum(self._Nxx, axis=0))
             self._N = np.sum(self._Nx)
 
         self.loaded_shard = None
         self.loaded_Nxx = None
         self.loaded_Nx = None
+        self.loaded_Nxt = None
         self.loaded_N = None
 
         # If no prior cooccurrence stats are given, start as empty.
@@ -90,6 +94,11 @@ class CoocStats(object):
     def __getitem__(self, shard):
         return self.load_shard(shard)
 
+
+    def purge_tensor_cache(self):
+        self.loaded_shard = None
+
+        
     def load_shard(self, shard=None, device=h.CONSTANTS.MATRIX_DEVICE):
 
         if shard is None:
@@ -97,12 +106,13 @@ class CoocStats(object):
 
         if not self.loaded_shard == shard:
             self.loaded_shard = shard
+
             self.loaded_Nxx = h.utils.load_shard(
                 self.Nxx, shard, from_sparse=True, device=device)
             self.loaded_Nx = h.utils.load_shard(
                 self.Nx, shard[0], device=device)
             self.loaded_Nxt = h.utils.load_shard(
-                self.Nx.T, (slice(None), shard[1]), device=device)
+                self.Nxt, (slice(None), shard[1]), device=device)
             self.loaded_N = h.utils.load_shard(self.N, device=device)
 
         return self.loaded_Nxx, self.loaded_Nx, self.loaded_Nxt, self.loaded_N
@@ -201,7 +211,8 @@ class CoocStats(object):
             (self_data, (self_row, self_col)),
             (vocab_size,vocab_size)
         ).tocsr()
-        self._Nx = np.array(np.sum(self._Nxx, axis=1)).reshape(-1,1)
+        self._Nx = np.array(np.sum(self._Nxx, axis=1))
+        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
         self._N = np.sum(self._Nx)
         self.sort(True)
 
@@ -249,18 +260,14 @@ class CoocStats(object):
         return self._Nxx
 
 
+
     @property
+    #TODO: deprecate this
     def denseNxx(self):
+        print('WARNING: denseNxx is deprecated.  Use load_shard or indexing.')
         if self._denseNxx is None:
             self._denseNxx = self.Nxx.toarray()
         return self._denseNxx
-
-
-    @property
-    def Nxt(self):
-        if self._Nx is None:
-            self.compile()
-        return self._Nx.T
 
 
     @property
@@ -268,6 +275,13 @@ class CoocStats(object):
         if self._Nx is None:
             self.compile()
         return self._Nx
+
+
+    @property
+    def Nxt(self):
+        if self._Nxt is None:
+            self.compile()
+        return self._Nxt
 
 
     @property
@@ -285,6 +299,7 @@ class CoocStats(object):
         # Nxx, Nx, Nxt, and N are all stale, so set them to None.
         self._Nxx = None
         self._Nx = None
+        self._Nxt = None
         self._N = None
         self._denseNxx = None
 
@@ -303,6 +318,7 @@ class CoocStats(object):
         Nxx_coo = self._Nxx.tocoo()
         for i,j,v in zip(Nxx_coo.row, Nxx_coo.col, Nxx_coo.data):
             self._counts[i,j] = v
+        self._Nxx, self._Nx, self._Nxt, self_N = None,None,None,None
 
 
     def compile(self):
@@ -319,6 +335,7 @@ class CoocStats(object):
         self._Nxx = dict_to_sparse(
             self.counts, (vocab_size,vocab_size))
         self._Nx = np.array(np.sum(self._Nxx, axis=1))
+        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
         self._N = np.sum(self._Nx)
         self.sort(True)
 
@@ -333,6 +350,7 @@ class CoocStats(object):
         top_indices = np.argsort(-self.Nx.reshape(-1))
         self._Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
         self._Nx = self.Nx[top_indices]
+        self._Nxt = self.Nxt[:,top_indices]
         self._dictionary = h.dictionary.Dictionary([
             self._dictionary.tokens[i] for i in top_indices])
         index_map = {
@@ -373,6 +391,7 @@ class CoocStats(object):
         """Drop all but the `k` most common words."""
         self._Nxx = self.Nxx[:k][:,:k]
         self._Nx = np.array(np.sum(self._Nxx, axis=1))
+        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
         self._N = np.sum(self._Nx)
         dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
 
@@ -412,5 +431,135 @@ def dict_to_sparse(counts, shape=None):
     I, J, V = dict_to_IJV(counts)
 
     return sparse.coo_matrix((V,(I,J)), shape).tocsr()
+
+
+### COOC_STATS ALTERATTIONS ###
+
+def w2v_undersample(cooc_stats, t):
+    """
+    Given a h.cooc_stats.CoocStats instance returns an altered version (leaves
+    original unchanged) to reflect undersampling of common words as done in
+    word2vec.
+
+    The Nxx matrix is altered by multiplying by p_xx, which is equal to
+    the product of the probability of having *not* rejected the focal word and 
+    not rejected the context word.
+
+    The Nx matrix contains new sums, based on the undersampling expectation
+    values.
+
+    The Nxt matrix, on the other hand, is left unchanged, as is N, which
+    preserves a representation of the unigram distribution.  In the 
+    word2vec's normal choices for M and Delta, this naturally provides
+    for the fact that negative samples draw from the unigram distribution,
+    according to the natural appearance of Nxt and N.
+    """
+    if t is None:
+        return cooc_stats
+
+    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+
+    p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
+
+    # Take the original number of observations as a number of trials, 
+    # and the survaval probability in a binomial distribution for undersampling.
+    I, J = cooc_stats.Nxx.nonzero()
+    keep_Nxx_data = stats.binom.rvs(cooc_stats.Nxx[I,J], p_xx[I,J])
+
+
+    # Modify Nxx, and Nx to reflect undersampling; leave Nxt, and N unchanged.
+    # unigram distribution unchanged).
+    new_cooc_stats._Nxx = sparse.coo_matrix(
+        (keep_Nxx_data, (I,J)), cooc_stats.Nxx.shape).tocsr()
+    new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats._Nxx, axis=1))
+    new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
+    new_cooc_stats._N = cooc_stats.N.copy()
+
+    # Ensure that any calls to load tensors will represent the new values
+    new_cooc_stats.purge_tensor_cache()
+
+    return new_cooc_stats
+
+
+
+def expectation_w2v_undersample(cooc_stats, t):
+    """
+    Given a h.cooc_stats.CoocStats instance, returns an altered version (leaves
+    original unchanged) by reducing counts for common words, simulating the
+    rejection of common words in word2vec.  The counts are changed into the
+    expectation of counts under the undersampled distribution.
+
+    The Nxx matrix is altered by multiplying by p_xx, which is equal to
+    the product of the probability of having *not* rejected the focal word and 
+    not rejected the context word.
+
+    The Nx matrix contains new sums, based on the undersampling expectation
+    values.
+
+    The Nxt matrix, on the other hand, is left unchanged, as is N, which
+    preserves a representation of the unigram distribution.  In the 
+    word2vec's normal choices for M and Delta, this naturally provides
+    for the fact that negative samples draw from the unigram distribution,
+    according to the natural appearance of Nxt and N.
+
+    (A separate but related modification that word2vec can make is to 
+    distort the unigram distribution... see h.cooc_stats.distort_unigram.)
+    """
+
+    if t is None:
+        return cooc_stats
+
+    # We will copy count statistics to a new cooc_stats object, but with
+    # alterations.
+    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+
+    p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
+    new_cooc_stats._Nxx = cooc_stats.Nxx.multiply(p_xx)
+    new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
+    new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
+    new_cooc_stats._N = cooc_stats.N.copy()
+
+    # Ensure that any calls to load tensors will represent the new values
+    new_cooc_stats.purge_tensor_cache()
+
+    return new_cooc_stats
+
+
+
+def calc_w2v_undersample_survival_probability(cooc_stats, t):
+    # Probability that token of a given type is kept.
+    p_x = np.sqrt(t * cooc_stats.N / cooc_stats.Nx)
+    p_x[p_x > 1] = 1
+
+    # Calculate the elements of p_x * p_x.T that correspond to nonzero elements
+    # of Nxx.  That way we keep it sparse.
+    p_x = sparse.csr_matrix(p_x)
+    I, J = cooc_stats.Nxx.nonzero()
+    nonzero_mask = sparse.coo_matrix(
+        (np.ones(I.shape),(I,J)),cooc_stats.Nxx.shape).tocsr()
+    p_xx = nonzero_mask.multiply(p_x).multiply(p_x.T)
+    return p_xx
+
+
+
+def smooth_unigram(cooc_stats, alpha=None):
+    if alpha is None:
+        return cooc_stats
+
+    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+
+    # We consider Nxt and N to be the holders of unigram frequency info,
+    new_cooc_stats._Nxt = cooc_stats.Nxt**alpha
+    new_cooc_stats._N = np.sum(new_cooc_stats._Nxt)
+    # Nxx, and Nx remain unchanged
+    new_cooc_stats._Nxx = cooc_stats.Nxx.copy()
+    new_cooc_stats._Nx = cooc_stats.Nx.copy()
+
+    # Ensure that any calls to load tensors will represent the new values
+    new_cooc_stats.purge_tensor_cache()
+
+    return new_cooc_stats
+
+
 
 

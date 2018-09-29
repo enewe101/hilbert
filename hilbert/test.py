@@ -5,7 +5,6 @@ from copy import copy, deepcopy
 from collections import Counter
 import hilbert as h
 
-
 try:
     import numpy as np
     from scipy import sparse
@@ -47,12 +46,13 @@ class TestGetEmbedder(TestCase):
             X_max=X_max,
             device=device,
         )
-        expected_embedder = h.torch_embedder.TorchHilbertEmbedder(
+        expected_embedder = h.embedder.HilbertEmbedder(
             delta=f_delta,
             d=d,
             learning_rate=learning_rate,
             one_sided=one_sided,
             constrainer=constrainer,
+            verbose=False, 
             device=device,
         )
 
@@ -67,7 +67,11 @@ class TestGetEmbedder(TestCase):
 
             # vvv Defaults
             k=None,
-            t_undersample=None,
+            #t_undersample=None,
+
+            undersample=None,
+            t=None,
+            smooth_unigram=None,
             shift_by=None,
             # ^^^ Defaults
 
@@ -90,7 +94,9 @@ class TestGetEmbedder(TestCase):
             momentum_decay=0.9,
             # ^^^ Defaults
 
+            verbose=False,
             device=device
+
         )
 
         expected_embedder.cycle(times=10, print_badness=False)
@@ -184,79 +190,27 @@ class TestCorpusStats(TestCase):
 
     def test_get_stats(self):
         # Next, test with a cooccurrence window of +/-2
+        device = h.CONSTANTS.MATRIX_DEVICE
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        self.assertTrue(np.allclose(cooc_stats.denseNxx,self.N_XX_2))
+        Nxx, Nx, Nxt, N = cooc_stats
+        self.assertTrue(torch.allclose(
+            Nxx, 
+            torch.tensor(self.N_XX_2, dtype=torch.float32, device=device)
+        ))
 
         # Next, test with a cooccurrence window of +/-3
         cooc_stats = h.corpus_stats.get_test_stats(3)
-        self.assertTrue(np.allclose(cooc_stats.denseNxx,self.N_XX_3))
+        Nxx, Nx, Nxt, N = cooc_stats
+        self.assertTrue(np.allclose(
+            Nxx,
+            torch.tensor(
+                self.N_XX_3, dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)
+        ))
 
 
 
 
 class TestM(TestCase):
-
-    def test_undersample(self):
-
-        # Fix the seed for a replicable test.  In this case, numpy is the
-        # source of randomness.
-        np.random.seed(0)
-
-        # Setup
-        t_undersample = 0.1
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
-        Nx_ = Nx.reshape(-1)
-
-        # Manually calculate probability that a token is kept.
-        p_xx = torch.tensor([
-            [
-                min(1, np.sqrt(t_undersample * N / Nx_[i])) 
-                    * min(1, np.sqrt(t_undersample * N / Nx_[j]))
-                for i in range(Nx_.shape[0])
-            ]
-            for j in range(Nx_.shape[0])
-        ], device=h.CONSTANTS.MATRIX_DEVICE)
-
-
-        # Expectation counts given undersampling
-        expectedNxx = Nxx * p_xx
-        expectedNx = torch.sum(expectedNxx, dim=1, keepdim=True)
-        expectedNxt = torch.sum(expectedNxx, dim=0, keepdim=True)
-        expectedN = torch.sum(expectedNx)
-
-        # Do the undersampling many times.  Then we can expect the average
-        # count to become close to expectation
-        foundNxx = torch.zeros(Nxx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
-        foundNx = torch.zeros(Nx.shape, device=h.CONSTANTS.MATRIX_DEVICE)
-        foundNxt = torch.zeros(Nx.t().shape, device=h.CONSTANTS.MATRIX_DEVICE)
-        foundN = torch.zeros(N.shape, device=h.CONSTANTS.MATRIX_DEVICE)
-        num_replicates = 100
-        for i in range(num_replicates):
-            cooc_stats_undersamp = h.M.undersample(cooc_stats, t_undersample)
-            one_Nxx, one_Nx, one_Nxt, one_N = cooc_stats_undersamp
-            foundNxx += one_Nxx
-            foundNx += one_Nx
-            foundNxt += one_Nxt
-            foundN += one_N
-        foundNxx /= num_replicates
-        foundNx /= num_replicates
-        foundNxt /= num_replicates
-        foundN /= num_replicates
-
-        self.assertTrue(np.allclose(foundNxx, expectedNxx, atol=0.5))
-        self.assertTrue(np.allclose(foundNx, expectedNx, atol=0.7))
-        self.assertTrue(np.allclose(foundNxt, expectedNxt, atol=0.7))
-        self.assertTrue(np.allclose(foundN, expectedN, atol=1.5))
-
-        # Look more closely at the last instance returned by undersamp
-        # It should be a CoocStats instance, and it's Nxx array should be
-        # a sparse csr matrix with dtype int64.
-        self.assertTrue(isinstance(
-            cooc_stats_undersamp, h.cooc_stats.CoocStats))
-        self.assertTrue(isinstance(
-            cooc_stats_undersamp.Nxx, sparse.csr_matrix))
-        self.assertEqual(cooc_stats_undersamp.Nxx.dtype, np.dtype('int64'))
 
         
 
@@ -278,19 +232,6 @@ class TestM(TestCase):
         ))
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
         found_M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
-        self.assertTrue(np.allclose(found_M, expected_M))
-
-
-        # Test undersample option.  Fix randomness so that samples come out
-        # the same when calling undersample directly, and when called within
-        # the routine being tested
-        t_undersample = 0.1
-        np.random.seed(0)
-        undersamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
-        expected_M = h.corpus_stats.calc_PMI(undersamp_cooc_stats)
-        np.random.seed(0)
-        found_M = h.M.M(
-            cooc_stats, 'pmi', t_undersample=t_undersample).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         clip_thresh = -0.1
@@ -322,19 +263,6 @@ class TestM(TestCase):
         ))
         expected_M = torch.log(Nxx) + shift_by
         found_M = h.M.M(cooc_stats, 'logNxx', shift_by=shift_by).load_all()
-        self.assertTrue(torch.allclose(found_M, expected_M))
-
-        # Test undersample option.  Fix randomness so that samples come out
-        # the same when calling undersample directly, and when called within
-        # the routine being tested
-        t_undersample = 0.1
-        np.random.seed(0)
-        usampNxx, usampNx, usampNxt, usampN = h.M.undersample(
-            cooc_stats, t_undersample)
-        expected_M = torch.log(usampNxx)
-        np.random.seed(0)
-        found_M = h.M.M(
-            cooc_stats, 'logNxx', t_undersample=t_undersample).load_all()
         self.assertTrue(torch.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
@@ -369,18 +297,6 @@ class TestM(TestCase):
         ))
         expected_M = h.corpus_stats.calc_PMI_star(cooc_stats) + shift_by
         found_M = h.M.M(cooc_stats, 'pmi-star', shift_by=shift_by).load_all()
-        self.assertTrue(np.allclose(found_M, expected_M))
-
-        # Test undersample option.  Fix randomness so that samples come out
-        # the same when calling undersample directly, and when called within
-        # the routine being tested
-        t_undersample = 0.1
-        np.random.seed(0)
-        usamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
-        expected_M = h.corpus_stats.calc_PMI_star(usamp_cooc_stats)
-        np.random.seed(0)
-        found_M = h.M.M(
-            cooc_stats, 'pmi-star', t_undersample=t_undersample).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
@@ -426,21 +342,6 @@ class TestM(TestCase):
         for shard_num, shard in enumerate(shards):
             found_M[shard] = M[shard]
 
-        self.assertTrue(np.allclose(found_M, expected_M))
-
-
-        # Test undersample option.  Fix randomness so that samples come out
-        # the same when calling undersample directly, and when called within
-        # the routine being tested
-        t_undersample = 0.1
-        np.random.seed(0)
-        undersamp_cooc_stats = h.M.undersample(cooc_stats, t_undersample)
-        expected_M = h.corpus_stats.calc_PMI(undersamp_cooc_stats)
-        np.random.seed(0)
-        M = h.M.M(cooc_stats, 'pmi', t_undersample=t_undersample).load_all()
-        found_M = np.zeros(Nxx.shape)
-        for shard_num, shard in enumerate(shards):
-            found_M[shard] = M[shard]
         self.assertTrue(np.allclose(found_M, expected_M))
 
         clip_thresh = -0.1
@@ -632,115 +533,6 @@ class TestM(TestCase):
     #    self.assertEqual(str(found_M.device), 'cpu')
 
 
-    ########################################################
-    #
-    #   I'm not supporting this method anymore.  Use the class M.
-    #
-    #def test_calc_M(self):
-
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, Nxt, N = cooc_stats
-    #    t_undersample=0.1
-    #    shift_by=-np.log(15)
-    #    neg_inf_val=1
-    #    clip_thresh=-1
-    #    diag=2
-    #    implementation='torch'
-    #    device='cpu'
-
-    #    M = h.M.calc_M_pmi(
-    #        cooc_stats,
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    M_ = h.M.calc_M(
-    #        cooc_stats,
-    #        base='pmi',
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    self.assertTrue(torch.allclose(M, M_))
-
-    #    M = h.M.calc_M_logNxx(
-    #        cooc_stats,
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    M_ = h.M.calc_M(
-    #        cooc_stats,
-    #        base='logNxx',
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    self.assertTrue(torch.allclose(M, M_))
-
-    #    M = h.M.calc_M_pmi_star(
-    #        cooc_stats,
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    M_ = h.M.calc_M(
-    #        cooc_stats,
-    #        base='pmi-star',
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    self.assertTrue(torch.allclose(M, M_))
-
-    #    M = h.M.calc_M_neg_samp(
-    #        cooc_stats,
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    M_ = h.M.calc_M(
-    #        cooc_stats,
-    #        base='neg-samp',
-    #        t_undersample=t_undersample,
-    #        shift_by=shift_by,
-    #        neg_inf_val=neg_inf_val,
-    #        clip_thresh=clip_thresh,
-    #        diag=diag,
-    #        implementation=implementation,
-    #        device=device
-    #    )
-    #    self.assertTrue(torch.allclose(M, M_))
-
-
 
 class TestFDeltas(TestCase):
 
@@ -796,40 +588,6 @@ class TestFDeltas(TestCase):
             found[shard] = delta_w2v.calc_shard(M_hat[shard], shard)
 
         self.assertTrue(np.allclose(expected, found))
-
-
-    #
-    #   Now that np is deprecated, this test is redundnat.  We *only* test
-    #   torch.
-    #
-    #def test_f_w2v_torch(self):
-
-    #    k = 15
-    #    device = 'cuda'
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, Nxt, N = cooc_stats
-
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
-    #    expected_M_hat = expected_M + 1
-    #    N_neg = h.f_delta.calc_N_neg(cooc_stats, k)
-    #    expected_difference = (
-    #        h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
-    #    expected_multiplier = N_neg + Nxx
-    #    expected = torch.tensor(
-    #        expected_multiplier * expected_difference,
-    #        dtype=torch.float32, device=device
-    #    )
-
-    #    M = h.M.M(cooc_stats,'pmi', shift_by=-np.log(k), device=device)
-    #    M_ = M.load_all()
-    #    M_hat = M_ + 1
-    #    delta_w2v = h.f_delta.DeltaW2V(cooc_stats, M, k, device=device)
-    #    found = torch.zeros(cooc_stats.Nxx.shape)
-    #    shards = h.shards.Shards(2)
-    #    for shard in shards:
-    #        found[shard] = delta_w2v(M_hat[shard], shard)
-
-    #    self.assertTrue(torch.allclose(expected, found))
 
 
 
@@ -891,62 +649,6 @@ class TestFDeltas(TestCase):
         self.assertFalse(np.allclose(expected2, expected))
 
 
-    #
-    #   Now that np is deprecated, this test is redundnat.  We *only* test
-    #   torch.
-    #
-    #def test_f_glove_torch(self):
-
-    #    device = 'cuda'
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-
-    #    with np.errstate(divide='ignore'):
-    #        expected_M = np.log(cooc_stats.denseNxx)
-    #    # Zero out cells containing negative infinity, which are ignored
-    #    # by glove.  We still need to zero them out to avoid nans.
-    #    expected_M[expected_M==-np.inf] = 0
-    #    expected_M_hat = expected_M + 1
-    #    expected = torch.tensor(np.array([
-    #        [
-    #            2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
-    #                * (expected_M[i,j] - expected_M_hat[i,j])
-    #            if cooc_stats.Nxx[i,j] > 0 else 0 
-    #            for j in range(cooc_stats.Nxx.shape[1])
-    #        ]
-    #        for i in range(cooc_stats.Nxx.shape[0])
-    #    ]), dtype=torch.float32, device=device)
-
-    #    M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0).load_all()
-
-    #    M_hat = M_hat = M + 1
-    #    f_glove = h.f_delta.get_f_glove(
-    #        cooc_stats, M, implementation='torch', device=device)
-    #    found = f_glove(M_hat)
-    #    self.assertTrue(np.allclose(expected, found))
-
-    #    # Verify that x_max takes effect, by passing in a non-default value.
-    #    x_max_non_default = 10
-    #    f_glove = h.f_delta.get_f_glove(
-    #        cooc_stats, M, x_max_non_default,
-    #        implementation='torch', device=device
-    #    )
-    #    found2 = f_glove(M_hat)
-
-    #    expected2 = torch.tensor(np.array([
-    #        [
-    #            2 * min(1, (cooc_stats.Nxx[i,j] / 10.0)**0.75) 
-    #                * (expected_M[i,j] - expected_M_hat[i,j])
-    #            if cooc_stats.Nxx[i,j] > 0 else 0 
-    #            for j in range(cooc_stats.Nxx.shape[1])
-    #        ]
-    #        for i in range(cooc_stats.Nxx.shape[0])
-    #    ]), dtype=torch.float32, device=device)
-
-    #    # We should find what we expected.
-    #    self.assertTrue(np.allclose(expected2, found2))
-    #    # It should be different from last time (hence x_max takes effect.)
-    #    self.assertFalse(np.allclose(expected2, expected))
-
 
     def test_f_MSE(self):
 
@@ -1000,34 +702,6 @@ class TestFDeltas(TestCase):
         self.assertTrue(np.allclose(found, expected))
 
 
-    #
-    #   Now that np is deprecated, this test is redundnat.  We *only* test
-    #   torch.
-    #
-    #def test_f_swivel_torch(self):
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    device = 'cpu'
-    #    M = h.M.M(cooc_stats, 'pmi-star', device=device).load_all()
-    #    M_hat = M + 1
-    #    expected = torch.tensor(np.array([
-    #        [
-    #            np.sqrt(cooc_stats.Nxx[i,j]) * (M[i,j] - M_hat[i,j]) 
-
-    #            if cooc_stats.Nxx[i,j] > 0 else
-
-    #            (np.e**(M[i,j] - M_hat[i,j]) /
-    #                (1 + np.e**(M[i,j] - M_hat[i,j])))
-    #            for j in range(M.shape[1])
-    #        ]
-    #        for i in range(M.shape[0])
-    #    ]), dtype=torch.float32, device=device)
-    #    f_swivel = h.f_delta.get_f_swivel(
-    #        cooc_stats, M, implementation='torch', device=device)
-    #    found = f_swivel(M_hat)
-    #    self.assertTrue(torch.allclose(found, expected))
-    #    self.assertTrue(isinstance(found, torch.Tensor))
-
-
     def test_f_MLE(self):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
@@ -1065,38 +739,6 @@ class TestFDeltas(TestCase):
 
 
 
-    #
-    #   Now that np is deprecated, this test is redundnat.  We *only* test
-    #   torch.
-    #
-    #def test_torch_f_MLE(self):
-
-    #    device = 'cpu'
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-
-    #    M = torch.tensor(
-    #        h.corpus_stats.calc_PMI(cooc_stats), dtype=torch.float32)
-    #    M_hat = M + 1
-    #    N_indep_xx = torch.tensor(
-    #        cooc_stats.Nx * cooc_stats.Nx.T, dtype=torch.float32)
-    #    N_indep_max = torch.max(N_indep_xx)
-    #    expected = N_indep_xx / N_indep_max * (np.e**M - np.e**M_hat)
-
-    #    delta = np.zeros(M.shape)
-    #    f_MLE = h.f_delta.get_f_MLE(cooc_stats, M, device=device)
-    #    found = f_MLE(M_hat)
-
-    #    self.assertTrue(np.allclose(found, expected))
-
-    #    t = 10
-    #    expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
-    #        np.e**M - np.e**M_hat)
-    #    found = f_MLE(M_hat, t=t)
-    #    self.assertTrue(np.allclose(found, expected))
-
-
-
-
 class TestConstrainer(TestCase):
 
     def test_glove_constrainer(self):
@@ -1107,365 +749,7 @@ class TestConstrainer(TestCase):
 
 
 
-#
-#   The numpy implementation of the Hilbert Embedder has been removed. These
-#   tests are obsolete.
-#
-#class TestHilbertEmbedder(TestCase):
-#
-#    def test_integration_with_constrainer(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate,
-#            constrainer=h.constrainer.glove_constrainer
-#        )
-#
-#        old_V = embedder.V.copy()
-#        old_W = embedder.W.copy()
-#
-#        embedder.cycle(print_badness=False)
-#
-#        # Check that the update was performed, and constraints applied.
-#        new_V = old_V + learning_rate * np.dot(old_W.T, M - embedder.M_hat)
-#        new_W = old_W + learning_rate * np.dot(M - embedder.M_hat, old_V.T)
-#        h.constrainer.glove_constrainer(new_W, new_V)
-#        self.assertTrue(np.allclose(embedder.V, new_V))
-#        self.assertTrue(np.allclose(embedder.W, new_W))
-#
-#        # Check that the badness is correct 
-#        # (badness is based on the error before last update)
-#        embedder.calc_badness()
-#        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-#        self.assertEqual(badness, embedder.badness)
-#
-#
-#
-#    def test_get_gradient(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate)
-#
-#        W, V = embedder.W.copy(), embedder.V.copy()
-#        M_hat = np.dot(W,V)
-#        delta = M - M_hat
-#        expected_nabla_W = np.dot(delta, V.T)
-#        expected_nabla_V = np.dot(W.T, delta)
-#
-#        nabla_V, nabla_W = embedder.get_gradient()
-#
-#        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
-#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-#
-#
-#    def test_get_gradient_with_offsets(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        offset_W = np.random.random(cooc_stats.Nxx.shape)
-#        offset_V = np.random.random(cooc_stats.Nxx.shape)
-#        
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(M, f_MSE, d, learning_rate)
-#
-#        original_W, original_V = embedder.W.copy(), embedder.V.copy()
-#        W, V =  original_W + offset_W,  original_V + offset_V
-#        M_hat = np.dot(W,V)
-#        delta = M - M_hat
-#        expected_nabla_W = np.dot(delta, V.T)
-#        expected_nabla_V = np.dot(W.T, delta)
-#
-#        nabla_V, nabla_W = embedder.get_gradient(offsets=(offset_V, offset_W))
-#
-#        self.assertTrue(np.allclose(nabla_W, expected_nabla_W))
-#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-#
-#        # Verify that the embeddings were not altered by the offset
-#        self.assertTrue(np.allclose(original_W, embedder.W))
-#        self.assertTrue(np.allclose(original_V, embedder.V))
-#
-#
-#    def test_get_gradient_one_sided(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#        
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate, one_sided=True)
-#
-#        original_V = embedder.V.copy()
-#        V =  original_V
-#        M_hat = np.dot(V.T,V)
-#        delta = M - M_hat
-#        expected_nabla_V = np.dot(V, delta)
-#
-#        nabla_V = embedder.get_gradient()
-#
-#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-#
-#        # Verify that the embeddings were not altered by the offset
-#        self.assertTrue(np.allclose(original_V.T, embedder.W))
-#        self.assertTrue(np.allclose(original_V, embedder.V))
-#
-#
-#    def test_get_gradient_one_sided_with_offset(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#        offset_V = np.random.random(cooc_stats.Nxx.shape)
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate, one_sided=True)
-#
-#        original_V = embedder.V.copy()
-#        V =  original_V + offset_V
-#        M_hat = np.dot(V.T,V)
-#        delta = M - M_hat
-#        expected_nabla_V = np.dot(V, delta)
-#
-#        nabla_V = embedder.get_gradient(offsets=offset_V)
-#
-#        self.assertTrue(np.allclose(nabla_V, expected_nabla_V))
-#
-#        # Verify that the embeddings were not altered by the offset
-#        self.assertTrue(np.allclose(original_V.T, embedder.W))
-#        self.assertTrue(np.allclose(original_V, embedder.V))
-#
-#
-#
-#    def test_integration_with_f_delta(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#        pass_args = {'a':True, 'b':False}
-#
-#        def get_mock_f_delta(cooc_stats, M_):
-#            def mock_f_delta(M_hat_, **kwargs):
-#                self.assertTrue(M_ is M)
-#                self.assertEqual(kwargs, {'a':True, 'b':False})
-#                return M_ - M_hat_
-#            return mock_f_delta
-#
-#        f_delta = get_mock_f_delta(cooc_stats, M)
-#        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
-#
-#        self.assertEqual(embedder.learning_rate, learning_rate)
-#        self.assertEqual(embedder.d, d)
-#        self.assertTrue(embedder.M is M)
-#        self.assertEqual(embedder.f_delta, f_delta)
-#
-#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-#
-#        embedder.cycle(pass_args=pass_args, print_badness=False)
-#
-#        # Check that the update was performed
-#        new_V = old_V + learning_rate * np.dot(old_W.T, embedder.delta)
-#        new_W = old_W + learning_rate * np.dot(embedder.delta, old_V.T)
-#        self.assertTrue(np.allclose(embedder.V, new_V))
-#        self.assertTrue(np.allclose(embedder.W, new_W))
-#
-#        # Check that the badness is correct 
-#        # (badness is based on the error before last update)
-#        embedder.calc_badness()
-#        badness = np.sum(abs(M - np.dot(old_W, old_V))) / (d*d)
-#        self.assertEqual(badness, embedder.badness)
-#
-#
-#    def test_arbitrary_f_delta(self):
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        # Define an arbitrary f_delta
-#        delta_amount = 0.1
-#        delta_always = np.zeros(M.shape) + delta_amount
-#        def get_f_delta(cooc_stats, M, implementation):
-#            def f_delta(M_hat):
-#                return np.ones(M_hat.shape) * delta_amount
-#            return f_delta
-#
-#        f_delta = get_f_delta(cooc_stats, M, implementation='numpy')
-#        # First make a non-one-sided embedder.
-#        embedder = h.embedder.HilbertEmbedder(M, f_delta, d, learning_rate)
-#
-#        old_V = embedder.V.copy()
-#        old_W = embedder.W.copy()
-#
-#        embedder.cycle(print_badness=False)
-#
-#        # Check that the update was performed.  Notice that the update of W
-#        # uses the old value of V, hence a synchronous update.
-#        new_V = old_V + learning_rate * np.dot(old_W.T, delta_always)
-#        new_W = old_W + learning_rate * np.dot(delta_always, old_V.T)
-#        self.assertTrue(np.allclose(embedder.V, new_V))
-#        self.assertTrue(np.allclose(embedder.W, new_W))
-#
-#        # Check that the badness is correct 
-#        # (badness is based on the error before last update)
-#        embedder.calc_badness()
-#        badness = np.sum(delta_always) / (d*d)
-#        self.assertEqual(badness, embedder.badness)
-#
-#
-#    def test_one_sided(self):
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        # First make a non-one-sided embedder.
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate
-#        )
-#
-#        # The covectors and vectors are not the same.
-#        self.assertFalse(np.allclose(embedder.W, embedder.V.T))
-#
-#        # Now make a one-sided embedder.
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate, one_sided=True
-#        )
-#
-#        # The covectors and vectors are the same.
-#        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
-#
-#        old_V = embedder.V.copy()
-#        embedder.cycle(print_badness=False)
-#
-#        # Check that the update was performed.
-#        new_V = old_V + learning_rate * np.dot(old_V, embedder.delta)
-#        self.assertTrue(np.allclose(embedder.V, new_V))
-#
-#        # Check that the vectors and covectors are still identical after the
-#        # update.
-#        self.assertTrue(np.allclose(embedder.W, embedder.V.T))
-#
-#        # Check that the badness is correct 
-#        # (badness is based on the error before last update)
-#        embedder.calc_badness()
-#        badness = np.sum(abs(M - np.dot(old_V.T, old_V))) / (d*d)
-#        self.assertEqual(badness, embedder.badness)
-#
-#
-#    def test_mse_embedder(self):
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', clip_thresh=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        mse_embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate)
-#        mse_embedder.cycle(100000, print_badness=False)
-#
-#        self.assertEqual(mse_embedder.V.shape, (M.shape[1],d))
-#        self.assertEqual(mse_embedder.W.shape, (d,M.shape[0]))
-#
-#        delta = np.zeros(M.shape, dtype='float64')
-#        residual = f_MSE(mse_embedder.M_hat)
-#
-#        self.assertTrue(np.allclose(residual, delta))
-#        
-#
-#    def test_update(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats= h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate)
-#
-#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-#
-#        delta_V = np.random.random(M.shape)
-#        delta_W = np.random.random(M.shape)
-#        updates = delta_V, delta_W
-#        embedder.update(*updates)
-#        self.assertTrue(np.allclose(old_W + delta_W, embedder.W))
-#        self.assertTrue(np.allclose(old_V + delta_V, embedder.V))
-#
-#
-#    def test_update_with_constraints(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate,
-#            constrainer=h.constrainer.glove_constrainer
-#        )
-#
-#        old_W, old_V = embedder.W.copy(), embedder.V.copy()
-#
-#        delta_V = np.random.random(M.shape)
-#        delta_W = np.random.random(M.shape)
-#        updates = delta_V, delta_W
-#        embedder.update(*updates)
-#
-#        expected_updated_W = old_W + delta_W
-#        expected_updated_V = old_V + delta_V
-#        h.constrainer.glove_constrainer(expected_updated_W, expected_updated_V)
-#
-#        self.assertTrue(np.allclose(expected_updated_W, embedder.W))
-#        self.assertTrue(np.allclose(expected_updated_V, embedder.V))
-#
-#
-#
-#    def test_update_one_sided_rejects_delta_W(self):
-#
-#        d = 11
-#        learning_rate = 0.01
-#        cooc_stats = h.corpus_stats.get_test_stats(2)
-#        M = np.array(h.M.M(cooc_stats, 'pmi', neg_inf_val=0).load_all())
-#
-#        f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='numpy')
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate)
-#
-#        # Show that we can update covector embeddings for a non-one-sided model
-#        delta_W = np.ones(M.shape)
-#        embedder.update(delta_W=delta_W)
-#
-#        # Now show that a one-sided embedder rejects updates to covectors
-#        embedder = h.embedder.HilbertEmbedder(
-#            M, f_MSE, d, learning_rate, one_sided=True)
-#        delta_W = np.ones(M.shape)
-#        with self.assertRaises(ValueError):
-#            embedder.update(delta_W=delta_W)
-
-
-
-class TestTorchHilbertEmbedder(TestCase):
+class TestHilbertEmbedder(TestCase):
 
 
     def test_one_sided(self):
@@ -1481,8 +765,9 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # First make a non-one-sided embedder.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            verbose=False, 
             device=device
         )
 
@@ -1495,8 +780,9 @@ class TestTorchHilbertEmbedder(TestCase):
         self.assertFalse(torch.allclose(embedder.W, embedder.V))
 
         # Now make a one-sided embedder.
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            verbose=False, 
             shard_factor=3, device=device
         )
 
@@ -1548,8 +834,9 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Make the embedder, whose method we are testing.
         delta_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             delta_MSE, d, learning_rate=learning_rate, device=device,
+            verbose=False, 
             shard_factor=2
         )
 
@@ -1592,8 +879,9 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Create an embedder, whose get_gradient method we are testing.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False, 
             device=device
         )
 
@@ -1632,8 +920,9 @@ class TestTorchHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
         # Make an embedder, whose get_gradient method we are testing.
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            verbose=False, 
             device=device
         )
 
@@ -1669,8 +958,9 @@ class TestTorchHilbertEmbedder(TestCase):
         offset_V = torch.rand(len(cooc_stats.Nx), d)
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            verbose=False, 
             device=device
         )
 
@@ -1731,8 +1021,9 @@ class TestTorchHilbertEmbedder(TestCase):
         f_delta = DeltaMock(cooc_stats, M, self, device=device)
 
         # Make embedder whose integration with mock f_delta is being tested.
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_delta, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False, 
             device=device
         )
 
@@ -1791,8 +1082,9 @@ class TestTorchHilbertEmbedder(TestCase):
 
         # Make the embedder whose integration with f_delta we are testing.
         f_delta = DeltaMock(cooc_stats, M)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             delta=f_delta, d=d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False, 
             device=device
         )
 
@@ -1828,8 +1120,9 @@ class TestTorchHilbertEmbedder(TestCase):
         M_ = M.load_all()
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            verbose=False, 
             device=device
         )
 
@@ -1862,9 +1155,10 @@ class TestTorchHilbertEmbedder(TestCase):
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor = 3,
             constrainer=h.constrainer.glove_constrainer,
+            verbose=False, 
             device='cpu'
         )
 
@@ -1906,8 +1200,9 @@ class TestTorchHilbertEmbedder(TestCase):
         M_ = M.load_all()
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=5,
+            verbose=False, 
             device=device
         )
 
@@ -1916,8 +1211,9 @@ class TestTorchHilbertEmbedder(TestCase):
         embedder.update(delta_W=delta_W)
 
         # Now make a ONE-SIDED embedder, which should reject covector updates.
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            verbose=False, 
             shard_factor=5
         )
         delta_W = torch.ones(vocab, d)
@@ -1938,8 +1234,9 @@ class TestTorchHilbertEmbedder(TestCase):
         M_ = M.load_all()
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False, 
             constrainer=h.constrainer.glove_constrainer, device=device
         )
 
@@ -1989,8 +1286,9 @@ class TestTorchHilbertEmbedder(TestCase):
         M_ = M.load_all()
 
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
+        embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3, 
+            verbose=False, 
             device=device
         )
 
@@ -2678,8 +1976,10 @@ class TestEmbedderSolverIntegration(TestCase):
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False,
+            )
         solver = h.solver.NesterovSolver(embedder,learning_rate,momentum_decay)
         solver.cycle(times=times)
 
@@ -2696,8 +1996,10 @@ class TestEmbedderSolverIntegration(TestCase):
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False,
+            )
         solver = h.solver.MomentumSolver(embedder,learning_rate,momentum_decay)
         solver.cycle(times=times)
 
@@ -2714,87 +2016,13 @@ class TestEmbedderSolverIntegration(TestCase):
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
         f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
-        embedder = h.torch_embedder.TorchHilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3)
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            verbose=False,
+        )
         solver = h.solver.NesterovSolverOptimized(
             embedder, learning_rate, momentum_decay)
         solver.cycle(times=times)
-
-
-    #
-    #   The numpy implementation of the Hilbert Embedder has been removed.
-    #   These tests are obsolete.
-    #
-    #def test_embedder_solver_integration_torch(self):
-
-    #    d = 5
-    #    times = 3
-    #    learning_rate = 0.01
-    #    momentum_decay = 0.8
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
-
-    #    # This test just makes sure that the solver and embedder interface
-    #    # properly.  All is good as long as this doesn't throw errors.
-    #    f_MSE = h.f_delta.get_f_MSE(cooc_stats, M, implementation='torch')
-    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
-    #        M, f_MSE, d, learning_rate, device='cpu')
-    #    solver = h.solver.NesterovSolver(
-    #        embedder, learning_rate, momentum_decay, 
-    #        implementation='torch', device='cpu')
-    #    solver.cycle(times=times)
-
-
-    #
-    #   The numpy implementation of the Hilbert Embedder has been removed.
-    #   These tests are obsolete.
-    #
-    #def test_embedder_momentum_solver_integration_torch(self):
-
-    #    d = 5
-    #    times = 3
-    #    learning_rate = 0.01
-    #    momentum_decay = 0.8
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
-
-    #    # This test just makes sure that the solver and embedder interface
-    #    # properly.  All is good as long as this doesn't throw errors.
-    #    f_MSE = h.f_delta.get_f_MSE(
-    #        cooc_stats, M, implementation='torch', device='cpu')
-    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
-    #        M, f_MSE, d, learning_rate, device='cpu')
-    #    solver = h.solver.MomentumSolver(
-    #        embedder, learning_rate, momentum_decay, 
-    #        implementation='torch', device='cpu'
-    #    )
-    #    solver.cycle(times=times)
-
-
-    #
-    #   The numpy implementation of the Hilbert Embedder has been removed.
-    #   These tests are obsolete.
-    #
-    #def test_embedder_nesterov_solver_optimized_integration_torch(self):
-
-    #    d = 5
-    #    times = 3
-    #    learning_rate = 0.01
-    #    momentum_decay = 0.8
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    M = h.M.M(cooc_stats, 'pmi', device='cpu').load_all()
-
-    #    # This test just makes sure that the solver and embedder interface
-    #    # properly.  All is good as long as this doesn't throw errors.
-    #    f_MSE = h.f_delta.get_f_MSE(
-    #        cooc_stats, M, implementation='torch', device='cpu')
-    #    embedder = h.torch_embedder.TorchHilbertEmbedder(
-    #        M, f_MSE, d, learning_rate, device='cpu')
-    #    solver = h.solver.NesterovSolverOptimized(
-    #        embedder, learning_rate, momentum_decay,
-    #        implementation='torch', device='cpu'
-    #    )
-    #    solver.cycle(times=times)
 
 
 
@@ -2904,11 +2132,16 @@ class TestCoocStats(TestCase):
 
 
     def test_cooc_stats_unpacking(self):
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         cooc_stats = h.corpus_stats.get_test_stats(2)
         Nxx, Nx, Nxt, N = cooc_stats
-        self.assertTrue(np.allclose(Nxx, cooc_stats.denseNxx))
-        self.assertTrue(np.allclose(Nx, cooc_stats.Nx))
-        self.assertTrue(np.allclose(N, cooc_stats.N))
+        self.assertTrue(torch.allclose(Nxx, torch.tensor(
+            cooc_stats.Nxx.toarray(), device=device, dtype=dtype)))
+        self.assertTrue(torch.allclose(Nx, torch.tensor(
+            cooc_stats.Nx, device=device, dtype=dtype)))
+        self.assertTrue(torch.allclose(N, torch.tensor(
+            cooc_stats.N, device=device, dtype=dtype)))
 
 
 
@@ -2973,8 +2206,9 @@ class TestCoocStats(TestCase):
 
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
         Nxx = array
-
         Nx = np.sum(Nxx, axis=1).reshape(-1,1)
+        Nxt = np.sum(Nxx, axis=0).reshape(1,-1)
+        N = np.sum(Nxx)
 
         # Create a cooccurrence instance using counts
         cooccurrence = h.cooc_stats.CoocStats(
@@ -2983,10 +2217,13 @@ class TestCoocStats(TestCase):
         # Currently the cooccurrence instance has no internal counter for
         # cooccurrences, because it is based on the cooccurrence_array
         self.assertTrue(cooccurrence._counts is None)
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, Nxx))
+        self.assertTrue(np.allclose(cooccurrence._Nxx.toarray(), Nxx))
         self.assertTrue(np.allclose(cooccurrence._Nx, Nx))
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, Nxx))
+        self.assertTrue(np.allclose(cooccurrence._Nxt, Nxt))
+        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), Nxx))
         self.assertTrue(np.allclose(cooccurrence.Nx, Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxt, Nxt))
+        self.assertTrue(np.allclose(cooccurrence.N, N))
 
         # Adding more cooccurrence statistics will force it to "decompile" into
         # a counter, then add to the counter.  This will cause the stale Nxx
@@ -2998,16 +2235,20 @@ class TestCoocStats(TestCase):
         expected_counts[0,4] += 1
         self.assertEqual(cooccurrence._counts, expected_counts)
         self.assertEqual(cooccurrence._Nxx, None)
+        self.assertEqual(cooccurrence._Nxt, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._N, None)
 
         # Asking for Nxx forces it to sync itself.  
         # Ensure it it obtains the correct cooccurrence matrix
         expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
         expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
         expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
+        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
         expected_N = np.sum(expected_Nx)
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
         self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
         self.assertEqual(cooccurrence.N, expected_N)
 
 
@@ -3025,7 +2266,6 @@ class TestCoocStats(TestCase):
         self.assertEqual(cooccurrence._counts, counts)
 
 
-
     def test_compile(self):
 
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
@@ -3036,49 +2276,54 @@ class TestCoocStats(TestCase):
 
         # The cooccurrence instance has no Nxx array, but it will be calculated
         # when we try to access it directly.
+        expected_Nx = np.sum(array, axis=1).reshape(-1,1)
+        expected_Nxt = np.sum(array, axis=0).reshape(1,-1)
         self.assertEqual(cooccurrence._Nxx, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._Nxt, None)
+        self.assertEqual(cooccurrence._N, None)
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), array))
-        self.assertTrue(np.allclose(
-            cooccurrence.Nx, np.sum(array, axis=1).reshape(-1,1)))
+        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
         self.assertEqual(cooccurrence.N, np.sum(array))
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, array))
 
         # We can still add more counts.  This causes it to drop the stale Nxx.
         cooccurrence.add('banana', 'rice')
         cooccurrence.add('rice', 'banana')
         self.assertEqual(cooccurrence._Nxx, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._Nxt, None)
         self.assertEqual(cooccurrence._N, None)
-        self.assertEqual(cooccurrence._denseNxx, None)
 
-        # Asking for an array forces it to sync itself.  This time start with
-        # denseNxx.
+        # Asking for an array forces it to sync itself.
         expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
         expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
+        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
+        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(
-            cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
+        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
         self.assertEqual(cooccurrence.N, np.sum(expected_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
 
         # Adding more counts once again causes it to drop the stale Nxx.
         cooccurrence.add('banana', 'field')
         cooccurrence.add('field', 'banana')
         self.assertEqual(cooccurrence._Nxx, None)
         self.assertEqual(cooccurrence._Nx, None)
+        self.assertEqual(cooccurrence._Nxt, None)
         self.assertEqual(cooccurrence._N, None)
-        self.assertEqual(cooccurrence._denseNxx, None)
 
         # Asking for an array forces it to sync itself.  This time start with
         # Nx.
         expected_Nxx[0,3] += 1
         expected_Nxx[3,0] += 1
+        expected_N = np.sum(expected_Nxx)
+        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
+        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
         self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(
-            cooccurrence.Nx, np.sum(expected_Nxx, axis=1).reshape(-1,1)))
-        self.assertEqual(cooccurrence.N, np.sum(expected_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, expected_Nxx))
+        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
+        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
+        self.assertEqual(cooccurrence.N, expected_N)
 
 
 
@@ -3115,7 +2360,7 @@ class TestCoocStats(TestCase):
         cooccurrence = h.cooc_stats.CoocStats(
             unsorted_dictionary, unsorted_counts, verbose=False
         )
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, sorted_array))
+        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), sorted_array))
         self.assertEqual(cooccurrence.counts, sorted_counts)
         self.assertEqual(
             cooccurrence.dictionary.tokens, sorted_dictionary.tokens)
@@ -3133,20 +2378,24 @@ class TestCoocStats(TestCase):
         # Create a cooccurrence instance using counts
         cooccurrence = h.cooc_stats.CoocStats(
             dictionary, counts, verbose=False)
+        Nxx, Nx, Nxt, N = cooccurrence
 
         # Save it, then load it
         cooccurrence.save(write_path)
         cooccurrence2 = h.cooc_stats.CoocStats.load(
             write_path, verbose=False)
 
+        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
         self.assertEqual(
             cooccurrence2.dictionary.tokens, 
             cooccurrence.dictionary.tokens
         )
+
         self.assertEqual(cooccurrence2.counts, cooccurrence.counts)
-        self.assertTrue(np.allclose(
-            cooccurrence2.denseNxx, cooccurrence.denseNxx))
-        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence.Nx))
+        self.assertTrue(np.allclose(Nxx2, Nxx))
+        self.assertTrue(np.allclose(Nx2, Nx))
+        self.assertTrue(np.allclose(Nxt2, Nxt))
+        self.assertTrue(np.allclose(N2, N))
 
         shutil.rmtree(write_path)
 
@@ -3170,11 +2419,14 @@ class TestCoocStats(TestCase):
             [1,1,0],
         ])
         trunc_Nx = np.sum(trunc_Nxx, axis=1, keepdims=True)
+        trunc_Nxt = np.sum(trunc_Nxx, axis=0, keepdims=True)
         trunc_N = np.sum(trunc_Nx)
 
-        self.assertTrue(np.allclose(cooccurrence.denseNxx, trunc_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.Nx, trunc_Nx))
-        self.assertTrue(np.allclose(cooccurrence.N, trunc_N))
+        Nxx, Nx, Nxt, N = cooccurrence
+        self.assertTrue(np.allclose(Nxx, trunc_Nxx))
+        self.assertTrue(np.allclose(Nx, trunc_Nx))
+        self.assertTrue(np.allclose(Nxt, trunc_Nxt))
+        self.assertTrue(np.allclose(N, trunc_N))
 
 
     def test_dict_to_sparse(self):
@@ -3188,6 +2440,7 @@ class TestCoocStats(TestCase):
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
         cooccurrence1 = h.cooc_stats.CoocStats(
             dictionary, counts, verbose=False)
+        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
 
         cooccurrence2 = deepcopy(cooccurrence1)
 
@@ -3198,10 +2451,10 @@ class TestCoocStats(TestCase):
         self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
         self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
 
-        self.assertTrue(np.allclose(
-            cooccurrence2.denseNxx, cooccurrence1.denseNxx))
-        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
-        self.assertEqual(cooccurrence2.N, cooccurrence1.N)
+        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
+        self.assertTrue(np.allclose(Nxx2, Nxx1))
+        self.assertTrue(np.allclose(Nx2, Nx1))
+        self.assertEqual(N2, N1)
         self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
         self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
         self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
@@ -3211,6 +2464,7 @@ class TestCoocStats(TestCase):
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
         cooccurrence1 = h.cooc_stats.CoocStats(
             dictionary, counts, verbose=False)
+        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
 
         cooccurrence2 = copy(cooccurrence1)
 
@@ -3221,10 +2475,10 @@ class TestCoocStats(TestCase):
         self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
         self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
 
-        self.assertTrue(np.allclose(
-            cooccurrence2.denseNxx, cooccurrence1.denseNxx))
-        self.assertTrue(np.allclose(cooccurrence2.Nx, cooccurrence1.Nx))
-        self.assertEqual(cooccurrence2.N, cooccurrence1.N)
+        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
+        self.assertTrue(np.allclose(Nxx2, Nxx1))
+        self.assertTrue(np.allclose(Nx2, Nx1))
+        self.assertEqual(N2, N1)
         self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
         self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
         self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
@@ -3234,6 +2488,8 @@ class TestCoocStats(TestCase):
         """
         When CoocStats add, their counts add.
         """
+
+        device='cuda'
 
         # Make one CoocStat instance to be added.
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
@@ -3269,11 +2525,15 @@ class TestCoocStats(TestCase):
 
         # Ensure that cooccurrence1 was not changed
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
+        array = torch.tensor(array, device=device, dtype=torch.float32)
         self.assertEqual(cooccurrence1.counts, counts)
-        self.assertTrue(np.allclose(cooccurrence1.denseNxx, array))
-        expected_Nx = np.sum(array, axis=1).reshape(-1,1)
-        self.assertTrue(np.allclose(cooccurrence1.Nx, expected_Nx))
-        self.assertEqual(cooccurrence1.N, np.sum(array))
+        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
+        self.assertTrue(np.allclose(Nxx1, array))
+        expected_Nx = torch.sum(array, dim=1).reshape(-1,1)
+        expected_Nxt = torch.sum(array, dim=0).reshape(1,-1)
+        self.assertTrue(np.allclose(Nx1, expected_Nx))
+        self.assertTrue(np.allclose(Nxt1, expected_Nxt))
+        self.assertTrue(torch.allclose(N1[0], torch.sum(array)))
         self.assertEqual(cooccurrence1.dictionary.tokens, dictionary.tokens)
         self.assertEqual(
             cooccurrence1.dictionary.token_ids, dictionary.token_ids)
@@ -3282,10 +2542,14 @@ class TestCoocStats(TestCase):
         # Ensure that cooccurrence2 was not changed
         self.assertEqual(cooccurrence2.counts, counts2)
 
-        self.assertTrue(np.allclose(cooccurrence2.denseNxx, array2))
-        expected_Nx2 = np.sum(array2, axis=1).reshape(-1,1)
-        self.assertTrue(np.allclose(cooccurrence2.Nx, expected_Nx2))
-        self.assertEqual(cooccurrence2.N, np.sum(array2))
+        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
+        array2 = torch.tensor(array2, dtype=torch.float32, device=device)
+        self.assertTrue(np.allclose(Nxx2, array2))
+        expected_Nx2 = torch.sum(array2, dim=1).reshape(-1,1)
+        expected_Nxt2 = torch.sum(array2, dim=0).reshape(1,-1)
+        self.assertTrue(torch.allclose(Nx2, expected_Nx2))
+        self.assertTrue(torch.allclose(Nxt2, expected_Nxt2))
+        self.assertEqual(N2[0], torch.sum(array2))
         self.assertEqual(cooccurrence2.dictionary.tokens, dictionary2.tokens)
         self.assertEqual(
             cooccurrence2.dictionary.token_ids, dictionary2.token_ids)
@@ -3295,32 +2559,265 @@ class TestCoocStats(TestCase):
         # Ensure that cooccurrence_sum is as desired
         dictionary_sum = h.dictionary.Dictionary([
             'banana', 'socks', 'car', 'cave', 'field'])
-        array_sum = np.array([
+        expected_Nxx_sum = torch.tensor([
             [2, 4, 3, 0, 1],
             [4, 0, 1, 1, 0],
             [3, 1, 0, 1, 0],
             [0, 1, 1, 0, 0],
             [1, 0, 0, 0, 0],
-        ])
-        Nx_sum = np.sum(array_sum, axis=1).reshape(-1,1)
+        ], dtype=torch.float32, device=device)
+        expected_Nx_sum = torch.sum(expected_Nxx_sum, dim=1).reshape(-1,1)
+        expected_Nxt_sum = torch.sum(expected_Nxx_sum, dim=0).reshape(1,-1)
         counts_sum = Counter({
             (0, 0): 2, 
             (0, 1): 4, (1, 0): 4, (2, 0): 3, (0, 2): 3, (1, 2): 1, (3, 2): 1,
             (3, 1): 1, (2, 1): 1, (1, 3): 1, (2, 3): 1, (0, 4): 1, (4, 0): 1
         })
-        #self.assertEqual(
-        #    cooccurrence_sum.dictionary.tokens, dictionary_sum.tokens)
-        #self.assertEqual(
-        #    cooccurrence_sum.dictionary.token_ids, dictionary_sum.token_ids)
-        self.assertTrue(np.allclose(cooccurrence_sum.denseNxx, array_sum))
-        self.assertTrue(np.allclose(cooccurrence_sum.Nx, Nx_sum))
-        self.assertTrue(cooccurrence_sum.N, cooccurrence1.N + cooccurrence2.N)
+        expected_N_sum = torch.tensor(
+            cooccurrence1.N + cooccurrence2.N,
+            dtype=torch.float32, device=device
+        )
+        Nxx_sum, Nx_sum, Nxt_sum, N_sum = cooccurrence_sum
+        self.assertTrue(torch.allclose(Nxx_sum, expected_Nxx_sum))
+        self.assertTrue(torch.allclose(Nx_sum, expected_Nx_sum))
+        self.assertTrue(torch.allclose(Nxt_sum, expected_Nxt_sum))
+        self.assertEqual(
+            N_sum, expected_N_sum)
         self.assertEqual(cooccurrence_sum.counts, counts_sum)
 
 
 def get_test_dictionary():
     return h.dictionary.Dictionary.load(
         os.path.join(h.CONSTANTS.TEST_DIR, 'dictionary'))
+
+
+class TestCoocStatsAlterators(TestCase):
+
+
+    def test_expectation_w2v_undersample(self):
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        device='cpu'
+        t = 0.1
+
+        # Calc expected Nxx, Nx, Nxt, N
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        survival_probability = torch.clamp(
+            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
+        pxx = survival_probability * survival_probability.t()
+        expected_Nxx = orig_Nxx * pxx 
+        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+        expected_Nxt = orig_Nxt.clone()
+        expected_N = orig_N.clone()
+
+        # Found values from the function we are testing
+        undersampled = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
+
+        usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
+        self.assertTrue(torch.allclose(usamp_Nxx, expected_Nxx))
+        self.assertTrue(torch.allclose(usamp_Nx, expected_Nx))
+        self.assertTrue(torch.allclose(usamp_Nxt, expected_Nxt))
+        self.assertTrue(torch.allclose(usamp_N, expected_N))
+
+        # Check that the original cooc_stats has not been altered
+        Nxx, Nx, Nxt, N = cooc_stats
+        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+        self.assertTrue(torch.allclose(Nx, orig_Nx))
+        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+        self.assertTrue(torch.allclose(N, orig_N))
+
+
+    def test_w2v_undersample(self):
+        # For reproducibile test, seed randomness
+        np.random.seed(0)
+
+        device='cuda'
+        t = 0.1
+        num_replicates = 100
+        window = 2
+        cooc_stats = h.corpus_stats.get_test_stats(window)
+
+        # Calc expected Nxx, Nx, Nxt, N
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        survival_probability = torch.clamp(
+            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
+        pxx = survival_probability * survival_probability.t()
+        expected_Nxx = orig_Nxx * pxx 
+        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+        expected_Nxt = orig_Nxt.clone()
+        expected_N = orig_N.clone()
+
+        # Found values from the function we are testing
+        mean_Nxx = torch.zeros(expected_Nxx.shape, device=device)
+        mean_Nx = torch.zeros(expected_Nx.shape, device=device)
+        mean_Nxt = torch.zeros(expected_Nxt.shape, device=device)
+        mean_N = torch.zeros(expected_N.shape, device=device)
+        for i in range(num_replicates):
+            cooc_stats = h.corpus_stats.get_test_stats(window)
+            undersampled = h.cooc_stats.w2v_undersample(cooc_stats, t)
+            usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
+            mean_Nxx += usamp_Nxx / num_replicates
+            mean_Nx += usamp_Nx / num_replicates
+            mean_Nxt += usamp_Nxt / num_replicates
+            mean_N += usamp_N / num_replicates
+
+        self.assertTrue(torch.allclose(mean_Nxx, expected_Nxx, atol=0.5))
+        self.assertTrue(torch.allclose(mean_Nx, expected_Nx, atol=1))
+        self.assertTrue(torch.allclose(mean_Nxt, expected_Nxt, atol=1))
+        self.assertTrue(torch.allclose(mean_N, expected_N, atol=2))
+
+        # Check that the original cooc_stats has not been altered
+        Nxx, Nx, Nxt, N = cooc_stats
+        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+        self.assertTrue(torch.allclose(Nx, orig_Nx))
+        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+        self.assertTrue(torch.allclose(N, orig_N))
+
+
+    def test_smooth_unigram(self):
+        device='cuda'
+        t = 0.1
+        num_replicates = 100
+        window = 2
+        alpha = 0.75
+        cooc_stats = h.corpus_stats.get_test_stats(window)
+
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        # The Nxt and N values are altered to reflect a smoothed unigram dist.
+        expected_Nxt = orig_Nxt ** 0.75
+        expected_N = torch.sum(expected_Nxt)
+        # ... however, we expect Nxx and Nx to be unchanged
+        expected_Nxx = orig_Nxx
+        expected_Nx = orig_Nx
+
+        smoothed = h.cooc_stats.smooth_unigram(cooc_stats, alpha)
+        smooth_Nxx, smooth_Nx, smooth_Nxt, smooth_N = smoothed
+
+        self.assertTrue(torch.allclose(smooth_Nxx, expected_Nxx))
+
+        self.assertTrue(torch.allclose(smooth_Nx, expected_Nx))
+        self.assertTrue(torch.allclose(smooth_Nxt, expected_Nxt))
+        self.assertTrue(torch.allclose(smooth_N, expected_N))
+
+        # Check that the original cooc_stats has not been altered
+        Nxx, Nx, Nxt, N = cooc_stats
+        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+        self.assertTrue(torch.allclose(Nx, orig_Nx))
+        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+        self.assertTrue(torch.allclose(N, orig_N))
+
+
+    def test_simulated_w2v_sampling(self):
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+
+        Nxx, Nx, Nxt, N = cooc_stats
+        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
+            cooc_stats, t)
+        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
+        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+        Nxt = Nxt ** alpha
+        N = torch.sum(Nxt)
+        expected_M = (
+            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
+        ) - np.log(k)
+
+        undersamp = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
+        smooth_usamp = h.cooc_stats.smooth_unigram(undersamp, alpha)
+        s_Nxx, s_Nx, s_Nxt, s_N = smooth_usamp
+        found_M = h.M.M(smooth_usamp, 'pmi', shift_by=-np.log(k)).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
+
+
+    def test_simulated_w2v_sampling_in_M(self):
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+
+        Nxx, Nx, Nxt, N = cooc_stats
+        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
+            cooc_stats, t)
+        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
+        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+        Nxt = Nxt ** alpha
+        N = torch.sum(Nxt)
+        expected_M = (
+            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
+        ) - np.log(k)
+
+        found_M = h.M.M(
+            cooc_stats, 'pmi', t_undersample=t,
+            undersample_method='expectation', unigram_exponent=alpha,
+            shift_by=-np.log(k)
+        ).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
+
+
+    def test_expected_w2v_M(self):
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+
+        Nxx, Nx, Nxt, N = cooc_stats
+        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
+            cooc_stats, t)
+        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
+        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+        Nxt = Nxt ** alpha
+        N = torch.sum(Nxt)
+        expected_M = (
+            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
+        ) - np.log(k)
+
+        found_M = h.M.get_expectation_M_w2v(cooc_stats, k, t, alpha).load_all()
+        self.assertTrue(torch.allclose(found_M, expected_M))
+
+
+    def test_sample_w2v_M(self):
+
+        # For reproducibile test, seed randomness
+        np.random.seed(0)
+
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+        num_replicates = 100
+
+        Nxx, Nx, Nxt, N = cooc_stats
+        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
+            cooc_stats, t)
+        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
+        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+        Nxt = Nxt ** alpha
+        N = torch.sum(Nxt)
+        expected_M = (
+            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
+        ) - np.log(k)
+
+        found_M = torch.zeros(Nxx.shape, device=device, dtype=dtype)
+        for rep in range(num_replicates):
+            replicate_M = h.M.get_sample_M_w2v(
+                cooc_stats, k, t, alpha).load_all()
+            found_M += replicate_M / num_replicates
+
+        self.assertTrue(torch.allclose(found_M, expected_M, atol=0.08))
+
+
+            
+
+
 
 
 class TestEmbeddings(TestCase):
