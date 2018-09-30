@@ -35,7 +35,8 @@ class DeltaW2V:
         Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard)
         N_neg = calc_N_neg((Nxx, Nx, Nxt, N), k)
         multiplier = Nxx + N_neg
-        return multiplier * (sigmoid(self.M[shard]) - sigmoid(M_hat))
+        difference = (sigmoid(self.M[shard]) - sigmoid(M_hat))
+        return multiplier * difference
 
 
 class DeltaGlove:

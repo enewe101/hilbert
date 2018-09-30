@@ -23,6 +23,7 @@ def get_sample_M_w2v(cooc_stats, k, t, alpha):
     )
 
 
+
 class M:
 
     def __init__(
@@ -38,6 +39,9 @@ class M:
         diag=None,
         **kwargs
     ):
+
+        # 'device' is an accepted kwarg!
+        self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
 
         # First do undersampling on cooc_stats if desired
         if t_undersample is None:
@@ -64,7 +68,6 @@ class M:
         self.neg_inf_val = neg_inf_val
         self.clip_thresh = clip_thresh
         self.diag = diag
-        self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
         self.base_args = kwargs
 
         self.shape = self.cooc_stats.Nxx.shape
@@ -78,10 +81,11 @@ class M:
         M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
         use_diag = self.diag if h.shards.on_diag(shard) else None
-        return apply_effects(
+        affected_M = apply_effects(
             M_shard, self.shift_by, self.neg_inf_val,
             self.clip_thresh, use_diag
         )
+        return affected_M
 
     def load_all(self):
         return self[h.shards.whole]

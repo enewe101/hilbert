@@ -2,8 +2,10 @@ import hilbert as h
 import time
 try:
     import torch
+    import numpy as np
 except ImportError:
     torch = None
+    np = None
 
 
 def sim(word, context, embedder, dictionary):
@@ -14,6 +16,57 @@ def sim(word, context, embedder, dictionary):
     word_norm = torch.norm(word_vec)
     context_norm =  torch.norm(context_vec)
     return product / (word_norm * context_norm)
+
+
+def get_w2v_embedder(
+    # Required
+    cooc_stats, 
+
+    # Theory options
+    k=15, alpha=3./4, t=1e-5, 
+    d=300,                     # embedding dimension
+    constrainer=None,   # constrainer instances can mutate values after update
+    one_sided=False,
+
+    # Implementation options
+    solver='sgd',
+    undersample_method='expectation', # None | 'sample' | 'expectation'
+    shard_factor=10,
+    learning_rate=1e-6,
+    momentum_decay=0.9,
+    verbose=True,
+    device='cuda'
+):
+
+    # Undersample cooc_stats.
+    if t is None:
+        print('WARNING: not using common-word undersampling')
+    else:
+        if undersample_method == 'sample':
+            cooc_stats = h.cooc_stats.w2v_undersample(cooc_stats, t)
+        elif undersample_method == 'expectation':
+            cooc_stats = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
+        else:
+            raise ValueError(
+                'If `t` is not `None`, `undersample_method` must be either '
+                '"sample" or "expectation".'
+            )
+
+    # Smooth unigram distribution.
+    cooc_stats = h.cooc_stats.smooth_unigram(cooc_stats, alpha)
+
+    # Make M, delta, and the embedder.
+    M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k), device=device)
+    delta = h.f_delta.DeltaW2V(cooc_stats, M, k, device=device)
+    embedder = h.embedder.HilbertEmbedder(
+        delta=delta, d=d, learning_rate=learning_rate,
+        shard_factor=shard_factor, one_sided=one_sided,
+        constrainer=constrainer, verbose=verbose, device=device,
+    )
+
+    return embedder
+
+    
 
 
 # TODO: test that all options are respected
@@ -248,14 +301,14 @@ class HilbertEmbedder(object):
         self.badness = 0
         shards = h.shards.Shards(self.shard_factor)
         for i, shard in enumerate(shards):
-            if self.verbose:
-                print('Shard ', i)
+            #if self.verbose:
+            #    print('Shard ', i)
             # Determine the errors.
             M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
             start = time.time()
             delta = self.delta.calc_shard(M_hat, shard, **pass_args)
-            if self.verbose:
-                print('delta calc time: ', time.time() - start)
+            #if self.verbose:
+            #    print('delta calc time: ', time.time() - start)
             self.badness += torch.sum(abs(delta))
             nabla_V[shard[1]] += torch.mm(delta.t(), use_W[shard[0]])
             if not self.one_sided:

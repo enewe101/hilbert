@@ -17,6 +17,55 @@ except ImportError:
 
 class TestGetEmbedder(TestCase):
 
+    def test_get_w2v_embedder(self):
+
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+
+        # Manually apply undersampling to the cooccurrence statistics.
+        Nxx, Nx, Nxt, N = cooc_stats
+        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
+            cooc_stats, t)
+        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
+        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+
+        # Manually apply unigram_smoothing to the cooccurrence statistics.
+        Nxt = Nxt ** alpha
+        N = torch.sum(Nxt)
+
+        # Calculate the expected_M
+        expected_M_unshifted = (
+            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
+        )
+        expected_M = expected_M_unshifted - np.log(k) 
+
+        # Calculate expected f_delta
+        M_hat = expected_M + 1
+        multiplier = Nxx + k * Nx * Nxt / N
+        difference = 1/(1+np.e**(-expected_M)) - 1/(1+np.e**(-M_hat))
+        expected_delta = multiplier * difference
+
+        cooc_stats = h.corpus_stats.get_test_stats(3)
+        found_embedder = h.embedder.get_w2v_embedder(
+            cooc_stats, k=k, alpha=alpha, t=t,
+            undersample_method='expectation'
+        )
+        found_delta_calculator = found_embedder.delta
+        found_delta = found_delta_calculator.calc_shard(M_hat)
+        found_M = found_delta_calculator.M.load_all()
+
+        self.assertTrue(torch.allclose(found_M, expected_M))
+        self.assertTrue(torch.allclose(found_delta, expected_delta))
+
+
+
+
+
+
     def test_get_glove_embedder(self):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
@@ -2706,6 +2755,7 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(N, orig_N))
 
 
+    # TODO: this test will become obsolete
     def test_simulated_w2v_sampling(self):
         k = 15
         t = 0.1
@@ -2732,6 +2782,7 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(found_M, expected_M))
 
 
+    # TODO: this test will become obsolete
     def test_simulated_w2v_sampling_in_M(self):
         k = 15
         t = 0.1
@@ -2759,6 +2810,7 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(found_M, expected_M))
 
 
+    # TODO: this test will become obsolete
     def test_expected_w2v_M(self):
         k = 15
         t = 0.1
@@ -2782,6 +2834,7 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(found_M, expected_M))
 
 
+    # TODO: this test will become obsolete
     def test_sample_w2v_M(self):
 
         # For reproducibile test, seed randomness
