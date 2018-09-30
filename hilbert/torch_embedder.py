@@ -87,6 +87,7 @@ class TorchHilbertEmbedder(object):
             use_W, use_V = self.W, self.V
 
         M_hat = torch.mm(use_W, use_V)
+        print(M_hat)
 
         # Determine the errors.
         delta = self.f_delta(M_hat, **pass_args)
