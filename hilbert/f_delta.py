@@ -36,7 +36,10 @@ class DeltaW2V:
         N_neg = calc_N_neg((Nxx, Nx, Nxt, N), k)
         multiplier = Nxx + N_neg
         difference = (sigmoid(self.M[shard]) - sigmoid(M_hat))
+        print(multiplier)
+        print(difference)
         return multiplier * difference
+
 
 
 class DeltaGlove:

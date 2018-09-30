@@ -12,7 +12,7 @@ def load_shard(
     source,
     shard=None,
     from_sparse=False,
-    dtype=torch.float32,
+    dtype=h.CONSTANTS.DEFAULT_DTYPE,
     device=h.CONSTANTS.MATRIX_DEVICE,
 ):
     if from_sparse:
@@ -56,7 +56,6 @@ def normalize(array_or_tensor, ord=2, axis=None):
     return array_or_tensor / norm(array_or_tensor, ord, axis, keepdims=True)
 
 
-
 def transpose(array_or_tensor):
     if isinstance(array_or_tensor, np.ndarray):
         return array_or_tensor.T
@@ -85,9 +84,7 @@ def fill_diagonal(tensor_2d, diag):
     the value ``diag``.  The copy has the same dtype and device as the original.
     """
     eye = torch.eye(
-        tensor_2d.shape[0], dtype=h.CONSTANTS.DEFAULT_DTYPE, 
-        device=tensor_2d.device
-    )
+        tensor_2d.shape[0], dtype=tensor_2d.device, device=tensor_2d.device)
     return tensor_2d * (1. - eye) + eye * float(diag)
 
 

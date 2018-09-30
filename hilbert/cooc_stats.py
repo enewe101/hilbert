@@ -134,10 +134,10 @@ class CoocStats(object):
 
     def __iter__(self):
         """
-        Returns Nxx, Nx, Nxt, N, which means that the CoocStats instance can easily
-        unpack into cooccurrence counts, unigram counts, and the total number
-        of tokens.  Useful for functions expecting such a stats triplet, and
-        for getting raw access to the data.
+        Returns Nxx, Nx, Nxt, N, which means that the CoocStats instance can
+        easily unpack into cooccurrence counts, unigram counts, and the total
+        number of tokens.  Useful for functions expecting such a stats triplet,
+        and for getting raw access to the data.
         """
         return iter(self[h.shards.whole])
 
