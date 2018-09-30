@@ -305,6 +305,9 @@ class HilbertEmbedder(object):
             #    print('Shard ', i)
             # Determine the errors.
             M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
+            print(use_W[shard[0]])
+            print(use_V[shard[1]].t())
+            print(M_hat)
             start = time.time()
             delta = self.delta.calc_shard(M_hat, shard, **pass_args)
             #if self.verbose:
