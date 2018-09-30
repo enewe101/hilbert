@@ -1,119 +1,165 @@
 import hilbert as h
 try:
+    from scipy import sparse, stats
     import numpy as np
     import torch
 except ImportError:
+    stats = None
+    sparse = None
     np = None
     torch = None
 
 
-def apply_effects(base):
-    def effected_base(
+def get_expectation_M_w2v(cooc_stats, k, t, alpha):
+    return M(
+        cooc_stats, 'pmi', t_undersample=t, undersample_method='expectation',
+        unigram_exponent=alpha, shift_by=-np.log(k)
+    )
+
+def get_sample_M_w2v(cooc_stats, k, t, alpha):
+    return M(
+        cooc_stats, 'pmi', t_undersample=t, undersample_method='sample',
+        unigram_exponent=alpha, shift_by=-np.log(k)
+    )
+
+
+
+class M:
+
+    def __init__(
+        self,
         cooc_stats, 
+        base,
         t_undersample=None,
+        undersample_method=None,
+        unigram_exponent=None,
         shift_by=None,
         neg_inf_val=None,
         clip_thresh=None,
         diag=None,
-        implementation='torch',
-        device='cuda',
         **kwargs
     ):
 
-        # Apply undersampling if desired 
-        cooc_stats = undersample(cooc_stats, t_undersample)
+        # 'device' is an accepted kwarg!
+        self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
 
-        # Calculate the base values for M
-        M = base(cooc_stats, **kwargs)
+        # First do undersampling on cooc_stats if desired
+        if t_undersample is None:
+            self.cooc_stats = cooc_stats
+        else:
+            if undersample_method == 'sample':
+                self.cooc_stats = h.cooc_stats.w2v_undersample(
+                    cooc_stats, t_undersample)
+            elif undersample_method == 'expectation':
+                self.cooc_stats = h.cooc_stats.expectation_w2v_undersample(
+                    cooc_stats, t_undersample)
+            else:
+                raise ValueError(
+                    'Undersample method must be either "sample" or '
+                    '"expectation".'
+                )
 
-        # Optionally apply a variety of effects
-        shift(M, shift_by)
-        set_neg_inf(M, neg_inf_val) 
-        clip_below(M, clip_thresh) 
-        set_diag(M, diag)
+        # Applies unigram_distortion if unigram_exponent is not None
+        self.cooc_stats = h.cooc_stats.smooth_unigram(
+            self.cooc_stats, unigram_exponent)
 
-        # Cast to the correct datastructure and device before returning.
-        return use_implementation(M, implementation, device)
+        self.base = _get_base(base)
+        self.shift_by = shift_by
+        self.neg_inf_val = neg_inf_val
+        self.clip_thresh = clip_thresh
+        self.diag = diag
+        self.base_args = kwargs
 
-    return effected_base
+        self.shape = self.cooc_stats.Nxx.shape
 
 
-@apply_effects
+    # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
+    #   which will be sparse
+    def __getitem__(self, shard):
+        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard, device=self.device)
+        # Calculate the basic elements of M.
+        M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
+        # Apply effects to M.  Only apply diagonal value for diagonal shards.
+        use_diag = self.diag if h.shards.on_diag(shard) else None
+        affected_M = apply_effects(
+            M_shard, self.shift_by, self.neg_inf_val,
+            self.clip_thresh, use_diag
+        )
+        return affected_M
+
+    def load_all(self):
+        return self[h.shards.whole]
+
+
+
+def _get_base(base_or_name, **base_kwargs):
+    """
+    Allows the base to be specified by name using a string, or by providing
+    a callable that expects a CoocStats-like.  If ``base_or_name`` is 
+    string-like, then it is treated as a name, otherwise it is assumed to be
+    the callable base itself.
+    """
+    # Internal usage in the hilbert module is always by providing a string.
+    # Allowing to pass a callable is for extensibility, should you want to 
+    # define a new callable
+
+    if not isinstance(base_or_name, str):
+        return base_or_name
+
+    if base_or_name == 'pmi':
+        return calc_M_pmi
+    elif base_or_name == 'logNxx':
+        return calc_M_logNxx
+    elif base_or_name == 'pmi-star':
+        return calc_M_pmi_star
+    #elif base_or_name == 'neg-samp':
+    #    return calc_M_neg_samp
+    else:
+        raise ValueError(
+            "Unexpected base for calculating M: %s.  "
+            "Expected one of: 'pmi', 'logNxx', 'pmi-star', or 'neg-samp'."
+        )
+
+
+def apply_effects(
+    M,
+    shift_by=None,
+    neg_inf_val=None,
+    clip_thresh=None,
+    diag=None
+):
+    # Optionally apply a variety of effects
+    shift(M, shift_by)
+    set_neg_inf(M, neg_inf_val) 
+    clip_below(M, clip_thresh) 
+    set_diag(M, diag)
+    return M
+
+
+
+## BASES ##
+
+
 def calc_M_pmi(cooc_stats):
     return h.corpus_stats.calc_PMI(cooc_stats)
 
 
-@apply_effects
 def calc_M_logNxx(cooc_stats):
-    Nxx, Nx, N = cooc_stats
-    with np.errstate(divide='ignore'):
-        return np.log(Nxx)
+    Nxx, Nx, Nxt, N = cooc_stats
+    return torch.log(Nxx)
 
 
-@apply_effects
 def calc_M_pmi_star(cooc_stats):
     return h.corpus_stats.calc_PMI_star(cooc_stats)
 
 
-@apply_effects
-def calc_M_neg_samp(
-    cooc_stats,
-    k_samples=15,
-    k_weight=None,
-    alpha=0.75
-):
-    """
-    Returns a PMI-like matrix based on negative sampling, simulating sampling 
-    used in Mikolov's word2vec.
-    ``k_samples`` (int): number of times noise distribution is sampled, per
-        corpus sample.  Default is to sample 15 times from noise, for every 1
-        sample from the corpus, because it was found to be good in Mikolov's
-        2013 paper.
-    ``k_weight`` (float): total weight of noise distribution.  If this isn't set
-        then the total weight is just equal to the number of negative samples
-        per corpus sample.  But if the value is provided, then that's what 
-        is used as the weight.
-    ``alpha`` (float): exponent applied to unigram distribution, which distorts
-        it.  As alpha becomes < 1, it makes the distribution flatter.
-        Conceptually, alpha is inverse temperature.
-    """
-    # Unpack args and apply defaults.
-    k_weight = k_samples if k_weight is None else k_weight
-    Nxx, Nx, N = cooc_stats
 
-    # Apply unigram distortion
-    if alpha is not None:
-        distorted_Nx = Nx**alpha
-        distorted_N = np.sum(distorted_Nx)
-    else:
-        distorted_Nx = Nx
-        distorted_N = N
-
-    # Draw negative samples
-    distorted_px = distorted_Nx / distorted_N
-    samples = sample_multi_multinomial(k_samples * Nx, distorted_px)
-
-    # Set negative sample wieght, if provided
-    # Note that if k_weight is None, effective weight is k_samples
-    if k_weight is not None:
-        samples = k_weight * (samples / k_samples)
-    # Return the negative sample objective as defined.
-    with np.errstate(divide='ignore'):
-        return np.log(Nxx) - np.log(samples)
-
-
-def sample_multi_multinomial(kNx, px):
-    kNx = kNx.reshape(-1)
-    px = px.reshape(-1)
-    samples = np.zeros((len(kNx), len(kNx)))
-    for i in range(len(kNx)):
-        samples[i,:] = np.random.multinomial(kNx[i], px)
-    return samples
+### EFFECTS ###
 
 
 def set_diag(M, val=None):
     if val is not None:
-        np.fill_diagonal(M, val)
+        h.utils.fill_diagonal(M, val)
 
 
 def clip_below(M, thresh=None):
@@ -130,58 +176,4 @@ def shift(M, val=None):
     if val is not None:
         M += val
 
-
-def undersample(cooc_stats, t=None):
-    if t is None:
-        return cooc_stats
-
-    Nxx, Nx, N = cooc_stats
-
-    # Probability that token of a given type is kept.
-    p_x = np.sqrt(t * cooc_stats.N / cooc_stats.Nx)
-    p_x[p_x > 1] = 1
-
-    # Probability that, for a particular cooccurring pair (i, j)
-    # both i and j are kept
-    p_xx = p_x * p_x.T
-
-    # Expected number of cooccurrences after applying, undersampling.
-    use_Nxx = cooc_stats.denseNxx * p_xx
-
-    # Recalculate unigram distribution, given undersampling
-    use_Nx = np.sum(use_Nxx, axis=1, keepdims=True)
-
-    # Recalculate total number of tokens, given undersampling
-    use_N = np.sum(use_Nx)
-
-    return use_Nxx, use_Nx, use_N
-
-
-def use_implementation(M, implementation='torch', device='cuda'):
-    h.utils.ensure_implementation_valid(implementation)
-    if implementation == 'torch':
-        return torch.tensor(M, dtype=torch.float32, device=device)
-    elif implementation == 'numpy':
-        return M
-
-
-def calc_M(
-    cooc_stats,
-    base,
-    *args,
-    **kwargs
-):
-    if base == 'pmi':
-        return calc_M_pmi(cooc_stats, *args, **kwargs)
-    elif base == 'logNxx':
-        return calc_M_logNxx(cooc_stats, *args, **kwargs)
-    elif base == 'pmi-star':
-        return calc_M_pmi_star(cooc_stats, *args, **kwargs)
-    elif base == 'neg-samp':
-        return calc_M_neg_samp(cooc_stats, *args, **kwargs)
-    else:
-        raise ValueError(
-            "Unexpected base for calculating M: %s.  "
-            "Expected one of: 'pmi', 'logNxx', 'pmi-star', or 'neg-samp'."
-        )
 

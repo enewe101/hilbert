@@ -7,6 +7,7 @@ except ImportError:
 
 import hilbert as h
 
+
 class MomentumSolver(object):
     """
     Accepts an objective object, and finds a local minumum using stochastic

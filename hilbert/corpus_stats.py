@@ -1,9 +1,13 @@
 import hilbert as h
 
 try:
+    import torch
     import numpy as np
+    from scipy import sparse
 except ImportError:
+    torch = None
     np = None
+    sparse = None
 
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
@@ -19,9 +23,24 @@ def get_test_stats(window_size):
 
 
 def calc_PMI(cooc_stats):
-    Nxx, Nx, N = cooc_stats
-    with np.errstate(divide='ignore'):
-        return np.array(np.log(N) + np.log(Nxx) - np.log(Nx) - np.log(Nx.T))
+    Nxx, Nx, Nxt, N = cooc_stats
+    return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
+
+
+def calc_PMI_sparse(cooc_stats):
+    I, J = cooc_stats.Nxx.nonzero()
+    log_Nxx_nonzero = np.log(np.array(cooc_stats.Nxx[I,J]).reshape(-1))
+    log_Nx_nonzero = np.log(cooc_stats.Nx[I,0])
+    log_Nxt_nonzero = np.log(cooc_stats.Nxt[0,J])
+    log_N = np.log(cooc_stats.N)
+    pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
+
+    # Here, the default (unrepresented value) in our sparse representation
+    # is negative infinity.  scipy sparse matrices only support zero as the
+    # unrepresented value, and this would be ambiguous with actual zeros.
+    # Therefore, keep data in the (data, (I,J)) format (the same as is used
+    # as input to the coo_matrix constructor).
+    return pmi_data, I, J
 
 
 def calc_positive_PMI(cooc_stats):
@@ -31,14 +50,14 @@ def calc_positive_PMI(cooc_stats):
 
 
 def calc_shifted_PMI(cooc_stats, k):
-    return calc_PMI(cooc_stats) - np.log(k)
+    return calc_PMI(cooc_stats) - torch.log(k)
 
 
 def calc_PMI_star(cooc_stats):
-    Nxx, Nx, N = cooc_stats
-    useNxx = Nxx.copy()
+    Nxx, Nx, Nxt, N = cooc_stats
+    useNxx = Nxx.clone()
     useNxx[useNxx==0] = 1
-    return calc_PMI((useNxx, Nx, N))
+    return calc_PMI((useNxx, Nx, Nxt, N))
 
 
 def get_stats(token_list, window_size, verbose=True):
