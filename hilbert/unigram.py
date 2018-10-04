@@ -178,12 +178,28 @@ class Unigram(object):
 
 
     def sort_by_tokens(self, token_order):
+        """
+        Reassign indexes for tokens in token_order.  Tokens not found in 
+        token order are assigned higher indexes.  If tokens in token order are
+        not in vocabulary add them.  The token at position i in token order
+        gets index i.
+        """
         remaining_tokens = list(set(self.dictionary.tokens) - set(token_order))
         token_order = token_order + remaining_tokens
         idx_order = [self.dictionary.add_token(token) for token in token_order]
         self.Nx += [0] * (len(token_order) - len(self.Nx))
+        self.sort_by_idxs(idx_order)
+
+
+    def sort_by_idxs(self, idx_order):
+        """
+        Re-assign indexes.  Assumes that there is no change in vocabulary.  If
+        the index at location i is j, then the word with old index j obtains
+        new index i.  Re-order storage of Nx and dictionary accordingly.
+        """
         self.Nx = [self.Nx[idx] for idx in idx_order]
-        self.dictionary = h.dictionary.Dictionary(token_order)
+        self.dictionary = h.dictionary.Dictionary(
+            [self.dictionary.tokens[idx] for idx in idx_order])
 
 
     def sort(self):

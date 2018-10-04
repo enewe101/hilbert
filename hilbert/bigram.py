@@ -61,6 +61,17 @@ class Bigram(object):
         self.verbose = verbose
 
 
+    def validate_args(self, unigram, Nxx):
+
+        if Nxx is not None:
+            if Nxx.shape[0] != len(unigram) or Nxx.shape[1] != len(unigram):
+                raise ValueError(
+                    'Nxx length and width equal should unigram length. '
+                    'Got %d x %d (unigram length was %d).' 
+                    % (Nxx.shape[0], Nxx.shape[1], len(unigram))
+                )
+
+
     def __getitem__(self, shard):
         return self.load_shard(shard)
 
@@ -107,14 +118,6 @@ class Bigram(object):
         return iter(self[h.shards.whole])
 
     
-    #def __radd__(self, other):
-    #    """
-    #    Create a new Bigram that has counts from both operands.
-    #    """
-    #    # Just delegate to add.
-    #    return self.__add__(other)
-
-
     def __add__(self, other):
         """
         Create a new Bigram that has counts from both operands.
@@ -132,73 +135,36 @@ class Bigram(object):
         Add counts from `other` to `self`, in place.
         """
 
-        # For better performance, this is implemented so as to avoid 
-        # decompiling the Bigram instances.  Instead, we get ijv triples
-        # for non-zero elements in the other Bigram, and then tack them
-        # on to ijv triples for self.  Conversion between the CSR and COO 
-        # sparse matrix formats is much faster than conversion between dict
-        # and sparse matrix format.
-
         if not isinstance(other, Bigram):
             return NotImplemented
 
-        # Avoid unnecessarily decompiling other's Nxx into counts: if it does
-        # not have its counts already in memory, use the coo-format of it's 
-        # Nxx array to more quickly provide the same info.
-        if other._counts is None:
-            other_Nxx_coo = other.Nxx.tocoo()
-            I, J, V = other_Nxx_coo.row, other_Nxx_coo.col, other_Nxx_coo.data
-        else:
-            I, J, V = dict_to_IJV(other.counts)
+        # Find an shared ordering that matches other's ordering, with any words
+        # unique to self's vocab placed at the end.
+        token_order = other.unigram.dictionary.tokens
+        other_vocab = len(token_order)
+        remaining_tokens = set(self.unigram.dictionary.tokens)-set(token_order)
+        token_order += remaining_tokens
+        idx_order = [self.dictionary.add_token(token) for token in token_order]
 
-        self_Nxx_coo = self.Nxx.tocoo()
+        # Copy self's counts into a large enough matrix
+        new_Nxx = sparse.lil_matrix((len(idx_order), len(idx_order)))
+        new_Nxx += self._Nxx
+        self._Nxx = new_Nxx
 
-        self_row = list(self_Nxx_coo.row) 
-        self_col = list(self_Nxx_coo.col) 
-        self_data = list(self_Nxx_coo.data)
+        # Reorder self, ensure that unigram adopts the same ordering.
+        self._Nxx = self._Nxx[idx_order][:,idx_order]
+        self.unigram.sort_by_tokens(token_order)
 
-        add_to_row = [
-            self.dictionary.add_token(other.dictionary.get_token(i))
-            for i in I
-        ]
-        self_row += add_to_row
+        # Add other's counts to self
+        self._Nxx[:other_vocab,:other_vocab] += other.Nxx
+        self.unigram += other.unigram
 
-        add_to_col = [
-            self.dictionary.add_token(other.dictionary.get_token(j))
-            for j in J
-        ]
-        self_col += add_to_col
-
-        self_data += list(V) 
-
-        vocab_size = len(self._dictionary)
-        self._Nxx = sparse.coo_matrix(
-            (self_data, (self_row, self_col)),
-            (vocab_size,vocab_size)
-        ).tocsr()
+        # Compile tallies.
         self._Nx = np.array(np.sum(self._Nxx, axis=1))
         self._Nxt = np.array(np.sum(self._Nxx, axis=0))
         self._N = np.sum(self._Nx)
-        self.sort(True)
 
         return self
-
-
-    def validate_args(self, unigram, Nxx):
-
-        if Nxx is not None:
-            if Nxx.shape[0] != len(unigram) or Nxx.shape[1] != len(unigram):
-                raise ValueError(
-                    'Nxx length and width equal should unigram length. '
-                    'Got %d x %d (unigram length was %d).' 
-                    % (Nxx.shape[0], Nxx.shape[1], len(unigram))
-                )
-
-    @property
-    def counts(self):
-        if self._counts is None:
-            self.decompile()
-        return self._counts
 
 
     @property
@@ -208,122 +174,35 @@ class Bigram(object):
 
     @property
     def dictionary(self):
-        # So that it always returns a consistent result, we want the 
-        # dictionary to undergo sorting, which happens during compilation.
-        # Testing whether self._Nxx is None here is a way to test if the
-        # correctness of the dictionary's ordering has gone stale.
-        if self._Nxx is None:
-            self.compile()
         return self.unigram.dictionary
 
 
-    @property
-    def Nxx(self):
-        if self._Nxx is None:
-            self.compile()
-        return self._Nxx
-
-
-    @property
-    #TODO: deprecate this
-    def denseNxx(self):
-        print('WARNING: denseNxx is deprecated.  Use load_shard or indexing.')
-        if self._denseNxx is None:
-            self._denseNxx = self.Nxx.toarray()
-        return self._denseNxx
-
-
-    @property
-    def Nx(self):
-        if self._Nx is None:
-            self.compile()
-        return self._Nx
-
-
-    @property
-    def Nxt(self):
-        if self._Nxt is None:
-            self.compile()
-        return self._Nxt
-
-
-    @property
-    def N(self):
-        if self._N is None:
-            self.compile()
-        return self._N
-
-
     def add(self, token1, token2, count=1):
+
+        # Get token idx's.
         id1 = self._dictionary.add_token(token1)
         id2 = self._dictionary.add_token(token2)
-        self.counts[id1, id2] += count
 
-        # Nxx, Nx, Nxt, and N are all stale, so set them to None.
-        self._Nxx = None
-        self._Nx = None
-        self._Nxt = None
-        self._N = None
-        self._denseNxx = None
-
-
-    def decompile(self, force=False):
-        """
-        Convert the cooccurrence data stored in `Nxx` into a counter.
-        """
-        if self._counts is not None:
-            raise ValueError(
-                'Cannot decompile CooccurrenceStats: already decompiled')
-        if self.verbose:
-            print('Decompiling cooccurrence stats...')
-
-        self._counts = Counter()
-        Nxx_coo = self._Nxx.tocoo()
-        for i,j,v in zip(Nxx_coo.row, Nxx_coo.col, Nxx_coo.data):
-            self._counts[i,j] = v
-        self._Nxx, self._Nx, self._Nxt, self_N = None,None,None,None
-
-
-    def compile(self):
-        """
-        Convert the cooccurrence data stored in `counts` into a numpy array.
-        """
-        if self._Nxx is not None:
-            raise ValueError(
-                'Cannot compile Bigram: already compiled.')
-        if self.verbose:
-            print('Compiling cooccurrence stats...')
-
-        vocab_size = len(self._dictionary)
-        self._Nxx = dict_to_sparse(
-            self.counts, (vocab_size,vocab_size))
-        self._Nx = np.array(np.sum(self._Nxx, axis=1))
-        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
-        self._N = np.sum(self._Nx)
-        self.sort(True)
+        # Add counts.
+        self._Nxx[id1, id2] += count
+        self._Nx[id1] += count
+        self._Nxt[id2] += count
+        self._N += count
 
 
     def sort(self, force=False):
         """
         Re-assign token indices providing lower indices to more common words.
-        This affects the dictionary mapping, the IDs used in `counts`, and 
-        The indexing of Nxx and Nx.  `counts` will simply be dropped, since it
-        can be calculated lazily later if needed.
+        The unigram and its dictionary are forced to adopt the same ordering.
         """
         top_indices = np.argsort(-self.Nx.reshape(-1))
         self._Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
         self._Nx = self.Nx[top_indices]
         self._Nxt = self.Nxt[:,top_indices]
-        self._dictionary = h.dictionary.Dictionary([
-            self._dictionary.tokens[i] for i in top_indices])
-        index_map = {
-            old_idx: new_idx 
-            for new_idx, old_idx in enumerate(top_indices)
-        }
-        self._counts = None
+        self.unigram.sort_by_idxs(top_indices)
 
 
-    def save(self, path, save_as_sparse=True):
+    def save(self, path, save_unigram=True):
         """
         Save the cooccurrence data to disk.  A new directory will be created
         at `path`, and two files will be created within it to store the 
@@ -331,13 +210,10 @@ class Bigram(object):
         """
         if not os.path.exists(path):
             os.makedirs(path)
-        if save_as_sparse:
-            sparse.save_npz(
-                os.path.join(path, 'Nxx.npz'), self.Nxx)
-        else:
-            np.savez(os.path.join(path, 'Nxx.npz'), self.Nxx.todense())
-        #np.savez(os.path.join(path, 'Nx.npz'), Nx)
-        self.dictionary.save(os.path.join(path, 'dictionary'))
+        sparse.save_npz(
+            os.path.join(path, 'Nxx.npz'), self.Nxx)
+        if save_unigram:
+            self.unigram.save(path)
 
 
     def density(self, threshold_count=0):
@@ -356,48 +232,23 @@ class Bigram(object):
         self._Nx = np.array(np.sum(self._Nxx, axis=1))
         self._Nxt = np.array(np.sum(self._Nxx, axis=0))
         self._N = np.sum(self._Nx)
-        dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
+        self.unigram.truncate(k)
 
 
     @staticmethod
-    def load(path, verbose=True):
+    def load(path, verbose=None):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        dictionary = h.dictionary.Dictionary.load(
-            os.path.join(path, 'dictionary'))
+        verbose = verbose if verbose is not None else self.verbose
+        unigram = h.unigram.Unigram.load(path)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tocsr()
-        return Bigram(dictionary=dictionary, Nxx=Nxx, verbose=verbose)
+        return Bigram(unigram, Nxx=Nxx, verbose=verbose)
 
-
-
-def dict_to_IJV(counts):
-    """
-    Given a dict-like `counts` whose keys are 2-tuples of token indices,
-    return a the parallel arrays I, J, and V, where I contains all first-token
-    indices, J contains all second-token indices, and V contains all values.
-    """
-    I, J, V = [], [], []
-    for (idx1, idx2), value in counts.items():
-        I.append(idx1)
-        J.append(idx2)
-        V.append(value)
-    return I, J, V
-
-
-def dict_to_sparse(counts, shape=None):
-    """
-    Given a dict-like `counts` whose keys are 2-tuples of token indices,
-    return a scipy.sparse.coo.coo_matrix containing the same values.
-    """
-    I, J, V = dict_to_IJV(counts)
-
-    return sparse.coo_matrix((V,(I,J)), shape).tocsr()
 
 
 ### COOC_STATS ALTERATTIONS ###
-
 def w2v_undersample(cooc_stats, t, verbose=True):
     """
     Given a h.cooc_stats.Bigram instance returns an altered version (leaves
