@@ -16,76 +16,46 @@ import hilbert as h
 
 
 def read_stats(path):
-    return CoocStats.load(path)
+    return Bigram.load(path)
 
 
-class CoocStats(object):
+class Bigram(object):
     """Represents cooccurrence statistics."""
 
     def __init__(
         self,
-        dictionary=None,
-        counts=None,
+        unigram,
         Nxx=None,
         device=None,
         verbose=True
     ):
         '''
-        `dictionary` -- A hilbert.dictionary.Dictionary instance mapping tokens
-            from/to integer IDs; 
-        `counts` -- A collections.Counter instance with token-IDs-2-tuple as
-            keys and number of cooccurrences as values; 
+        `unigram` -- A hilbert.unigram.Unigram instance containing unigram
+            frequences and a dictionary mapping from/to integer IDs; 
         `Nxx` -- A 2D array-like instance (e.g. numpy.ndarray, scipy.sparse.csr
             matrix, or a list of lists), in which the (i,j)th element contains
             the number of cooccurrences for words having IDs i and j.
 
-        Provide `counts` or `Nxx` or neither. Not both!
-
-        CoocStats Keeps track of token cooccurrences, and saves/loads from
-        disk.  Provide no arguments to create an empty instance, e.g. to
+        Bigram Keeps track of token cooccurrences, and saves/loads from
+        disk.  Provide no Nxx to create an empty instance, e.g. to
         accumulate cooccurrence while reading through a corpus.
 
-        Cooccurence statistics are represented in two ways:
-
-            (1) as a collections.Counter, whose keys are pairs of token
-                indices; and
-
-            (2) as a 2D numpy.ndarray, whose (i,j)th element contains the 
-                number of cooccurrences of the tokens with indices i and j.
-
-        This dual representation supports extending the vocabulary while 
-        accumulating statisitcs (using self.add method), and makes cooccurrence
-        matrix available as a numpy array for fast calculations.
-
-        Synchronization between these two representations is done
-        lazily when you access or call methods that rely on one representation.
+        Cooccurence statistics are represented as a scipy.sparse.lil_matrix.
         '''
 
-        self.validate_args(dictionary, counts, Nxx)
-        self._dictionary = dictionary or h.dictionary.Dictionary()
+        self.validate_args(unigram, Nxx)
+        self.unigram = unigram
 
-        self._counts = counts
-        if counts is not None:
-            self._counts = Counter(counts)
-
-        self._Nxx = Nxx
-        self._Nx = None
-        self._Nxt = None
-        self._N = None
         if Nxx is not None:
-            self._Nxx = sparse.csr_matrix(Nxx)
+            self._Nxx = sparse.lil_matrix(Nxx)
             self._Nx = np.asarray(np.sum(self._Nxx, axis=1))
             self._Nxt = np.asarray(np.sum(self._Nxx, axis=0))
             self._N = np.sum(self._Nx)
-
-        loaded_Nxx = None
-        loaded_Nx = None
-        loaded_Nxt = None
-        loaded_N = None
-
-        # If no prior cooccurrence stats are given, start as empty.
-        if counts is None and Nxx is None:
-            self._counts = Counter()
+        else:
+            self._Nxx = sparse.lil_matrix(self.vocab, self.vocab))
+            self._Nx = np.zeros((self.vocab, 1))
+            self._Nxt = np.zeros((1, self.vocab))
+            self._N = 0
 
         self.device = device
         self.verbose = verbose
@@ -118,7 +88,7 @@ class CoocStats(object):
 
 
     def __deepcopy__(self, memo):
-        result = CoocStats(
+        result = Bigram(
             dictionary=deepcopy(self.dictionary),
             counts=Counter(self.counts), 
             verbose=self.verbose
@@ -129,7 +99,7 @@ class CoocStats(object):
 
     def __iter__(self):
         """
-        Returns Nxx, Nx, Nxt, N, which means that the CoocStats instance can
+        Returns Nxx, Nx, Nxt, N, which means that the Bigram instance can
         easily unpack into cooccurrence counts, unigram counts, and the total
         number of tokens.  Useful for functions expecting such a stats triplet,
         and for getting raw access to the data.
@@ -139,7 +109,7 @@ class CoocStats(object):
     
     #def __radd__(self, other):
     #    """
-    #    Create a new CoocStats that has counts from both operands.
+    #    Create a new Bigram that has counts from both operands.
     #    """
     #    # Just delegate to add.
     #    return self.__add__(other)
@@ -147,9 +117,9 @@ class CoocStats(object):
 
     def __add__(self, other):
         """
-        Create a new CoocStats that has counts from both operands.
+        Create a new Bigram that has counts from both operands.
         """
-        if not isinstance(other, CoocStats):
+        if not isinstance(other, Bigram):
             return NotImplemented
 
         result = deepcopy(self)
@@ -163,13 +133,13 @@ class CoocStats(object):
         """
 
         # For better performance, this is implemented so as to avoid 
-        # decompiling the CoocStats instances.  Instead, we get ijv triples
-        # for non-zero elements in the other CoocStats, and then tack them
+        # decompiling the Bigram instances.  Instead, we get ijv triples
+        # for non-zero elements in the other Bigram, and then tack them
         # on to ijv triples for self.  Conversion between the CSR and COO 
         # sparse matrix formats is much faster than conversion between dict
         # and sparse matrix format.
 
-        if not isinstance(other, CoocStats):
+        if not isinstance(other, Bigram):
             return NotImplemented
 
         # Avoid unnecessarily decompiling other's Nxx into counts: if it does
@@ -214,20 +184,14 @@ class CoocStats(object):
         return self
 
 
-    def validate_args(self, dictionary, counts, Nxx):
+    def validate_args(self, unigram, Nxx):
 
-        if counts is not None and Nxx is not None:
-            raise ValueError(
-                'Non-empty CoocStats objects should be '
-                'instantiated by providing either a cooccurrence matrix (Nxx) '
-                'or a cooccurrence Counter (counts)---not both.'
-            )
-
-        if counts is not None or Nxx is not None:
-            if dictionary is None:
+        if Nxx is not None:
+            if Nxx.shape[0] != len(unigram) or Nxx.shape[1] != len(unigram):
                 raise ValueError(
-                    'A dictionary must be provided to create a non-empty '
-                    'CoocStats object.'
+                    'Nxx length and width equal should unigram length. '
+                    'Got %d x %d (unigram length was %d).' 
+                    % (Nxx.shape[0], Nxx.shape[1], len(unigram))
                 )
 
     @property
@@ -238,6 +202,11 @@ class CoocStats(object):
 
 
     @property
+    def vocab(self):
+        return len(self.unigram)
+
+
+    @property
     def dictionary(self):
         # So that it always returns a consistent result, we want the 
         # dictionary to undergo sorting, which happens during compilation.
@@ -245,7 +214,7 @@ class CoocStats(object):
         # correctness of the dictionary's ordering has gone stale.
         if self._Nxx is None:
             self.compile()
-        return self._dictionary
+        return self.unigram.dictionary
 
 
     @property
@@ -321,7 +290,7 @@ class CoocStats(object):
         """
         if self._Nxx is not None:
             raise ValueError(
-                'Cannot compile CoocStats: already compiled.')
+                'Cannot compile Bigram: already compiled.')
         if self.verbose:
             print('Compiling cooccurrence stats...')
 
@@ -399,7 +368,7 @@ class CoocStats(object):
         dictionary = h.dictionary.Dictionary.load(
             os.path.join(path, 'dictionary'))
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tocsr()
-        return CoocStats(dictionary=dictionary, Nxx=Nxx, verbose=verbose)
+        return Bigram(dictionary=dictionary, Nxx=Nxx, verbose=verbose)
 
 
 
@@ -431,7 +400,7 @@ def dict_to_sparse(counts, shape=None):
 
 def w2v_undersample(cooc_stats, t, verbose=True):
     """
-    Given a h.cooc_stats.CoocStats instance returns an altered version (leaves
+    Given a h.cooc_stats.Bigram instance returns an altered version (leaves
     original unchanged) to reflect undersampling of common words as done in
     word2vec.
 
@@ -455,7 +424,7 @@ def w2v_undersample(cooc_stats, t, verbose=True):
         print('undersample_method\tsample')
         print('t_undersample\t{}'.format(t))
 
-    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
 
     p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
 
@@ -479,7 +448,7 @@ def w2v_undersample(cooc_stats, t, verbose=True):
 
 def expectation_w2v_undersample(cooc_stats, t, verbose=True):
     """
-    Given a h.cooc_stats.CoocStats instance, returns an altered version (leaves
+    Given a h.cooc_stats.Bigram instance, returns an altered version (leaves
     original unchanged) by reducing counts for common words, simulating the
     rejection of common words in word2vec.  The counts are changed into the
     expectation of counts under the undersampled distribution.
@@ -510,7 +479,7 @@ def expectation_w2v_undersample(cooc_stats, t, verbose=True):
 
     # We will copy count statistics to a new cooc_stats object, but with
     # alterations.
-    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
 
     p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
     new_cooc_stats._Nxx = cooc_stats.Nxx.multiply(p_xx)
@@ -546,7 +515,7 @@ def smooth_unigram(cooc_stats, alpha=None, verbose=True):
     if alpha is None:
         return cooc_stats
 
-    new_cooc_stats = h.cooc_stats.CoocStats(dictionary=cooc_stats.dictionary)
+    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
 
     # We consider Nxt and N to be the holders of unigram frequency info,
     new_cooc_stats._Nxt = cooc_stats.Nxt**alpha
@@ -556,6 +525,7 @@ def smooth_unigram(cooc_stats, alpha=None, verbose=True):
     new_cooc_stats._Nx = cooc_stats.Nx.copy()
 
     return new_cooc_stats
+
 
 
 

@@ -10,17 +10,17 @@ except ImportError:
     torch = None
 
 
-def get_expectation_M_w2v(cooc_stats, k, t, alpha):
-    return M(
-        cooc_stats, 'pmi', t_undersample=t, undersample_method='expectation',
-        unigram_exponent=alpha, shift_by=-np.log(k)
-    )
-
-def get_sample_M_w2v(cooc_stats, k, t, alpha):
-    return M(
-        cooc_stats, 'pmi', t_undersample=t, undersample_method='sample',
-        unigram_exponent=alpha, shift_by=-np.log(k)
-    )
+#def get_expectation_M_w2v(cooc_stats, k, t, alpha):
+#    return M(
+#        cooc_stats, 'pmi', t_undersample=t, undersample_method='expectation',
+#        unigram_exponent=alpha, shift_by=-np.log(k)
+#    )
+#
+#def get_sample_M_w2v(cooc_stats, k, t, alpha):
+#    return M(
+#        cooc_stats, 'pmi', t_undersample=t, undersample_method='sample',
+#        unigram_exponent=alpha, shift_by=-np.log(k)
+#    )
 
 
 
@@ -30,9 +30,9 @@ class M:
         self,
         cooc_stats, 
         base,
-        t_undersample=None,
-        undersample_method=None,
-        unigram_exponent=None,
+        #t_undersample=None,
+        #undersample_method=None,
+        #unigram_exponent=None,
         shift_by=None,
         neg_inf_val=None,
         clip_thresh=None,
@@ -40,43 +40,20 @@ class M:
         **kwargs
     ):
 
-        # 'device' is an accepted kwarg!
-        self.device = kwargs.pop('device', h.CONSTANTS.MATRIX_DEVICE)
-
-        # First do undersampling on cooc_stats if desired
-        if t_undersample is None:
-            self.cooc_stats = cooc_stats
-        else:
-            if undersample_method == 'sample':
-                self.cooc_stats = h.cooc_stats.w2v_undersample(
-                    cooc_stats, t_undersample)
-            elif undersample_method == 'expectation':
-                self.cooc_stats = h.cooc_stats.expectation_w2v_undersample(
-                    cooc_stats, t_undersample)
-            else:
-                raise ValueError(
-                    'Undersample method must be either "sample" or '
-                    '"expectation".'
-                )
-
-        # Applies unigram_distortion if unigram_exponent is not None
-        self.cooc_stats = h.cooc_stats.smooth_unigram(
-            self.cooc_stats, unigram_exponent)
-
+        self.cooc_stats = cooc_stats
         self.base = _get_base(base)
         self.shift_by = shift_by
         self.neg_inf_val = neg_inf_val
         self.clip_thresh = clip_thresh
         self.diag = diag
         self.base_args = kwargs
-
         self.shape = self.cooc_stats.Nxx.shape
 
 
     # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
     #   which will be sparse
     def __getitem__(self, shard):
-        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard, device=self.device)
+        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard)
         # Calculate the basic elements of M.
         M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
@@ -86,6 +63,7 @@ class M:
             self.clip_thresh, use_diag
         )
         return affected_M
+
 
     def load_all(self):
         return self[h.shards.whole]

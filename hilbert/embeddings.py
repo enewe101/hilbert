@@ -11,8 +11,7 @@ except ImportError:
 
 def random(
     vocab, d, dictionary=None, shared=False, seed=None,
-    distribution='uniform', scale=0.2,
-    implementation='torch', device='cuda', 
+    distribution='uniform', scale=0.2, device=None
     
 ):
     """
@@ -24,9 +23,9 @@ def random(
     ``shared`` is True, then only vectors are sampled, and the covectors simply
     point to the same memory as vectors.
     
-    You may provide a random ``seed`` for replicability.  ``implementation``
-    can be ``'torch'`` or ``'numpy'``, and if ``'torch'`` is used, you can set
-    the ``device``.
+    You may provide a random ``seed`` for replicability.  
+
+    You can set the ``device`` to ``'cpu'`` or ``'cuda'``.
 
     Components are uniformly sampled in the range ``[-scale,scale]``, with
     ``scale`` defaulting to 0.2.  Optionally set ``distribution=normal``
@@ -47,7 +46,7 @@ def random(
         if not shared:
             W = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
 
-    return Embeddings(V, W, dictionary, shared, implementation, device) 
+    return Embeddings(V, W, dictionary, shared, device) 
     
 
 
@@ -65,20 +64,17 @@ class Embeddings:
     If you provide a ``hilbert.dictionary.Dictionary``, then you will
     be able to access vectors and covectors by name.
 
+    Optionally specify the ``device``.
+
     If ``normalize`` is True, then normalize the vectors if they are not 
     already normalized.
-
-    Specify to store ``V`` and ``W`` either as ``numpy.ndarray``s or 
-    ``torch.Tensor``\ s, by setting ``implementation`` to ``'torch'`` or
-    ``'numpy'`, and specify the ``device``, in the case of torch tensors.
     """
 
     def __init__(
         self, V, W=None, dictionary=None, shared=False, 
-        implementation='torch', device='cuda', normalize=False
+        device=None, normalize=False
     ):
 
-        h.utils.ensure_implementation_valid(implementation)
         if shared and W is not None:
             raise ValueError(
                 'Cannot provide covector embeddings when using parameter '
@@ -87,22 +83,20 @@ class Embeddings:
 
         self.dictionary = dictionary
         self.shared = shared
-        self.implementation = implementation
         self.device = device
 
-        self.V = (
-            np.array(V, dtype=np.float32) if implementation == 'numpy' else
-            torch.tensor(V, dtype=torch.float32, device=device)
+        self.V = torch.tensor(
+            V, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            device=self.device or h.CONSTANTS.MATRIX_DEVICE,
         )
 
         if shared:
             self.W = self.V
         else:
-            self.W = (
-                None if W is None else np.array(W, dtype=np.float32)
-                if implementation == "numpy" else 
-                torch.tensor(W, dtype=torch.float32, device=device)
-            )
+            self.W = (None if W is None else torch.tensor(
+                W, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+                device=self.device or h.CONSTANTS.MATRIX_DEVICE
+            ))
 
         self._unkV = None
         self._unkW = None
@@ -254,9 +248,8 @@ class Embeddings:
         ``path``.  If Covectors or dictionary are None, no file will be written
         for them.
 
-        Vectors are alwasy stored using numpy's format.  Their implementation
-        upon reading is decided only by the ``implementation`` argument in 
-        the ``load`` method, see below.``
+        Vectors are always stored using numpy's format, but are held in memory
+        as torch tensors.
         """
 
         if not os.path.exists(path):
@@ -381,10 +374,10 @@ class Embeddings:
 
 
     @staticmethod
-    def load(path, shared=False, implementation="torch", device="cuda"):
+    def load(path, shared=False, device=None):
         """
         Static method for loading embeddings stored at ``path``.
-        The arguments ``shared``, ``implementation``, and ``device`` have the
+        The arguments ``shared``, and ``device`` have the
         same effect as in the constructor.
         """
 
@@ -402,7 +395,7 @@ class Embeddings:
         if os.path.exists(os.path.join(path, 'W.npy')):
             W = np.load(W_path)
 
-        return Embeddings(V, W, dictionary, shared, implementation, device)
+        return Embeddings(V, W, dictionary, shared, device)
 
 
 

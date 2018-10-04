@@ -1,9 +1,11 @@
 import hilbert as h
 
 try:
+    from scipy import sparse
     import numpy as np
     import torch
 except ImportError:
+    sparse = None
     np = None
     torch = None
 
@@ -13,11 +15,25 @@ def load_shard(
     shard=None,
     from_sparse=False,
     dtype=h.CONSTANTS.DEFAULT_DTYPE,
-    device=h.CONSTANTS.MATRIX_DEVICE,
+    device=None
 ):
-    if from_sparse:
+    device = device or h.CONSTANTS.MATRIX_DEVICE
+
+    # Handle Scipy sparse matrix types
+    if isinstance(source, sparse.csr_matrix):
         shard = shard or slice(None)
         return torch.tensor(source[shard].toarray(), dtype=dtype, device=device)
+
+    # Handle Numpy matrix types
+    elif isinstance(source, np.matrix):
+        return torch.tensor(
+            np.asarray(source[shard]), dtype=dtype, device=device)
+
+    # Handle primitie values (don't subscript with shard).
+    elif isinstance(source, (int, float)):
+        return torch.tensor(source, dtype=dtype, device=device)
+
+    # Handle Numpy arrays and lists.
     return torch.tensor(source[shard], dtype=dtype, device=device)
 
 
@@ -84,7 +100,7 @@ def fill_diagonal(tensor_2d, diag):
     the value ``diag``.  The copy has the same dtype and device as the original.
     """
     eye = torch.eye(
-        tensor_2d.shape[0], dtype=tensor_2d.device, device=tensor_2d.device)
+        tensor_2d.shape[0], dtype=tensor_2d.dtype, device=tensor_2d.device)
     return tensor_2d * (1. - eye) + eye * float(diag)
 
 

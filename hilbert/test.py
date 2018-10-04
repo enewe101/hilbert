@@ -1,3 +1,4 @@
+import sys
 import os
 import shutil
 from unittest import main, TestCase
@@ -52,7 +53,7 @@ class TestGetEmbedder(TestCase):
         cooc_stats = h.corpus_stats.get_test_stats(3)
         found_embedder = h.embedder.get_w2v_embedder(
             cooc_stats, k=k, alpha=alpha, t=t,
-            undersample_method='expectation'
+            undersample_method='expectation', verbose=False
         )
         found_delta_calculator = found_embedder.delta
         found_delta = found_delta_calculator.calc_shard(M_hat)
@@ -62,17 +63,12 @@ class TestGetEmbedder(TestCase):
         self.assertTrue(torch.allclose(found_delta, expected_delta))
 
 
-
-
-
-
     def test_get_glove_embedder(self):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
         d=300
         learning_rate = 1e-6
         one_sided = False
-        device = 'cpu'
         constrainer = h.constrainer.glove_constrainer
         X_max = 100.0
         base = 'logNxx'
@@ -84,16 +80,13 @@ class TestGetEmbedder(TestCase):
         M = h.M.M(
             cooc_stats=cooc_stats, 
             base=base,
-            #t_undersample=None,
             neg_inf_val=neg_inf_val,
-            device=device,
         ).load_all()
         f_delta_str = 'glove'
         f_delta = h.f_delta.DeltaGlove(
             cooc_stats=cooc_stats,
             M=M,
             X_max=X_max,
-            device=device,
         )
         expected_embedder = h.embedder.HilbertEmbedder(
             delta=f_delta,
@@ -102,7 +95,6 @@ class TestGetEmbedder(TestCase):
             one_sided=one_sided,
             constrainer=constrainer,
             verbose=False, 
-            device=device,
         )
 
         np.random.seed(0)
@@ -144,8 +136,6 @@ class TestGetEmbedder(TestCase):
             # ^^^ Defaults
 
             verbose=False,
-            device=device
-
         )
 
         expected_embedder.cycle(times=10, print_badness=False)
@@ -175,7 +165,6 @@ class TestCorpusStats(TestCase):
 		[4, 0, 4, 0, 0, 1, 4, 0, 0, 0, 3], 
 		[4, 4, 0, 0, 0, 0, 0, 4, 0, 3, 0]
     ]) 
-
     N_XX_3 = np.array([
         [0, 16, 23, 16, 12, 16, 15, 12, 15, 8, 8],
         [16, 0, 8, 12, 4, 8, 8, 12, 0, 0, 4],
@@ -196,6 +185,7 @@ class TestCorpusStats(TestCase):
         expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
         found_PMI = h.corpus_stats.calc_PMI(cooc_stats)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
+
 
     def test_sparse_PMI(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
@@ -224,7 +214,7 @@ class TestCorpusStats(TestCase):
         expected_PMI = np.load(expected_PMI_path)['arr_0']
         expected_shifted_PMI = expected_PMI - np.log(k)
         found = h.corpus_stats.calc_shifted_PMI(
-            cooc_stats, torch.tensor(k, device='cuda'))
+            cooc_stats, torch.tensor(k, device=h.CONSTANTS.MATRIX_DEVICE))
         self.assertTrue(np.allclose(found, expected_shifted_PMI))
 
 
@@ -239,12 +229,13 @@ class TestCorpusStats(TestCase):
 
     def test_get_stats(self):
         # Next, test with a cooccurrence window of +/-2
-        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         cooc_stats = h.corpus_stats.get_test_stats(2)
         Nxx, Nx, Nxt, N = cooc_stats
         self.assertTrue(torch.allclose(
             Nxx, 
-            torch.tensor(self.N_XX_2, dtype=torch.float32, device=device)
+            torch.tensor(self.N_XX_2, dtype=dtype, device=device)
         ))
 
         # Next, test with a cooccurrence window of +/-3
@@ -253,16 +244,13 @@ class TestCorpusStats(TestCase):
         self.assertTrue(np.allclose(
             Nxx,
             torch.tensor(
-                self.N_XX_3, dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)
+                self.N_XX_3, dtype=dtype, device=device)
         ))
 
 
 
 
 class TestM(TestCase):
-
-        
-
 
 
     def test_calc_M_pmi(self):
@@ -588,6 +576,8 @@ class TestFDeltas(TestCase):
 
     def test_sigmoid(self):
         # This should work for np.array and torch.Tensor
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
         cooc_stats = h.corpus_stats.get_test_stats(2)
         PMI = h.corpus_stats.calc_PMI(cooc_stats)
         expected = np.array([
@@ -597,11 +587,11 @@ class TestFDeltas(TestCase):
         result = h.f_delta.sigmoid(PMI)
         self.assertTrue(np.allclose(expected, result))
 
-        PMI = torch.tensor(PMI, dtype=torch.float32)
+        PMI = torch.tensor(PMI, dtype=dtype, device=device)
         expected = torch.tensor([
             [1/(1+np.e**(-pmi)) for pmi in row]
             for row in PMI
-        ], dtype=torch.float32)
+        ], dtype=dtype, device=device)
         result = h.f_delta.sigmoid(PMI)
         self.assertTrue(torch.allclose(expected, result))
 
@@ -642,6 +632,8 @@ class TestFDeltas(TestCase):
 
     def test_f_glove(self):
 
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
         cooc_stats = h.corpus_stats.get_test_stats(2)
         cooc_stats.truncate(10)
 
@@ -655,13 +647,13 @@ class TestFDeltas(TestCase):
                 2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
                 for j in range(cooc_stats.Nxx.shape[1])
             ] for i in range(cooc_stats.Nxx.shape[0])
-        ])
+        ], device=device, dtype=dtype)
         difference = torch.tensor([[
                 expected_M[i,j] - expected_M_hat[i,j]
                 if cooc_stats.Nxx[i,j] > 0 else 0 
                 for j in range(cooc_stats.Nxx.shape[1])
             ] for i in range(cooc_stats.Nxx.shape[0])
-        ])
+        ], device=device, dtype=dtype)
         expected = multiplier * difference
 
         M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0)
@@ -692,7 +684,7 @@ class TestFDeltas(TestCase):
                 for j in range(cooc_stats.Nxx.shape[1])
             ]
             for i in range(cooc_stats.Nxx.shape[0])
-        ])
+        ], dtype=dtype, device=device)
         # The X_max setting has an effect, and matches a different expectation
         self.assertTrue(np.allclose(expected2, found2))
         self.assertFalse(np.allclose(expected2, expected))
@@ -703,22 +695,24 @@ class TestFDeltas(TestCase):
 
         cooc_stats = h.corpus_stats.get_test_stats(2)
         cooc_stats.truncate(10)  # Need a compound number for sharding
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
         M_hat = M_ + 1
         expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M, device='cpu')
+        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M)
         found = delta_mse.calc_shard(M_hat)
         self.assertTrue(torch.allclose(expected, found))
 
         shards = h.shards.Shards(5)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
         M_hat = M_ + 1
         expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M, device='cpu')
-        found = torch.zeros(cooc_stats.Nxx.shape)
+        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M)
+        found = torch.zeros(cooc_stats.Nxx.shape, device=device, dtype=dtype)
         for shard in shards:
             found[shard] = delta_mse.calc_shard(M_hat[shard], shard)
         self.assertTrue(torch.allclose(expected, found))
@@ -804,20 +798,18 @@ class TestHilbertEmbedder(TestCase):
     def test_one_sided(self):
         torch.random.manual_seed(0)
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device='cpu')
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
         # First make a non-one-sided embedder.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Ensure that the relevant variables are tensors
@@ -832,7 +824,7 @@ class TestHilbertEmbedder(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
             verbose=False, 
-            shard_factor=3, device=device
+            shard_factor=3
         )
 
         # Ensure that the relevant variables are tensors
@@ -850,7 +842,7 @@ class TestHilbertEmbedder(TestCase):
         # Check that the update was performed.
         M_hat = torch.mm(old_V, old_V.t())
         #M_ = torch.tensor(M_, dtype=torch.float32)
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         delta = f_MSE.calc_shard(M_hat) # No shard -> calculates full matrix
         nabla_V = torch.mm(delta.t(), old_V)
         new_V = old_V + learning_rate * nabla_V
@@ -873,19 +865,17 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         # Set up conditions for the test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(3)
         #cooc_stats.truncate(10)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
         # Make the embedder, whose method we are testing.
-        delta_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        delta_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
-            delta_MSE, d, learning_rate=learning_rate, device=device,
-            verbose=False, 
+            delta_MSE, d, learning_rate=learning_rate, verbose=False, 
             shard_factor=2
         )
 
@@ -914,24 +904,24 @@ class TestHilbertEmbedder(TestCase):
 
     def test_get_gradient_with_offsets(self):
 
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
         torch.random.manual_seed(0)
         # Set up conditions for the test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        offset_W = torch.rand(len(cooc_stats.Nx), d)
-        offset_V = torch.rand(len(cooc_stats.Nx), d)
+        offset_W = torch.rand(len(cooc_stats.Nx),d, device=device, dtype=dtype)
+        offset_V = torch.rand(len(cooc_stats.Nx),d, device=device, dtype=dtype)
 
         # Create an embedder, whose get_gradient method we are testing.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Manually calculate the gradients we expect, applying offsets to the
@@ -961,18 +951,16 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         # Set up conditions for the test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Calculate the gradient manually here.
@@ -995,22 +983,23 @@ class TestHilbertEmbedder(TestCase):
 
     def test_get_gradient_one_sided_with_offset(self):
 
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
         # Set up test conditions.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        offset_V = torch.rand(len(cooc_stats.Nx), d)
+        offset_V = torch.rand(
+            len(cooc_stats.Nx), d, device=device, dtype=dtype)
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Manually calculate expected gradients
@@ -1037,13 +1026,12 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
         # Make mock f_delta whose integration with an embedder is being tested.
@@ -1054,7 +1042,7 @@ class TestHilbertEmbedder(TestCase):
                 cooc_stats,
                 M,
                 test_case,
-                device=h.CONSTANTS.MATRIX_DEVICE,
+                device=None,
             ):
                 self.cooc_stats = cooc_stats
                 self.M = M
@@ -1067,13 +1055,12 @@ class TestHilbertEmbedder(TestCase):
                 return self.M[shard] - M_hat
                 
 
-        f_delta = DeltaMock(cooc_stats, M, self, device=device)
+        f_delta = DeltaMock(cooc_stats, M, self)
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.embedder.HilbertEmbedder(
             f_delta, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Verify that all settings passed into the ebedder were registered,
@@ -1108,17 +1095,19 @@ class TestHilbertEmbedder(TestCase):
 
 
     def test_arbitrary_f_delta(self):
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
         delta_amount = 0.1
-        delta_always = torch.zeros(cooc_stats.Nxx.shape) + delta_amount
+        delta_always = torch.zeros(
+            cooc_stats.Nxx.shape, device=device, dtype=dtype) + delta_amount
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
         # Test integration between an embedder and the following f_delta:
@@ -1133,8 +1122,7 @@ class TestHilbertEmbedder(TestCase):
         f_delta = DeltaMock(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             delta=f_delta, d=d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Clone current embeddings to manually calculate expected update.
@@ -1158,27 +1146,27 @@ class TestHilbertEmbedder(TestCase):
 
     def test_update(self):
 
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats= h.corpus_stats.get_test_stats(2)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Generate some random update to be applied
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
-        delta_V = torch.rand(len(cooc_stats.Nx), d)
-        delta_W = torch.rand(len(cooc_stats.Nx), d)
+        delta_V = torch.rand(len(cooc_stats.Nx), d, device=device, dtype=dtype)
+        delta_W = torch.rand(len(cooc_stats.Nx), d, device=device, dtype=dtype)
         updates = delta_V, delta_W
 
         # Apply the updates.
@@ -1191,32 +1179,32 @@ class TestHilbertEmbedder(TestCase):
 
     def test_update_with_constraints(self):
 
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
         # Set up test conditions.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor = 3,
             constrainer=h.constrainer.glove_constrainer,
-            verbose=False, 
-            device='cpu'
+            verbose=False
         )
 
         # Clone the current embeddings, and apply a random update to them,
         # using the embedders update method.  Internally, the embedder should
         # apply the constraints after the update
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
-        delta_V = torch.rand(vocab, d)
-        delta_W = torch.rand(vocab, d)
+        delta_V = torch.rand(vocab, d, dtype=dtype, device=device)
+        delta_W = torch.rand(vocab, d, dtype=dtype, device=device)
         updates = delta_V, delta_W
         embedder.update(*updates)
 
@@ -1232,31 +1220,33 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(expected_updated_V, embedder.V))
 
         # Verify that the contstraints really were applied.
-        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(vocab)))
-        self.assertTrue(torch.allclose(embedder.V[:,0], torch.ones(vocab)))
+        self.assertTrue(torch.allclose(
+            embedder.W[:,1], torch.ones(vocab, device=device, dtype=dtype)))
+        self.assertTrue(torch.allclose(
+            embedder.V[:,0], torch.ones(vocab, device=device, dtype=dtype)))
 
 
     def test_update_one_sided_rejects_delta_W(self):
 
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=5,
-            verbose=False, 
-            device=device
+            verbose=False
         )
 
         # Show that we can update covector embeddings for a non-one-sided model
-        delta_W = torch.ones(vocab, d)
+        delta_W = torch.ones(vocab, d, dtype=dtype, device=device)
         embedder.update(delta_W=delta_W)
 
         # Now make a ONE-SIDED embedder, which should reject covector updates.
@@ -1265,28 +1255,29 @@ class TestHilbertEmbedder(TestCase):
             verbose=False, 
             shard_factor=5
         )
-        delta_W = torch.ones(vocab, d)
+        delta_W = torch.ones(vocab, d, dtype=dtype, device=device)
         with self.assertRaises(ValueError):
             embedder.update(delta_W=delta_W)
 
 
     def test_integration_with_constrainer(self):
 
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
         # Set up test conditions.
         d = 3
-        device = 'cpu'
         learning_rate = 0.01
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False, 
-            constrainer=h.constrainer.glove_constrainer, device=device
+            constrainer=h.constrainer.glove_constrainer
         )
 
         # Copy the current embeddings so we can manually calculate the expected
@@ -1311,8 +1302,10 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.W, new_W))
 
         # Verify that the contstraints really were applied.
-        self.assertTrue(torch.allclose(embedder.W[:,1], torch.ones(vocab)))
-        self.assertTrue(torch.allclose(embedder.V[:,0], torch.ones(vocab)))
+        self.assertTrue(torch.allclose(
+            embedder.W[:,1], torch.ones(vocab, dtype=dtype, device=device)))
+        self.assertTrue(torch.allclose(
+            embedder.V[:,0], torch.ones(vocab, dtype=dtype, device=device)))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
@@ -1324,21 +1317,19 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 11
-        device = 'cuda'
-        num_cycles = 1000
-        tolerance = 0.0004
-        learning_rate = 0.01
+        num_cycles = 100
+        tolerance = 0.002
+        learning_rate = 0.1
         torch.random.manual_seed(0)
         cooc_stats = h.corpus_stats.get_test_stats(2)
         vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0, device=device)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M, device=device)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3, 
-            verbose=False, 
-            device=device
+            f_MSE, d, learning_rate=learning_rate, shard_factor=2, 
+            verbose=False
         )
 
         # Run the embdder for many update cycles.
@@ -1355,32 +1346,68 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.sum(delta) < tolerance)
         
 
+    def test_sharding_equivalence(self):
+        torch.random.manual_seed(0)
+        # Set up conditions for test.
+        d = 11
+        num_cycles = 20
+        learning_rate = 0.01
+        torch.random.manual_seed(0)
+
+        cooc_stats = h.corpus_stats.get_test_stats(2)
+        vocab = len(cooc_stats.Nx)
+        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
+            verbose=False
+        )
+
+        cooc_stats_sharded = h.corpus_stats.get_test_stats(2)
+        M_sharded = h.M.M(cooc_stats_sharded, 'pmi', neg_inf_val=0)
+        f_MSE_sharded = h.f_delta.DeltaMSE(cooc_stats_sharded, M_sharded)
+        embedder_sharded = h.embedder.HilbertEmbedder(
+            f_MSE_sharded, d, learning_rate=learning_rate, shard_factor=3, 
+            verbose=False
+        )
+
+        # Force the two embedders to start with the same initial vectors
+        embedder_sharded.V = embedder.V.clone()
+        embedder_sharded.W = embedder.W.clone()
+
+        # Run the embdder for many update cycles.
+        embedder.cycle(num_cycles, print_badness=False)
+        embedder_sharded.cycle(num_cycles, print_badness=False)
+
+        # Check that we have essentially reached convergence, based on the 
+        # fact that the delta value for the embedder is near zero.
+        self.assertTrue(torch.allclose(embedder_sharded.V, embedder.V))
+        self.assertTrue(torch.allclose(embedder_sharded.W, embedder.W))
+        
+
 
 
 
 
 class MockObjective(object):
 
-    def __init__(self, *param_shapes, implementation='torch', device='cuda'):
+    def __init__(self, *param_shapes, device=None):
         self.param_shapes = param_shapes
         self.updates = []
         self.passed_args = []
         self.params = []
-        self.implementation = implementation
         self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.initialize_params()
 
 
     def initialize_params(self):
         initial_params = []
         for shape in self.param_shapes:
-            if self.implementation == 'torch':
-                initial_params.append(
-                    torch.tensor(np.random.random(shape), dtype=torch.float32)
-                )
-            else:
-                initial_params.append(np.random.random(shape))
+            initial_params.append(torch.tensor(
+                np.random.random(shape), 
+                dtype=h.CONSTANTS.DEFAULT_DTYPE,
+                device=h.CONSTANTS.MATRIX_DEVICE
+            ))
         self.params.append(initial_params)
 
 
@@ -1401,11 +1428,7 @@ class MockObjective(object):
             new_params.append(self.params[-1][i] + updates[i])
         self.params.append(new_params)
 
-        copied_updates = [
-            a if np.isscalar(a) else a.copy() 
-            if self.implementation == 'numpy' else a.clone()
-            for a in updates
-        ]
+        copied_updates = [a.clone() for a in updates]
         self.updates.append(copied_updates)
 
 
@@ -1418,12 +1441,10 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        mock_objective = MockObjective((1,), (3,3), implementation='numpy')
+        mock_objective = MockObjective((1,), (3,3))
 
         solver = h.solver.MomentumSolver(
-            mock_objective, learning_rate, momentum_decay, 
-            implementation='numpy'
-        )
+            mock_objective, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1469,18 +1490,17 @@ class TestSolvers(TestCase):
 
 
     def test_momentum_solver_torch(self):
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         learning_rate = 0.1
         momentum_decay = 0.8
         times = 3
 
         np.random.seed(0)
-        mock_objective = MockObjective(
-            (1,), (3,3), implementation='torch', device='cpu')
+        mock_objective = MockObjective((1,), (3,3))
 
         solver = h.solver.MomentumSolver(
-            mock_objective, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
+            mock_objective, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1491,16 +1511,19 @@ class TestSolvers(TestCase):
 
         np.random.seed(0)
         initial_params_0 = torch.tensor(
-            np.random.random((1,)), dtype=torch.float32)
+            np.random.random((1,)), dtype=dtype, device=device)
 
         initial_params_1 = torch.tensor(
-            np.random.random((3,3)), dtype=torch.float32)
+            np.random.random((3,3)), dtype=dtype, device=device)
 
 
         expected_params.append((initial_params_0, initial_params_1))
 
         # Initialize the momentum at zero
-        expected_momenta = [(torch.zeros((1,)), torch.zeros((3,3)))]
+        expected_momenta = [(
+            torch.zeros((1,), device=device, dtype=dtype), 
+            torch.zeros((3,3), device=device, dtype=dtype)
+        )]
 
         # Compute successive updates
         for i in range(times):
@@ -1534,39 +1557,39 @@ class TestSolvers(TestCase):
             mock_objective.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
-    def test_momentum_solver_torch_and_numpy_equivalent(self):
-        learning_rate = 0.1
-        momentum_decay = 0.8
-        times = 3
+    #
+    #   Obsolete, only torch implementation is supported.
+    #
+    #def test_momentum_solver_torch_and_numpy_equivalent(self):
+    #    learning_rate = 0.1
+    #    momentum_decay = 0.8
+    #    times = 3
 
-        # Do 3 iterations on a numpy-based objective and solver.
-        np.random.seed(0)
-        torch_mock_objective = MockObjective(
-            (1,), (3,3), implementation='torch', device='cpu')
-        torch_solver = h.solver.MomentumSolver(
-            torch_mock_objective, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
-        torch_solver.cycle(times=times, pass_args={'a':1})
-
-
-        # Do 3 iterations on a torch-based objective and solver.
-        np.random.seed(0)
-        numpy_mock_objective = MockObjective(
-            (1,), (3,3), implementation='numpy')
-        numpy_solver = h.solver.MomentumSolver(
-            numpy_mock_objective, learning_rate, momentum_decay, 
-            implementation='numpy'
-        )
-        numpy_solver.cycle(times=times, pass_args={'a':1})
+    #    # Do 3 iterations on a numpy-based objective and solver.
+    #    np.random.seed(0)
+    #    torch_mock_objective = MockObjective((1,), (3,3))
+    #    torch_solver = h.solver.MomentumSolver(
+    #        torch_mock_objective, learning_rate, momentum_decay)
+    #    torch_solver.cycle(times=times, pass_args={'a':1})
 
 
-        # They should be equal!
-        iter_momenta_updates = zip(
-            torch_mock_objective.updates, numpy_mock_objective.updates)
-        for torch_update, numpy_update in iter_momenta_updates:
-            for e, f in zip(torch_update, numpy_update):
-                self.assertTrue(np.allclose(e, f))
+    #    # Do 3 iterations on a torch-based objective and solver.
+    #    np.random.seed(0)
+    #    numpy_mock_objective = MockObjective(
+    #        (1,), (3,3))
+    #    numpy_solver = h.solver.MomentumSolver(
+    #        numpy_mock_objective, learning_rate, momentum_decay, 
+    #        implementation='numpy'
+    #    )
+    #    numpy_solver.cycle(times=times, pass_args={'a':1})
+
+
+    #    # They should be equal!
+    #    iter_momenta_updates = zip(
+    #        torch_mock_objective.updates, numpy_mock_objective.updates)
+    #    for torch_update, numpy_update in iter_momenta_updates:
+    #        for e, f in zip(torch_update, numpy_update):
+    #            self.assertTrue(np.allclose(e, f))
 
 
     def test_nesterov_momentum_solver(self):
@@ -1575,9 +1598,8 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        mo = MockObjective((1,), (3,3), implementation='numpy')
-        solver = h.solver.NesterovSolver(
-            mo, learning_rate, momentum_decay, implementation='numpy')
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.NesterovSolver(mo, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1603,18 +1625,15 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        torch_mo = MockObjective(
-            (1,), (3,3), implementation='torch', device='cpu')
+        torch_mo = MockObjective((1,), (3,3))
         torch_solver = h.solver.NesterovSolver(
-            torch_mo, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
+            torch_mo, learning_rate, momentum_decay)
         torch_solver.cycle(times=times, pass_args={'a':1})
 
         np.random.seed(0)
-        numpy_mo = MockObjective((1,), (3,3), implementation='numpy')
+        numpy_mo = MockObjective((1,), (3,3))
         numpy_solver = h.solver.NesterovSolver(
-            numpy_mo, learning_rate, momentum_decay, implementation='numpy')
+            numpy_mo, learning_rate, momentum_decay)
         numpy_solver.cycle(times=times, pass_args={'a':1})
 
         # Verify that the solver visited to the expected parameter values
@@ -1625,16 +1644,15 @@ class TestSolvers(TestCase):
 
 
     def test_nesterov_momentum_solver_torch(self):
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         learning_rate = 0.1
         momentum_decay = 0.8
         times = 3
 
         np.random.seed(0)
-        mo = MockObjective((1,), (3,3), implementation='torch', device='cpu')
-        solver = h.solver.NesterovSolver(
-            mo, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.NesterovSolver(mo, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1649,7 +1667,7 @@ class TestSolvers(TestCase):
             for param, param_expected in zip(mo.params[i], params_expected[i]):
                 self.assertTrue(torch.allclose(
                     param,
-                    torch.tensor(param_expected, dtype=torch.float32)
+                    torch.tensor(param_expected, dtype=dtype, device=device)
                 ))
 
         # Test that all the pass_args were received.  Note that the solver
@@ -1666,12 +1684,9 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        mo = MockObjective(
-            (1,), (3,3), implementation='numpy', device='cpu')
+        mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverOptimized(
-            mo, learning_rate, momentum_decay, 
-            implementation='numpy', device='cpu'
-        )
+            mo, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1699,12 +1714,9 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        mo = MockObjective(
-            (1,), (3,3), implementation='torch', device='cpu')
+        mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverOptimized(
-            mo, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
+            mo, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1726,37 +1738,40 @@ class TestSolvers(TestCase):
 
 
 
-    def test_nesterov_momentum_solver_cautious_numpy(self):
+    #
+    #   This test is no longer needed because numpy isn't supported
+    #
+    #def test_nesterov_momentum_solver_cautious_numpy(self):
 
-        learning_rate = 0.01
-        momentum_decay = 0.8
-        times = 3
+    #    learning_rate = 0.01
+    #    momentum_decay = 0.8
+    #    times = 3
 
-        np.random.seed(0)
-        mo = MockObjective(
-            (1,), (3,3), implementation='numpy', device='cpu')
-        solver = h.solver.NesterovSolverCautious(
-            mo, learning_rate, momentum_decay, implementation='numpy')
+    #    np.random.seed(0)
+    #    mo = MockObjective(
+    #        (1,), (3,3), implementation='numpy')
+    #    solver = h.solver.NesterovSolverCautious(
+    #        mo, learning_rate, momentum_decay, implementation='numpy')
 
-        solver.cycle(times=times, pass_args={'a':1})
+    #    solver.cycle(times=times, pass_args={'a':1})
 
-        np.random.seed(0)
-        params_expected = (
-            self.calculate_expected_nesterov_optimized_cautious_params(
-                times, learning_rate, momentum_decay, implementation='numpy'
-        ))
+    #    np.random.seed(0)
+    #    params_expected = (
+    #        self.calculate_expected_nesterov_optimized_cautious_params(
+    #            times, learning_rate, momentum_decay, implementation='numpy'
+    #    ))
 
 
-        # Verify that the solver visited to the expected parameter values
-        for i in range(len(params_expected)):
-            for param, param_expected in zip(mo.params[i], params_expected[i]):
-                self.assertTrue(np.allclose(param, param_expected))
+    #    # Verify that the solver visited to the expected parameter values
+    #    for i in range(len(params_expected)):
+    #        for param, param_expected in zip(mo.params[i], params_expected[i]):
+    #            self.assertTrue(np.allclose(param, param_expected))
 
-        # Test that all the pass_args were received.  Note that the solver
-        # will call get_gradient once at the start to determine the shape
-        # of the parameters, and None will have been passed as the pass_arg.
-        self.assertEqual(
-            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+    #    # Test that all the pass_args were received.  Note that the solver
+    #    # will call get_gradient once at the start to determine the shape
+    #    # of the parameters, and None will have been passed as the pass_arg.
+    #    self.assertEqual(
+    #        mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
     def test_nesterov_momentum_solver_cautious_torch(self):
@@ -1766,20 +1781,17 @@ class TestSolvers(TestCase):
         times = 3
 
         np.random.seed(0)
-        mo = MockObjective(
-            (1,), (3,3), implementation='torch', device='cpu')
+        mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverCautious(
-            mo, learning_rate, momentum_decay, 
-            implementation='torch', device='cpu'
-        )
+            mo, learning_rate, momentum_decay)
 
         solver.cycle(times=times, pass_args={'a':1})
 
         np.random.seed(0)
         params_expected = (
             self.calculate_expected_nesterov_optimized_cautious_params(
-                times, learning_rate, momentum_decay, implementation='torch'
-        ))
+                times, learning_rate, momentum_decay)
+        )
 
         # Verify that the solver visited to the expected parameter values
         for i in range(len(params_expected)):
@@ -1907,41 +1919,32 @@ class TestSolvers(TestCase):
 
 
     def calculate_expected_nesterov_optimized_cautious_params(
-        self, times, learning_rate, momentum_decay, implementation, 
-        device='cpu'
+        self, times, learning_rate, momentum_decay
     ):
 
-        h.utils.ensure_implementation_valid(implementation)
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         # Initialize the parameters using the same random initialization as
         # used by the mock objective.
         params_expected = [[]]
         gradient_steps = []
 
-        if implementation == 'numpy':
-            params_expected[0].append(np.random.random((1,)))
-            params_expected[0].append(np.random.random((3,3)))
-            momentum_expected = [[np.zeros((1,)), np.zeros((3,3))]]
-            last_gradient = [np.zeros((1,)), np.zeros((3,3))]
-
-        else:
-            params_expected[0].append(torch.tensor(
-                np.random.random((1,)), dtype=torch.float32, device=device
-            ))
-            params_expected[0].append(torch.tensor(
-                np.random.random((3,3)), dtype=torch.float32, device=device 
-            ))
-            momentum_expected = [[
-                torch.tensor(
-                    np.zeros((1,)), dtype=torch.float32, device=device), 
-                torch.tensor(
-                    np.zeros((3,3)), dtype=torch.float32, device=device)
-            ]]
-            last_gradient = [
-                torch.tensor(
-                    np.zeros((1,)), dtype=torch.float32, device=device),
-                torch.tensor(
-                    np.zeros((3,3)), dtype=torch.float32, device=device)
-            ]
+        params_expected[0].append(torch.tensor(
+            np.random.random((1,)), dtype=dtype, device=device))
+        params_expected[0].append(torch.tensor(
+            np.random.random((3,3)), dtype=dtype, device=device))
+        momentum_expected = [[
+            torch.tensor(
+                np.zeros((1,)), dtype=dtype, device=device), 
+            torch.tensor(
+                np.zeros((3,3)), dtype=dtype, device=device)
+        ]]
+        last_gradient = [
+            torch.tensor(
+                np.zeros((1,)), dtype=dtype, device=device),
+            torch.tensor(
+                np.zeros((3,3)), dtype=dtype, device=device)
+        ]
 
 
         for i in range(times):
@@ -1965,17 +1968,15 @@ class TestSolvers(TestCase):
                 + h.utils.dot(last_gradient[1], gradient[1])
             )
 
-            norms = last_gradient_norm * gradient_norm
+            norms = torch.tensor(
+                last_gradient_norm * gradient_norm, dtype=dtype, device=device)
 
             if norms == 0:
                 alignment = 1
             else:
                 alignment = product / norms
 
-            if implementation == 'torch':
-                last_gradient = [gradient[0].clone(), gradient[1].clone()]
-            else:
-                last_gradient = [gradient[0].copy(), gradient[1].copy()]
+            last_gradient = [gradient[0].clone(), gradient[1].clone()]
 
             use_decay = max(0, alignment) * momentum_decay
             gradient_steps.append((
@@ -2174,6 +2175,254 @@ class TestDictionary(TestCase):
 
         # Cleanup
         os.remove(write_path)
+
+
+
+class TestUnigram(TestCase):
+
+    def test_unigram_creation_from_corpus(self):
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        # The correct number of counts are registered for each token
+        counts = Counter(h.corpus_stats.load_test_tokens())
+        for token in counts:
+            token_id = unigram.dictionary.get_id(token)
+            self.assertEqual(unigram.Nx[token_id], counts[token])
+
+        # Test sorting.
+        unigram.sort()
+        for i in range(len(unigram.Nx)-1):
+            self.assertTrue(unigram.Nx[i] >= unigram.Nx[i+1])
+
+
+    def test_unigram_creation_from_Nxx(self):
+        tokens = h.corpus_stats.load_test_tokens()
+        dictionary = h.dictionary.Dictionary(tokens)
+        Nx = [0] * len(dictionary)
+        for token in tokens:
+            Nx[dictionary.get_id(token)] += 1
+
+        # Must supply a dictionary to create a non-empty Unigram.
+        with self.assertRaises(ValueError):
+            unigram = h.unigram.Unigram(Nx=Nx)
+
+        unigram = h.unigram.Unigram(dictionary=dictionary, Nx=Nx)
+
+        # The correct number of counts are registered for each token
+        counts = Counter(h.corpus_stats.load_test_tokens())
+        for token in counts:
+            token_id = unigram.dictionary.get_id(token)
+            self.assertEqual(unigram.Nx[token_id], counts[token])
+
+
+    def test_load_shard(self):
+
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        # To simplify the test, sor the unigram
+        unigram.sort()
+
+        # Ensure that all shards are correct.
+        shards = h.shards.Shards(3)
+        for i, shard in enumerate(shards):
+            expected_Nxs = [
+                torch.tensor([24,8,8,4], dtype=dtype, device=device),
+                torch.tensor([12,8,8,4], dtype=dtype, device=device),
+                torch.tensor([12,8,8], dtype=dtype, device=device),
+            ]
+            expected_N = torch.tensor(104, dtype=dtype, device=device)
+            Nx, Nxt, N = unigram.load_shard(shard)
+
+            if i // 3 ==0:
+                self.assertTrue(torch.allclose(Nx, expected_Nxs[0].view(-1,1)))
+            elif i // 3 == 1:
+                self.assertTrue(torch.allclose(Nx, expected_Nxs[1].view(-1,1)))
+            elif i // 3 == 2:                                            
+                self.assertTrue(torch.allclose(Nx, expected_Nxs[2].view(-1,1)))
+
+            if i % 3 == 0:
+                self.assertTrue(torch.allclose(Nxt,expected_Nxs[0].view(1,-1)))
+            elif i % 3 == 1:
+                self.assertTrue(torch.allclose(Nxt,expected_Nxs[1].view(1,-1)))
+            elif i % 3 == 2:
+                self.assertTrue(torch.allclose(Nxt,expected_Nxs[2].view(1,-1)))
+
+            self.assertEqual(Nxt.dtype, h.CONSTANTS.DEFAULT_DTYPE)
+            self.assertEqual(Nx.dtype, h.CONSTANTS.DEFAULT_DTYPE)
+            self.assertTrue(
+                str(Nxt.device).startswith(h.CONSTANTS.MATRIX_DEVICE))
+            self.assertTrue(
+                str(Nx.device).startswith(h.CONSTANTS.MATRIX_DEVICE))
+            self.assertTrue(isinstance(Nxt, torch.Tensor))
+            self.assertTrue(isinstance(Nx, torch.Tensor))
+
+        self.assertTrue(torch.allclose(N, expected_N))
+        self.assertTrue(str(N.device).startswith(h.CONSTANTS.MATRIX_DEVICE))
+        self.assertEqual(N.dtype, h.CONSTANTS.DEFAULT_DTYPE)
+
+
+    def test_copy(self):
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram1 = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram1.add(token)
+
+        unigram2 = copy(unigram1)
+
+        # Objects are distinct.
+        self.assertFalse(unigram2 is unigram1)
+        self.assertFalse(unigram2.Nx is unigram1.Nx)
+        self.assertFalse(unigram2.dictionary is unigram1.dictionary)
+
+        # Objects are equal.
+        self.assertEqual(unigram2.N, unigram1.N)
+        self.assertEqual(unigram2.Nx, unigram1.Nx)
+        self.assertEqual(
+            unigram2.dictionary.tokens, unigram2.dictionary.tokens)
+        self.assertEqual(
+            unigram2.dictionary.token_ids, unigram1.dictionary.token_ids)
+
+
+    def test_unpacking(self):
+
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        # To simplify the test, sor the unigram
+        unigram.sort()
+
+        expected_Nx = torch.tensor(
+            [24, 12, 12, 8, 8, 8, 8, 8, 8, 4, 4], dtype=dtype, device=device
+        ).view(-1,1)
+        expected_Nxt = torch.tensor(
+            [24, 12, 12, 8, 8, 8, 8, 8, 8, 4, 4], dtype=dtype, device=device
+        ).view(1,-1)
+        expected_N = torch.tensor(104, dtype=dtype, device=device)
+        Nx, Nxt, N = unigram
+        self.assertTrue(torch.allclose(Nx, expected_Nx))
+        self.assertTrue(torch.allclose(Nxt, expected_Nxt))
+        self.assertTrue(torch.allclose(N, expected_N))
+
+
+    def test_sort_by_tokens(self):
+
+        # Get tokens in alphabetical order
+        tokens = list(set(h.corpus_stats.load_test_tokens()))
+        tokens.sort()
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        # Unigram has same tokens, but is not in alphabetical order.
+        self.assertCountEqual(unigram.dictionary.tokens, tokens)
+        self.assertNotEqual(unigram.dictionary.tokens, tokens)
+
+        # Sort by provided token list.  Now token lists have same order.
+        unigram.sort_by_tokens(tokens)
+        self.assertEqual(unigram.dictionary.tokens, tokens)
+
+
+
+    def test_add(self):
+        # Make a unigram and fill it with tokens and counts.
+        unigram1 = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram1.add(token)
+
+        unigram2 = h.unigram.Unigram()
+        additional_tokens = 'the car is green .'.split()
+        for token in additional_tokens:
+            unigram2.add(token)
+
+        expected_counts = Counter(
+            h.corpus_stats.load_test_tokens()+additional_tokens)
+
+        # Orginary addition
+        unigram4 = unigram1 + unigram2
+        for token in expected_counts:
+            token_idx = unigram4.dictionary.get_id(token)
+            self.assertEqual(unigram4.Nx[token_idx], expected_counts[token])
+
+        # In-place addition
+        unigram3 = h.unigram.Unigram()
+        unigram3 += unigram1    # adds larger into smaller.
+        unigram3 += unigram2    # adds smaller into larger.
+        for token in expected_counts:
+            token_idx = unigram3.dictionary.get_id(token)
+            self.assertEqual(unigram3.Nx[token_idx], expected_counts[token])
+
+
+    def test_save_load(self):
+
+        # Work out the path, and clear away anything that is currently there.
+        write_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-save-load-unigram')
+        if os.path.exists(write_path):
+            shutil.rmtree(write_path)
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram1 = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram1.add(token)
+
+        # Do a save and load cycle
+        unigram1.save(write_path)
+        unigram2 = h.unigram.Unigram.load(write_path)
+
+        # Objects are distinct.
+        self.assertFalse(unigram2 is unigram1)
+        self.assertFalse(unigram2.Nx is unigram1.Nx)
+        self.assertFalse(unigram2.dictionary is unigram1.dictionary)
+
+        # Objects are equal.
+        self.assertEqual(unigram2.N, unigram1.N)
+        self.assertEqual(unigram2.Nx, unigram1.Nx)
+        self.assertEqual(
+            unigram2.dictionary.tokens, unigram2.dictionary.tokens)
+        self.assertEqual(
+            unigram2.dictionary.token_ids, unigram1.dictionary.token_ids)
+
+        # Cleanup.
+        shutil.rmtree(write_path)
+
+
+    def test_truncate(self):
+        
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram()
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        # Sort to make the test easier.  Note that normally truncation does
+        # not require sorting, and does not consider token frequency.
+        unigram.sort()
+        expected_tokens = unigram.dictionary.tokens[:5]
+        expected_Nx = [24, 12, 12, 8, 8]
+        expected_N = sum(expected_Nx)
+        unigram.truncate(5)
+        self.assertEqual(unigram.Nx, expected_Nx)
+        self.assertEqual(unigram.N, expected_N)
+        self.assertEqual(unigram.dictionary.tokens, expected_tokens)
+        self.assertEqual(
+            set(unigram.dictionary.token_ids.keys()), set(expected_tokens))
+
 
 
 
@@ -2538,7 +2787,8 @@ class TestCoocStats(TestCase):
         When CoocStats add, their counts add.
         """
 
-        device='cuda'
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
 
         # Make one CoocStat instance to be added.
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
@@ -2574,7 +2824,7 @@ class TestCoocStats(TestCase):
 
         # Ensure that cooccurrence1 was not changed
         dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        array = torch.tensor(array, device=device, dtype=torch.float32)
+        array = torch.tensor(array, device=device, dtype=dtype)
         self.assertEqual(cooccurrence1.counts, counts)
         Nxx1, Nx1, Nxt1, N1 = cooccurrence1
         self.assertTrue(np.allclose(Nxx1, array))
@@ -2592,7 +2842,7 @@ class TestCoocStats(TestCase):
         self.assertEqual(cooccurrence2.counts, counts2)
 
         Nxx2, Nx2, Nxt2, N2 = cooccurrence2
-        array2 = torch.tensor(array2, dtype=torch.float32, device=device)
+        array2 = torch.tensor(array2, dtype=dtype, device=device)
         self.assertTrue(np.allclose(Nxx2, array2))
         expected_Nx2 = torch.sum(array2, dim=1).reshape(-1,1)
         expected_Nxt2 = torch.sum(array2, dim=0).reshape(1,-1)
@@ -2614,7 +2864,7 @@ class TestCoocStats(TestCase):
             [3, 1, 0, 1, 0],
             [0, 1, 1, 0, 0],
             [1, 0, 0, 0, 0],
-        ], dtype=torch.float32, device=device)
+        ], dtype=dtype, device=device)
         expected_Nx_sum = torch.sum(expected_Nxx_sum, dim=1).reshape(-1,1)
         expected_Nxt_sum = torch.sum(expected_Nxx_sum, dim=0).reshape(1,-1)
         counts_sum = Counter({
@@ -2623,9 +2873,7 @@ class TestCoocStats(TestCase):
             (3, 1): 1, (2, 1): 1, (1, 3): 1, (2, 3): 1, (0, 4): 1, (4, 0): 1
         })
         expected_N_sum = torch.tensor(
-            cooccurrence1.N + cooccurrence2.N,
-            dtype=torch.float32, device=device
-        )
+            cooccurrence1.N + cooccurrence2.N, dtype=dtype, device=device)
         Nxx_sum, Nx_sum, Nxt_sum, N_sum = cooccurrence_sum
         self.assertTrue(torch.allclose(Nxx_sum, expected_Nxx_sum))
         self.assertTrue(torch.allclose(Nx_sum, expected_Nx_sum))
@@ -2645,7 +2893,6 @@ class TestCoocStatsAlterators(TestCase):
 
     def test_expectation_w2v_undersample(self):
         cooc_stats = h.corpus_stats.get_test_stats(2)
-        device='cpu'
         t = 0.1
 
         # Calc expected Nxx, Nx, Nxt, N
@@ -2659,7 +2906,8 @@ class TestCoocStatsAlterators(TestCase):
         expected_N = orig_N.clone()
 
         # Found values from the function we are testing
-        undersampled = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
+        undersampled = h.cooc_stats.expectation_w2v_undersample(
+            cooc_stats, t, verbose=False)
 
         usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
         self.assertTrue(torch.allclose(usamp_Nxx, expected_Nxx))
@@ -2679,7 +2927,7 @@ class TestCoocStatsAlterators(TestCase):
         # For reproducibile test, seed randomness
         np.random.seed(0)
 
-        device='cuda'
+        device=h.CONSTANTS.MATRIX_DEVICE
         t = 0.1
         num_replicates = 100
         window = 2
@@ -2702,7 +2950,8 @@ class TestCoocStatsAlterators(TestCase):
         mean_N = torch.zeros(expected_N.shape, device=device)
         for i in range(num_replicates):
             cooc_stats = h.corpus_stats.get_test_stats(window)
-            undersampled = h.cooc_stats.w2v_undersample(cooc_stats, t)
+            undersampled = h.cooc_stats.w2v_undersample(
+                cooc_stats, t, verbose=False)
             usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
             mean_Nxx += usamp_Nxx / num_replicates
             mean_Nx += usamp_Nx / num_replicates
@@ -2723,7 +2972,6 @@ class TestCoocStatsAlterators(TestCase):
 
 
     def test_smooth_unigram(self):
-        device='cuda'
         t = 0.1
         num_replicates = 100
         window = 2
@@ -2738,7 +2986,8 @@ class TestCoocStatsAlterators(TestCase):
         expected_Nxx = orig_Nxx
         expected_Nx = orig_Nx
 
-        smoothed = h.cooc_stats.smooth_unigram(cooc_stats, alpha)
+        smoothed = h.cooc_stats.smooth_unigram(
+            cooc_stats, alpha, verbose=False)
         smooth_Nxx, smooth_Nx, smooth_Nxt, smooth_N = smoothed
 
         self.assertTrue(torch.allclose(smooth_Nxx, expected_Nxx))
@@ -2755,123 +3004,6 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(N, orig_N))
 
 
-    # TODO: this test will become obsolete
-    def test_simulated_w2v_sampling(self):
-        k = 15
-        t = 0.1
-        alpha = 0.75
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-
-        Nxx, Nx, Nxt, N = cooc_stats
-        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
-            cooc_stats, t)
-        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
-        Nx = torch.sum(Nxx, dim=1, keepdim=True)
-        Nxt = Nxt ** alpha
-        N = torch.sum(Nxt)
-        expected_M = (
-            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
-        ) - np.log(k)
-
-        undersamp = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
-        smooth_usamp = h.cooc_stats.smooth_unigram(undersamp, alpha)
-        s_Nxx, s_Nx, s_Nxt, s_N = smooth_usamp
-        found_M = h.M.M(smooth_usamp, 'pmi', shift_by=-np.log(k)).load_all()
-        self.assertTrue(torch.allclose(found_M, expected_M))
-
-
-    # TODO: this test will become obsolete
-    def test_simulated_w2v_sampling_in_M(self):
-        k = 15
-        t = 0.1
-        alpha = 0.75
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-
-        Nxx, Nx, Nxt, N = cooc_stats
-        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
-            cooc_stats, t)
-        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
-        Nx = torch.sum(Nxx, dim=1, keepdim=True)
-        Nxt = Nxt ** alpha
-        N = torch.sum(Nxt)
-        expected_M = (
-            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
-        ) - np.log(k)
-
-        found_M = h.M.M(
-            cooc_stats, 'pmi', t_undersample=t,
-            undersample_method='expectation', unigram_exponent=alpha,
-            shift_by=-np.log(k)
-        ).load_all()
-        self.assertTrue(torch.allclose(found_M, expected_M))
-
-
-    # TODO: this test will become obsolete
-    def test_expected_w2v_M(self):
-        k = 15
-        t = 0.1
-        alpha = 0.75
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-
-        Nxx, Nx, Nxt, N = cooc_stats
-        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
-            cooc_stats, t)
-        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
-        Nx = torch.sum(Nxx, dim=1, keepdim=True)
-        Nxt = Nxt ** alpha
-        N = torch.sum(Nxt)
-        expected_M = (
-            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
-        ) - np.log(k)
-
-        found_M = h.M.get_expectation_M_w2v(cooc_stats, k, t, alpha).load_all()
-        self.assertTrue(torch.allclose(found_M, expected_M))
-
-
-    # TODO: this test will become obsolete
-    def test_sample_w2v_M(self):
-
-        # For reproducibile test, seed randomness
-        np.random.seed(0)
-
-        k = 15
-        t = 0.1
-        alpha = 0.75
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-        num_replicates = 100
-
-        Nxx, Nx, Nxt, N = cooc_stats
-        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
-            cooc_stats, t)
-        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
-        Nx = torch.sum(Nxx, dim=1, keepdim=True)
-        Nxt = Nxt ** alpha
-        N = torch.sum(Nxt)
-        expected_M = (
-            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
-        ) - np.log(k)
-
-        found_M = torch.zeros(Nxx.shape, device=device, dtype=dtype)
-        for rep in range(num_replicates):
-            replicate_M = h.M.get_sample_M_w2v(
-                cooc_stats, k, t, alpha).load_all()
-            found_M += replicate_M / num_replicates
-
-        self.assertTrue(torch.allclose(found_M, expected_M, atol=0.08))
-
-
-            
-
-
-
 
 class TestEmbeddings(TestCase):
 
@@ -2882,42 +3014,28 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
 
         # Can make random embeddings and provide a dictionary to use.
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, implementation='torch', device='cpu')
+        embeddings = h.embeddings.random(vocab, d, dictionary, shared)
         self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertEqual(embeddings.W.shape, (vocab, d))
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can have random embeddings with shared parameters.
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared=True, implementation='torch', 
-            device='cpu'
-        )
+        embeddings = h.embeddings.random(vocab, d, dictionary, shared=True)
         self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertTrue(embeddings.W is embeddings.V)
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can omit the dictionary
         embeddings = h.embeddings.random(
-            vocab, d, dictionary=None, shared=False, implementation='torch',
-            device='cpu'
-        )
+            vocab, d, dictionary=None, shared=False)
         self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertEqual(embeddings.W.shape, (vocab, d))
         self.assertTrue(embeddings.dictionary is None)
 
-        # Can use either numpy or torch
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared=False, implementation='torch', 
-            device='cpu'
-        )
+        # Uses torch.
+        embeddings = h.embeddings.random(vocab, d, dictionary, shared=False)
         self.assertTrue(isinstance(embeddings.V, torch.Tensor))
         self.assertTrue(isinstance(embeddings.W, torch.Tensor))
-
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared=False, implementation='numpy')
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
 
 
     def test_random_distribution(self):
@@ -2929,91 +3047,65 @@ class TestEmbeddings(TestCase):
 
         # Can make numpy random embeddings with uniform distribution
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='uniform', scale=0.2, seed=0,
-            implementation='numpy', device='cpu',
+            vocab, d, dictionary, shared, distribution='uniform', scale=0.2,
+            seed=0
         )
 
         np.random.seed(0)
         expected_uniform_V = np.random.uniform(-0.2, 0.2, (vocab, d))
         expected_uniform_W = np.random.uniform(-0.2, 0.2, (vocab, d))
 
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
         self.assertTrue(np.allclose(embeddings.V, expected_uniform_V))
         self.assertTrue(np.allclose(embeddings.W, expected_uniform_W))
 
+
         # Can make numpy random embeddings with normal distribution
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='normal', scale=0.2, seed=0,
-            implementation='numpy', device='cpu',
+            vocab, d, dictionary, shared, distribution='normal', scale=0.2,
+            seed=0
         )
 
         np.random.seed(0)
         expected_normal_V = np.random.normal(0, 0.2, (vocab, d))
         expected_normal_W = np.random.normal(0, 0.2, (vocab, d))
 
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
         self.assertTrue(np.allclose(embeddings.V, expected_normal_V))
         self.assertTrue(np.allclose(embeddings.W, expected_normal_W))
 
         # Scale matters.
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='uniform', scale=1, seed=0,
-            implementation='numpy', device='cpu',
+            vocab, d, dictionary, shared, distribution='uniform', scale=1,
+            seed=0
         )
 
         np.random.seed(0)
         expected_uniform_scale_V = np.random.uniform(-1, 1, (vocab, d))
         expected_uniform_scale_W = np.random.uniform(-1, 1, (vocab, d))
 
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
         self.assertTrue(np.allclose(embeddings.V, expected_uniform_scale_V))
         self.assertTrue(np.allclose(embeddings.W, expected_uniform_scale_W))
 
         # Scale matters.
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='normal', scale=1, seed=0,
-            implementation='numpy', device='cpu',
+            vocab, d, dictionary, shared, distribution='normal', scale=1,
+            seed=0
         )
 
         np.random.seed(0)
         expected_normal_scale_V = np.random.normal(0, 1, (vocab, d))
         expected_normal_scale_W = np.random.normal(0, 1, (vocab, d))
 
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
+        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
+        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
         self.assertTrue(np.allclose(embeddings.V, expected_normal_scale_V))
         self.assertTrue(np.allclose(embeddings.W, expected_normal_scale_W))
 
-        # Can make torch random embeddings with uniform distribution
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='uniform', scale=0.2, seed=0,
-            implementation='torch', device='cpu',
-        )
-
-        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
-        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
-        self.assertTrue(np.allclose(embeddings.V, expected_uniform_V))
-        self.assertTrue(np.allclose(embeddings.W, expected_uniform_W))
-
-        # Can make torch random embeddings with normal distribution
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            distribution='normal', scale=0.2, seed=0,
-            implementation='torch', device='cpu',
-        )
-
-        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
-        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
-        self.assertTrue(np.allclose(embeddings.V, expected_normal_V))
-        self.assertTrue(np.allclose(embeddings.W, expected_normal_W))
 
 
 
@@ -3024,18 +3116,12 @@ class TestEmbeddings(TestCase):
         shared = False
         dictionary = get_test_dictionary()
 
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            implementation='numpy', device='cpu'
-        )
+        embeddings = h.embeddings.random(vocab, d, dictionary, shared)
         self.assertTrue(np.allclose(embeddings.unk, embeddings.V.mean(0)))
         self.assertTrue(np.allclose(embeddings.unkV, embeddings.V.mean(0)))
         self.assertTrue(np.allclose(embeddings.unkW, embeddings.W.mean(0)))
 
-        embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared, 
-            implementation='torch', device='cpu'
-        )
+        embeddings = h.embeddings.random(vocab, d, dictionary, shared)
         self.assertTrue(torch.allclose(embeddings.unk, embeddings.V.mean(0)))
         self.assertTrue(torch.allclose(embeddings.unkV, embeddings.V.mean(0)))
         self.assertTrue(torch.allclose(embeddings.unkW, embeddings.W.mean(0)))
@@ -3057,25 +3143,6 @@ class TestEmbeddings(TestCase):
         ))
         
 
-
-
-    def test_embedding_implementation(self):
-        d = 300
-        vocab = 5000
-        dictionary = get_test_dictionary()
-        V = np.random.random((vocab, d))
-        W = np.random.random((vocab, d))
-
-        embeddings = h.embeddings.Embeddings(
-            V, W, dictionary, implementation="torch", device="cpu")
-        self.assertTrue(isinstance(embeddings.V, torch.Tensor))
-        self.assertTrue(isinstance(embeddings.W, torch.Tensor))
-        self.assertEqual(embeddings.W.device.type, 'cpu')
-
-        embeddings = h.embeddings.Embeddings(
-            V, W, dictionary, implementation="numpy")
-        self.assertTrue(isinstance(embeddings.V, np.ndarray))
-        self.assertTrue(isinstance(embeddings.W, np.ndarray))
 
 
     def test_embedding_access(self):
@@ -3173,7 +3240,6 @@ class TestEmbeddings(TestCase):
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
         out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-embeddings')
-        device='cpu'
 
         if os.path.exists(out_path):
             shutil.rmtree(out_path)
@@ -3181,12 +3247,10 @@ class TestEmbeddings(TestCase):
 
         # Create vectors using the numpy implementation, save them, then 
         # reload them alternately using either numpy or torch implementation.
-        embeddings1 = h.embeddings.Embeddings(
-            V, W, dictionary, implementation='torch',device='cpu')
+        embeddings1 = h.embeddings.Embeddings(V, W, dictionary)
         embeddings1.save(out_path)
 
-        embeddings2 = h.embeddings.Embeddings.load(
-            out_path, implementation='torch', device='cpu')
+        embeddings2 = h.embeddings.Embeddings.load(out_path)
         self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
 
         self.assertTrue(embeddings1.V is not embeddings2.V)
@@ -3194,9 +3258,8 @@ class TestEmbeddings(TestCase):
         self.assertTrue(torch.allclose(embeddings1.V, embeddings2.V))
         self.assertTrue(torch.allclose(embeddings1.W, embeddings2.W))
 
-        embeddings2 = h.embeddings.Embeddings.load(
-            out_path, implementation='numpy')
-        self.assertTrue(isinstance(embeddings2.V, np.ndarray))
+        embeddings2 = h.embeddings.Embeddings.load(out_path)
+        self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
 
         self.assertTrue(embeddings1.V is not embeddings2.V)
         self.assertTrue(embeddings1.W is not embeddings2.W)
@@ -3210,12 +3273,10 @@ class TestEmbeddings(TestCase):
         if os.path.exists(out_path):
             shutil.rmtree(out_path)
 
-        embeddings1 = h.embeddings.Embeddings(
-            V, W, dictionary, implementation='torch',device='cpu')
+        embeddings1 = h.embeddings.Embeddings(V, W, dictionary)
         embeddings1.save(out_path)
 
-        embeddings2 = h.embeddings.Embeddings.load(
-            out_path, implementation='torch', device='cpu')
+        embeddings2 = h.embeddings.Embeddings.load(out_path)
         self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
 
         self.assertTrue(embeddings1.V is not embeddings2.V)
@@ -3223,9 +3284,8 @@ class TestEmbeddings(TestCase):
         self.assertTrue(torch.allclose(embeddings1.V, embeddings2.V))
         self.assertTrue(torch.allclose(embeddings1.W, embeddings2.W))
 
-        embeddings2 = h.embeddings.Embeddings.load(
-            out_path, implementation='numpy')
-        self.assertTrue(isinstance(embeddings2.V, np.ndarray))
+        embeddings2 = h.embeddings.Embeddings.load(out_path)
+        self.assertTrue(isinstance(embeddings2.V, torch.Tensor))
 
         self.assertTrue(embeddings1.V is not embeddings2.V)
         self.assertTrue(embeddings1.W is not embeddings2.W)
@@ -3239,8 +3299,7 @@ class TestEmbeddings(TestCase):
 
         in_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
-        embeddings = h.embeddings.Embeddings.load(
-            in_path, implementation='torch', device='cpu')
+        embeddings = h.embeddings.Embeddings.load(in_path)
         self.assertTrue(embeddings.normed)
         self.assertTrue(embeddings.check_normalized())
 
@@ -3252,10 +3311,8 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
-        device='cpu'
 
-        embeddings = h.embeddings.Embeddings(
-            V, W, dictionary, implementation='torch',device='cpu')
+        embeddings = h.embeddings.Embeddings(V, W, dictionary)
 
         self.assertFalse(embeddings.normed)
         self.assertFalse(embeddings.check_normalized())
@@ -3280,12 +3337,9 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
-        device='cpu'
 
         embeddings = h.embeddings.Embeddings(
-            V, dictionary=dictionary, shared=True, 
-            implementation='torch', device='cpu'
-        )
+            V, dictionary=dictionary, shared=True)
 
         self.assertFalse(embeddings.normed)
         self.assertFalse(embeddings.check_normalized())
@@ -3307,10 +3361,12 @@ class TestEmbeddings(TestCase):
 
 
     def test_cannot_provide_W_if_shared(self):
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         d = 300
         vocab = 5000
-        V = torch.rand((vocab, d))
-        W = torch.rand((vocab, d))
+        V = torch.rand((vocab, d), device=device, dtype=dtype)
+        W = torch.rand((vocab, d), device=device, dtype=dtype)
 
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(V, W, shared=True)
@@ -3324,9 +3380,7 @@ class TestEmbeddings(TestCase):
         # Some products are tied, and their sorting isn't stable.  But, when
         # we set fix the seed, the top and bottom ten are stably ranked.
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared=False, implementation='torch', 
-            device='cpu', seed=0
-        )
+            vocab, d, dictionary, shared=False, seed=0)
 
         # Given a query vector, verify that we can find the other vector having
         # the greatest dot product.
@@ -3374,9 +3428,7 @@ class TestEmbeddings(TestCase):
         # Some products are tied, and their sorting isn't stable.  But, when
         # we set fix the seed, the top and bottom ten are stably ranked.
         embeddings = h.embeddings.random(
-            vocab, d, dictionary, shared=False, implementation='torch', 
-            device='cpu', seed=0
-        )
+            vocab, d, dictionary, shared=False, seed=0)
 
         # Given a query vector, verify that we can find the other vector having
         # the greatest dot product.  We want to test cosine similarity, so we
@@ -3422,16 +3474,15 @@ class TestEmbeddings(TestCase):
 
     def test_slicing(self):
 
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         d = 300
         vocab = 5000
         dictionary = get_test_dictionary()
-        V = torch.rand((vocab, d))
-        W = torch.rand((vocab, d))
-        device='cpu'
+        V = torch.rand((vocab, d), device=device, dtype=dtype)
+        W = torch.rand((vocab, d), device=device, dtype=dtype)
 
-        embeddings = h.embeddings.Embeddings(
-            V, W, dictionary, implementation='torch',device='cpu'
-        )
+        embeddings = h.embeddings.Embeddings(V, W, dictionary)
 
         self.assertTrue(torch.allclose(embeddings[0:5000:1,0:300:1], V))
         self.assertTrue(torch.allclose(
@@ -3441,13 +3492,10 @@ class TestEmbeddings(TestCase):
             W
         ))
 
-
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
-        device='cpu'
 
-        embeddings = h.embeddings.Embeddings(
-            V, W, dictionary, implementation='numpy')
+        embeddings = h.embeddings.Embeddings(V, W, dictionary)
 
         self.assertTrue(
             np.allclose(embeddings[0:5000:1,0:300:1], V))
@@ -3456,24 +3504,6 @@ class TestEmbeddings(TestCase):
         self.assertTrue(np.allclose(
                 embeddings.get_covec((slice(0,5000,1),slice(0,300,1))), W))
 
-        #  You can use negative step size for numpy arrays!
-        self.assertTrue(np.allclose(
-            embeddings[500:1000:-2,50:100:-10], V[500:1000:-2,50:100:-10])
-        )
-        self.assertTrue(np.allclose(
-            embeddings.get_vec((slice(500,1000,-2),slice(50,100,-10))),
-            V[500:1000:-2,50:100:-10])
-        )
-        self.assertTrue(np.allclose(
-            embeddings.get_covec((slice(500,1000,-2),slice(50,100,-10))),
-            W[500:1000:-2,50:100:-10])
-        )
-
-
-
-
-
-
 
 
 
@@ -3481,6 +3511,8 @@ class TestUtils(TestCase):
 
     def test_normalize(self):
 
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         d = 300
         vocab = 5000
 
@@ -3504,7 +3536,7 @@ class TestUtils(TestCase):
         self.assertTrue(np.allclose(
             np.linalg.norm(found, ord=2, axis=0), np.ones(d)))
 
-        V_torch = torch.rand((vocab, d))
+        V_torch = torch.rand((vocab, d), device=device, dtype=dtype)
 
         norm = torch.norm(V_torch, p=2, dim=1, keepdim=True)
         expected = V_torch / norm
@@ -3512,7 +3544,9 @@ class TestUtils(TestCase):
         self.assertTrue(torch.allclose(found, expected))
         self.assertTrue(V_torch.shape, found.shape)
         self.assertTrue(torch.allclose(
-            torch.norm(found, p=2, dim=1), torch.ones(vocab)))
+            torch.norm(found, p=2, dim=1), 
+            torch.ones(vocab, device=device, dtype=dtype)
+        ))
 
 
         norm = torch.norm(V_torch, p=2, dim=0, keepdim=True)
@@ -3521,12 +3555,15 @@ class TestUtils(TestCase):
         self.assertTrue(torch.allclose(found, expected))
         self.assertTrue(V_torch.shape, found.shape)
         self.assertTrue(torch.allclose(
-            torch.norm(found, p=2, dim=0), torch.ones(d)))
-
+            torch.norm(found, p=2, dim=0),
+            torch.ones(d, dtype=dtype, device=device)
+        ))
 
 
     def test_norm(self):
 
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
         d = 300
         vocab = 5000
 
@@ -3540,7 +3577,7 @@ class TestUtils(TestCase):
         found = h.utils.norm(V_numpy, ord=3, axis=1, keepdims=False)
         self.assertTrue(np.allclose(found, expected))
 
-        V_torch = torch.rand((vocab, d))
+        V_torch = torch.rand((vocab, d), device=device, dtype=dtype)
 
         expected = torch.norm(V_torch, p=2, dim=0, keepdim=True)
         found = h.utils.norm(V_torch, ord=2, axis=0, keepdims=True)
@@ -3549,6 +3586,34 @@ class TestUtils(TestCase):
         expected = torch.norm(V_torch, p=3, dim=1, keepdim=False)
         found = h.utils.norm(V_torch, ord=3, axis=1, keepdims=False)
         self.assertTrue(np.allclose(found, expected))
+
+
+    def test_load_shard(self):
+
+        shards = h.shards.Shards(5)
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
+
+        # Handles Numpy arrays properly.
+        source = np.arange(100).reshape(10,10)
+        expected = torch.tensor(
+            [[0,5],[50,55]], device=device, dtype=dtype)
+        found = h.utils.load_shard(source, shards[0])
+        self.assertTrue(torch.allclose(found, expected))
+
+        # Handles Scipy CSR sparse matrices properly.
+        source = sparse.random(10,10,0.3).tocsr()
+        expected = torch.tensor(
+            source.toarray()[shards[0]], device=device, dtype=dtype)
+        found = h.utils.load_shard(source, shards[0])
+        self.assertTrue(torch.allclose(found, expected))
+
+        # Handles Numpy matrices properly.
+        source = np.matrix(range(100)).reshape(10,10)
+        expected = torch.tensor(
+            np.asarray(source)[shards[0]], device=device, dtype=dtype)
+        found = h.utils.load_shard(source, shards[0])
+        self.assertTrue(torch.allclose(found, expected))
 
 
 
@@ -3578,13 +3643,16 @@ class TestShards(TestCase):
                     M[shard], expected_shard
                 ))
 
-                        
-
-
-
-            
 
 
 if __name__ == '__main__':
+
+    if '--cpu' in sys.argv:
+        print('\nTESTING DEVICE: CPU\n')
+        sys.argv.remove('--cpu')
+        h.CONSTANTS.MATRIX_DEVICE = 'cpu'
+    else:
+        print('\nTESTING DEVICE: CUDA.  Use --cpu to test on cpu.\n')
+
     main()
 

@@ -35,7 +35,7 @@ def get_w2v_embedder(
     learning_rate=1e-6,
     momentum_decay=0.9,
     verbose=True,
-    device='cuda'
+    device=None
 ):
 
     # Undersample cooc_stats.
@@ -43,9 +43,11 @@ def get_w2v_embedder(
         print('WARNING: not using common-word undersampling')
     else:
         if undersample_method == 'sample':
-            cooc_stats = h.cooc_stats.w2v_undersample(cooc_stats, t)
+            cooc_stats = h.cooc_stats.w2v_undersample(
+                cooc_stats, t, verbose=verbose)
         elif undersample_method == 'expectation':
-            cooc_stats = h.cooc_stats.expectation_w2v_undersample(cooc_stats, t)
+            cooc_stats = h.cooc_stats.expectation_w2v_undersample(
+                cooc_stats, t, verbose=verbose)
         else:
             raise ValueError(
                 'If `t` is not `None`, `undersample_method` must be either '
@@ -53,10 +55,10 @@ def get_w2v_embedder(
             )
 
     # Smooth unigram distribution.
-    cooc_stats = h.cooc_stats.smooth_unigram(cooc_stats, alpha)
+    cooc_stats = h.cooc_stats.smooth_unigram(cooc_stats, alpha, verbose=verbose)
 
     # Make M, delta, and the embedder.
-    M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k), device=device)
+    M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k))
     delta = h.f_delta.DeltaW2V(cooc_stats, M, k, device=device)
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, learning_rate=learning_rate,
@@ -107,24 +109,28 @@ def get_embedder(
 
     # Implementation details
     verbose=True,
-    device='cuda'
+    device=None
 ):
 
+
     if undersample is 'sample':
-        cooc_stats = w2v_undersample(cooc_stats, t)
+        cooc_stats = w2v_undersample(cooc_stats, t, verbose=verbose)
     elif undersample is 'expectation':
-        cooc_stats = expectation_w2v_undersample(cooc_stats, t)
+        cooc_stats = expectation_w2v_undersample(cooc_stats, t, verbose=verbose)
     elif undersample is not None:
         raise ValueError(
             "Expected None, 'sample', or 'expectation' as values for "
             "undersample.  Found %s" % repr(undersample)
         )
 
+    # Smooth unigram distribution.
+    cooc_stats = h.cooc_stats.smooth_unigram(
+        cooc_stats, smooth_unigram, verbose=verbose)
+
     M_args = {
         'cooc_stats':cooc_stats, 'base':base, #'t_undersample':t_undersample,
         'shift_by':shift_by, 'neg_inf_val':neg_inf_val,
         'clip_thresh':clip_thresh, 'diag':diag,
-        'device':device
     }
 
     ###
@@ -198,11 +204,11 @@ def get_embedder(
     solver_instance = (
         embedder if solver=='sgd' else
         h.solver.MomentumSolver(embedder, learning_rate, momentum_decay,
-            device) if solver=='momentum' else
+            device=device) if solver=='momentum' else
         h.solver.NesterovSolverOptimized(embedder, learning_rate,
-            momentum_decay, device) if solver=='nesterov' else
+            momentum_decay, device=device) if solver=='nesterov' else
         h.solver.NesterovSolverCautious(embedder, learning_rate,
-            momentum_decay, device) if solver=='slosh' else
+            momentum_decay, device=device) if solver=='slosh' else
         None
     )
     if solver_instance is None:
@@ -226,7 +232,7 @@ class HilbertEmbedder(object):
         constrainer=None,
         shard_factor=10,
         verbose=True,
-        device='cuda',
+        device=None,
     ):
 
         self.delta = delta
@@ -249,9 +255,10 @@ class HilbertEmbedder(object):
         self.reset()
 
 
-    def sample_sphere(self):
+    def sample_sphere(self, device=None):
+        device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
         sample = torch.rand(
-            (self.num_vecs, self.d), device=self.device
+            (self.num_vecs, self.d), device=device
         ).mul_(2).sub_(1)
         return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
 
@@ -305,9 +312,6 @@ class HilbertEmbedder(object):
             #    print('Shard ', i)
             # Determine the errors.
             M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
-            print(use_W[shard[0]])
-            print(use_V[shard[1]].t())
-            print(M_hat)
             start = time.time()
             delta = self.delta.calc_shard(M_hat, shard, **pass_args)
             #if self.verbose:
@@ -322,22 +326,6 @@ class HilbertEmbedder(object):
         if self.one_sided:
             return nabla_V
         return nabla_V, nabla_W
-
-
-        ## Determine the errors.
-        #M_hat = torch.mm(use_W, use_V)
-
-        #delta = self.f_delta(M_hat, **pass_args)
-        #self.badness = torch.sum(abs(delta)) / (
-        #    self.M.shape[0] * self.M.shape[1])
-
-        #
-        #nabla_V = torch.mm(use_W.t(), delta)
-        #if self.one_sided:
-        #    return nabla_V
-
-        #nabla_W = torch.mm(delta, use_V.t())
-        #return nabla_V, nabla_W
 
 
     def update(self, delta_V=None, delta_W=None):
@@ -373,7 +361,7 @@ class HilbertEmbedder(object):
             self.update_self(pass_args)
             self.apply_constraints()
             if print_badness:
-                print(self.badness)
+                print('badness\t{}'.format(self.badness.item()))
 
 
 

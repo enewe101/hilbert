@@ -23,29 +23,22 @@ class MomentumSolver(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
+        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
         self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
         self.momenta = []
         param_gradients = self.objective.get_gradient()
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(torch.tensor(
-                    np.zeros(param.shape), dtype=torch.float32, 
-                    device=self.device
-                ))
-            else:
-                self.momenta.append(np.zeros(param.shape))
+            self.momenta.append(torch.tensor(
+                np.zeros(param.shape), dtype=torch.float32, device=device))
 
 
     def cycle(self, times=1, pass_args=None):
@@ -76,27 +69,22 @@ class NesterovSolver(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
+        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
         self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
     def allocate(self):
         self.momenta = []
         param_gradients = self.objective.get_gradient()
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
+            self.momenta.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
 
 
     def cycle(self, times=1, pass_args=None):
@@ -136,15 +124,12 @@ class NesterovSolverOptimized(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
+        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
         self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
@@ -152,15 +137,12 @@ class NesterovSolverOptimized(object):
         self.momenta = []
         self.updates = []
         param_gradients = self.objective.get_gradient()
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-                self.updates.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
-                self.updates.append(np.zeros(param.shape))
+            self.momenta.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
+            self.updates.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
 
 
     def cycle(self, times=1, pass_args=None):
@@ -200,15 +182,12 @@ class NesterovSolverCautious(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9,
-        implementation='torch', device='cuda'
+        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
-        self.implementation = implementation
         self.device = device
-        h.utils.ensure_implementation_valid(implementation)
         self.allocate()
 
 
@@ -218,18 +197,14 @@ class NesterovSolverCautious(object):
         self.updates = []
         self.last_gradient = []
         param_gradients = self.objective.get_gradient()
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         for param in param_gradients:
-            if self.implementation == 'torch':
-                self.momenta.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-                self.updates.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-                self.last_gradient.append(torch.zeros(
-                    param.shape, dtype=torch.float32, device=self.device))
-            else:
-                self.momenta.append(np.zeros(param.shape))
-                self.updates.append(np.zeros(param.shape))
-                self.last_gradient.append(np.zeros(param.shape))
+            self.momenta.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
+            self.updates.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
+            self.last_gradient.append(torch.zeros(
+                param.shape, dtype=torch.float32, device=device))
 
 
     def clear_momenta(self):
@@ -258,10 +233,8 @@ class NesterovSolverCautious(object):
                 for j in range(len(gradients))
             )
 
-            if self.implementation == 'torch':
-                norm = torch.sqrt(norm_squared)
-            else:
-                norm = np.sqrt(norm_squared)
+            norm = torch.sqrt(norm_squared)
+
             if self.last_norm is None:
                 alignment = 1
                 norms = None
@@ -278,12 +251,9 @@ class NesterovSolverCautious(object):
             #print('\talignment: ' + str(alignment))
             self.last_norm =  norm
 
-            if self.implementation == 'torch':
-                self.last_gradient = [
-                    gradients[j].clone() for j in range(len(gradients))]
-            else:
-                self.last_gradient = [
-                    gradients[j].copy() for j in range(len(gradients))]
+            self.last_gradient = [
+                gradients[j].clone() for j in range(len(gradients))]
+
             use_momentum_decay = max(0, alignment) * self.momentum_decay
 
             # Calculate update to momenta.

@@ -17,9 +17,11 @@ def get_f_MSE(cooc_stats, M, implementation='torch', device='cuda'):
 
 
 def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
+    Nxx, Nx, N = cooc_stats
+    Nxt = np.asarray(np.sum(cooc_stats.Nxx, axis=0))
     h.utils.ensure_implementation_valid(implementation)
-    N_neg_xx = calc_N_neg_xx(cooc_stats.Nx, k)
-    multiplier = cooc_stats.denseNxx + N_neg_xx
+    N_neg_xx = calc_N_neg_xx((Nxx, Nx, Nxt, N), k)
+    multiplier = Nxx + N_neg_xx
     sigmoid_M = sigmoid(M)
     if implementation == 'torch':
         multiplier = torch.tensor(
@@ -142,9 +144,9 @@ def get_f_swivel(cooc_stats, M, implementation='torch', device='cuda'):
     return f_swivel
 
 
-def calc_N_neg_xx(N_x, k):
-    N = float(np.sum(N_x))
-    return k * N_x * N_x.T / N
+def calc_N_neg_xx(cooc_stats, k):
+    Nxx, Nx, Nxt, N = cooc_stats
+    return k * Nx * Nxt / N
 
 
 def sigmoid(M):

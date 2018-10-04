@@ -90,7 +90,6 @@ class TorchHilbertEmbedder(object):
 
         # Determine the errors.
         delta = self.f_delta(M_hat, **pass_args)
-        print(delta)
         self.badness = torch.sum(abs(delta)) / (
             self.M.shape[0] * self.M.shape[1])
 

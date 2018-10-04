@@ -4,6 +4,7 @@ import hilbert.f_delta
 import hilbert.constrainer
 import hilbert.embedder
 import hilbert.solver
+import hilbert.unigram
 import hilbert.cooc_stats
 import hilbert.dictionary
 import hilbert.M
