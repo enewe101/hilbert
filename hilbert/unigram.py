@@ -100,6 +100,7 @@ class Unigram(object):
         """
         Create a new Unigram that has counts from both operands.
         """
+
         if not isinstance(other, Unigram):
             return NotImplemented
 
@@ -120,7 +121,8 @@ class Unigram(object):
         self.sort_by_tokens(other.dictionary.tokens)
 
         for i in range(len(other.dictionary)):
-            self.Nx[i] += other.Nx[i]
+            other_count = other.Nx[i]
+            self.Nx[i] += other_count
 
         self.N = sum(self.Nx)
 
@@ -184,9 +186,11 @@ class Unigram(object):
         not in vocabulary add them.  The token at position i in token order
         gets index i.
         """
+
         remaining_tokens = list(set(self.dictionary.tokens) - set(token_order))
         token_order = token_order + remaining_tokens
         idx_order = [self.dictionary.add_token(token) for token in token_order]
+
         self.Nx += [0] * (len(token_order) - len(self.Nx))
         self.sort_by_idxs(idx_order)
 

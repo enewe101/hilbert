@@ -18,6 +18,9 @@ def load_tokens(path):
         return f.read().split()
 
 
+def get_test_bigram(window_size):
+    return get_bigram(load_test_tokens(), window_size, verbose=False)
+
 def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
@@ -73,5 +76,26 @@ def get_stats(token_list, window_size, verbose=True):
                 continue
             cooc_stats.add(focal_word, context_word)
     return cooc_stats
+
+
+def get_bigram(token_list, window_size, verbose=True):
+    unigram = h.unigram.Unigram()
+    for token in token_list:
+        unigram.add(token)
+    bigram = h.bigram.Bigram(unigram, verbose=verbose)
+    for i in range(len(token_list)):
+        focal_word = token_list[i]
+        for j in range(i-window_size, i +window_size+1):
+            if i==j or j < 0:
+                continue
+            try:
+                context_word = token_list[j]
+            except IndexError:
+                continue
+            bigram.add(focal_word, context_word)
+    return bigram
+
+
+
 
 

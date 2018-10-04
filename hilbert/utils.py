@@ -13,14 +13,20 @@ except ImportError:
 def load_shard(
     source,
     shard=None,
-    from_sparse=False,
+    from_sparse=None,
     dtype=h.CONSTANTS.DEFAULT_DTYPE,
     device=None
 ):
     device = device or h.CONSTANTS.MATRIX_DEVICE
 
+    if from_sparse is not None:
+        print(
+            'from_sparse option is deprecated, in favor of inspecting the type '
+            'of the passed argument.'
+        )
+
     # Handle Scipy sparse matrix types
-    if isinstance(source, sparse.csr_matrix):
+    if isinstance(source, (sparse.csr_matrix, sparse.lil_matrix)):
         shard = shard or slice(None)
         return torch.tensor(source[shard].toarray(), dtype=dtype, device=device)
 

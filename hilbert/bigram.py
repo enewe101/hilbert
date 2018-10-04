@@ -12,6 +12,7 @@ except ImportError:
     stats = None
     torch = None
 
+
 import hilbert as h
 
 
@@ -47,15 +48,15 @@ class Bigram(object):
         self.unigram = unigram
 
         if Nxx is not None:
-            self._Nxx = sparse.lil_matrix(Nxx)
-            self._Nx = np.asarray(np.sum(self._Nxx, axis=1))
-            self._Nxt = np.asarray(np.sum(self._Nxx, axis=0))
-            self._N = np.sum(self._Nx)
+            self.Nxx = sparse.lil_matrix(Nxx)
+            self.Nx = np.asarray(np.sum(self.Nxx, axis=1))
+            self.Nxt = np.asarray(np.sum(self.Nxx, axis=0))
+            self.N = np.sum(self.Nx)
         else:
-            self._Nxx = sparse.lil_matrix(self.vocab, self.vocab))
-            self._Nx = np.zeros((self.vocab, 1))
-            self._Nxt = np.zeros((1, self.vocab))
-            self._N = 0
+            self.Nxx = sparse.lil_matrix((self.vocab, self.vocab))
+            self.Nx = np.zeros((self.vocab, 1))
+            self.Nxt = np.zeros((1, self.vocab))
+            self.N = 0
 
         self.device = device
         self.verbose = verbose
@@ -84,7 +85,7 @@ class Bigram(object):
         device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
 
         loaded_Nxx = h.utils.load_shard(
-            self.Nxx, shard, from_sparse=True, device=device)
+            self.Nxx, shard, device=device)
         loaded_Nx = h.utils.load_shard(
             self.Nx, shard[0], device=device)
         loaded_Nxt = h.utils.load_shard(
@@ -100,10 +101,7 @@ class Bigram(object):
 
     def __deepcopy__(self, memo):
         result = Bigram(
-            dictionary=deepcopy(self.dictionary),
-            counts=Counter(self.counts), 
-            verbose=self.verbose
-        )
+            unigram=deepcopy(self.unigram), Nxx=self.Nxx, verbose=self.verbose)
         memo[id(self)] = result
         return result
 
@@ -138,31 +136,37 @@ class Bigram(object):
         if not isinstance(other, Bigram):
             return NotImplemented
 
+
         # Find an shared ordering that matches other's ordering, with any words
         # unique to self's vocab placed at the end.
-        token_order = other.unigram.dictionary.tokens
+        token_order = list(other.unigram.dictionary.tokens)
         other_vocab = len(token_order)
+        self_vocab = self.vocab
         remaining_tokens = set(self.unigram.dictionary.tokens)-set(token_order)
         token_order += remaining_tokens
-        idx_order = [self.dictionary.add_token(token) for token in token_order]
+
+        # Use a temporary dictionary based on current vocabulary to provide
+        # the ordering to be used
+        ordering_dict = deepcopy(self.dictionary)
+        idx_order = [ordering_dict.add_token(token) for token in token_order]
 
         # Copy self's counts into a large enough matrix
         new_Nxx = sparse.lil_matrix((len(idx_order), len(idx_order)))
-        new_Nxx += self._Nxx
-        self._Nxx = new_Nxx
+        new_Nxx[:self_vocab,:self_vocab] += self.Nxx
+        self.Nxx = new_Nxx
 
-        # Reorder self, ensure that unigram adopts the same ordering.
-        self._Nxx = self._Nxx[idx_order][:,idx_order]
+        # Adopt the shared ordering and add others counts
+        self.Nxx = self.Nxx[idx_order][:,idx_order]
+        self.Nxx[:other_vocab,:other_vocab] += other.Nxx
+
+        # Add unigrams, and adopt the shared ordering there too.
+        self.unigram += other.unigram
         self.unigram.sort_by_tokens(token_order)
 
-        # Add other's counts to self
-        self._Nxx[:other_vocab,:other_vocab] += other.Nxx
-        self.unigram += other.unigram
-
         # Compile tallies.
-        self._Nx = np.array(np.sum(self._Nxx, axis=1))
-        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
-        self._N = np.sum(self._Nx)
+        self.Nx = np.array(np.sum(self.Nxx, axis=1))
+        self.Nxt = np.array(np.sum(self.Nxx, axis=0))
+        self.N = np.sum(self.Nx)
 
         return self
 
@@ -180,14 +184,14 @@ class Bigram(object):
     def add(self, token1, token2, count=1):
 
         # Get token idx's.
-        id1 = self._dictionary.add_token(token1)
-        id2 = self._dictionary.add_token(token2)
+        id1 = self.dictionary.get_id(token1)
+        id2 = self.dictionary.get_id(token2)
 
         # Add counts.
-        self._Nxx[id1, id2] += count
-        self._Nx[id1] += count
-        self._Nxt[id2] += count
-        self._N += count
+        self.Nxx[id1, id2] += count
+        self.Nx[id1][0] += count
+        self.Nxt[0][id2] += count
+        self.N += count
 
 
     def sort(self, force=False):
@@ -196,24 +200,10 @@ class Bigram(object):
         The unigram and its dictionary are forced to adopt the same ordering.
         """
         top_indices = np.argsort(-self.Nx.reshape(-1))
-        self._Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
-        self._Nx = self.Nx[top_indices]
-        self._Nxt = self.Nxt[:,top_indices]
+        self.Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
+        self.Nx = self.Nx[top_indices]
+        self.Nxt = self.Nxt[:,top_indices]
         self.unigram.sort_by_idxs(top_indices)
-
-
-    def save(self, path, save_unigram=True):
-        """
-        Save the cooccurrence data to disk.  A new directory will be created
-        at `path`, and two files will be created within it to store the 
-        token-ID mapping and the cooccurrence data.
-        """
-        if not os.path.exists(path):
-            os.makedirs(path)
-        sparse.save_npz(
-            os.path.join(path, 'Nxx.npz'), self.Nxx)
-        if save_unigram:
-            self.unigram.save(path)
 
 
     def density(self, threshold_count=0):
@@ -228,11 +218,25 @@ class Bigram(object):
 
     def truncate(self, k):
         """Drop all but the `k` most common words."""
-        self._Nxx = self.Nxx[:k][:,:k]
-        self._Nx = np.array(np.sum(self._Nxx, axis=1))
-        self._Nxt = np.array(np.sum(self._Nxx, axis=0))
-        self._N = np.sum(self._Nx)
+        self.Nxx = self.Nxx[:k][:,:k]
+        self.Nx = np.array(np.sum(self.Nxx, axis=1))
+        self.Nxt = np.array(np.sum(self.Nxx, axis=0))
+        self.N = np.sum(self.Nx)
         self.unigram.truncate(k)
+
+
+    def save(self, path, save_unigram=True):
+        """
+        Save the cooccurrence data to disk.  A new directory will be created
+        at `path`, and two files will be created within it to store the 
+        token-ID mapping and the cooccurrence data.
+        """
+        if not os.path.exists(path):
+            os.makedirs(path)
+        sparse.save_npz(
+            os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
+        if save_unigram:
+            self.unigram.save(path)
 
 
     @staticmethod
@@ -245,6 +249,12 @@ class Bigram(object):
         unigram = h.unigram.Unigram.load(path)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tocsr()
         return Bigram(unigram, Nxx=Nxx, verbose=verbose)
+
+
+    @staticmethod
+    def load_unigram(path, verbose=True):
+        unigram = h.unigram.Unigram.load(path)
+        return Bigram(unigram, verbose=verbose)
 
 
 
@@ -287,11 +297,11 @@ def w2v_undersample(cooc_stats, t, verbose=True):
 
     # Modify Nxx, and Nx to reflect undersampling; leave Nxt, and N unchanged.
     # unigram distribution unchanged).
-    new_cooc_stats._Nxx = sparse.coo_matrix(
+    new_cooc_stats.Nxx = sparse.coo_matrix(
         (keep_Nxx_data, (I,J)), cooc_stats.Nxx.shape).tocsr()
-    new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats._Nxx, axis=1))
-    new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats._N = cooc_stats.N.copy()
+    new_cooc_stats.Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
+    new_cooc_stats.Nxt = cooc_stats.Nxt.copy()
+    new_cooc_stats.N = cooc_stats.N.copy()
 
     return new_cooc_stats
 
@@ -333,10 +343,10 @@ def expectation_w2v_undersample(cooc_stats, t, verbose=True):
     new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
 
     p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
-    new_cooc_stats._Nxx = cooc_stats.Nxx.multiply(p_xx)
-    new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
-    new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats._N = cooc_stats.N.copy()
+    new_cooc_stats.Nxx = cooc_stats.Nxx.multiply(p_xx)
+    new_cooc_stats.Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
+    new_cooc_stats.Nxt = cooc_stats.Nxt.copy()
+    new_cooc_stats.N = cooc_stats.N.copy()
 
     return new_cooc_stats
 
@@ -369,11 +379,11 @@ def smooth_unigram(cooc_stats, alpha=None, verbose=True):
     new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
 
     # We consider Nxt and N to be the holders of unigram frequency info,
-    new_cooc_stats._Nxt = cooc_stats.Nxt**alpha
-    new_cooc_stats._N = np.sum(new_cooc_stats._Nxt)
+    new_cooc_stats.Nxt = cooc_stats.Nxt**alpha
+    new_cooc_stats.N = np.sum(new_cooc_stats.Nxt)
     # Nxx, and Nx remain unchanged
-    new_cooc_stats._Nxx = cooc_stats.Nxx.copy()
-    new_cooc_stats._Nx = cooc_stats.Nx.copy()
+    new_cooc_stats.Nxx = cooc_stats.Nxx.copy()
+    new_cooc_stats.Nx = cooc_stats.Nx.copy()
 
     return new_cooc_stats
 
