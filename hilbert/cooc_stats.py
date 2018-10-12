@@ -102,10 +102,8 @@ class CoocStats(object):
 
         device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
 
-        loaded_Nxx = h.utils.load_shard(
-            self.Nxx, shard, from_sparse=True, device=device)
-        loaded_Nx = h.utils.load_shard(
-            self.Nx, shard[0], device=device)
+        loaded_Nxx = h.utils.load_shard(self.Nxx, shard, device=device)
+        loaded_Nx = h.utils.load_shard(self.Nx, shard[0], device=device)
         loaded_Nxt = h.utils.load_shard(
             self.Nxt, (slice(None), shard[1]), device=device)
         loaded_N = h.utils.load_shard(self.N, device=device)
@@ -462,7 +460,8 @@ def w2v_undersample(cooc_stats, t, verbose=True):
     # Take the original number of observations as a number of trials, 
     # and the survaval probability in a binomial distribution for undersampling.
     I, J = cooc_stats.Nxx.nonzero()
-    keep_Nxx_data = stats.binom.rvs(cooc_stats.Nxx[I,J], p_xx[I,J])
+    keep_Nxx_data = stats.binom.rvs(
+        cooc_stats.Nxx[I,J].astype(np.int32), p_xx[I,J])
 
 
     # Modify Nxx, and Nx to reflect undersampling; leave Nxt, and N unchanged.
@@ -471,7 +470,7 @@ def w2v_undersample(cooc_stats, t, verbose=True):
         (keep_Nxx_data, (I,J)), cooc_stats.Nxx.shape).tocsr()
     new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats._Nxx, axis=1))
     new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats._N = cooc_stats.N.copy()
+    new_cooc_stats._N = float(cooc_stats.N)
 
     return new_cooc_stats
 
@@ -516,7 +515,7 @@ def expectation_w2v_undersample(cooc_stats, t, verbose=True):
     new_cooc_stats._Nxx = cooc_stats.Nxx.multiply(p_xx)
     new_cooc_stats._Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
     new_cooc_stats._Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats._N = cooc_stats.N.copy()
+    new_cooc_stats._N = float(cooc_stats.N)
 
     return new_cooc_stats
 

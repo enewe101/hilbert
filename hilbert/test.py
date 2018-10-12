@@ -25,35 +25,26 @@ class TestGetEmbedder(TestCase):
         alpha = 0.75
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-
-        # Manually apply undersampling to the cooccurrence statistics.
-        Nxx, Nx, Nxt, N = cooc_stats
-        pxx = h.cooc_stats.calc_w2v_undersample_survival_probability(
-            cooc_stats, t)
-        Nxx *= torch.tensor(pxx.toarray(), dtype=dtype, device=device)
-        Nx = torch.sum(Nxx, dim=1, keepdim=True)
+        bigram = h.corpus_stats.get_test_bigram(3)
 
         # Manually apply unigram_smoothing to the cooccurrence statistics.
-        Nxt = Nxt ** alpha
-        N = torch.sum(Nxt)
-
+        Nxx, Nx, Nxt, N = bigram
+        bigram.unigram.apply_smoothing(alpha)
+        uNx, uNxt, uN = bigram.unigram
+        
         # Calculate the expected_M
-        expected_M_unshifted = (
-            torch.log(Nxx) + torch.log(N) - torch.log(Nxt) - torch.log(Nx)
-        )
-        expected_M = expected_M_unshifted - np.log(k) 
+        N_neg = k * (Nx-Nxx) * (uNxt / uN)
+        expected_M = torch.log(Nxx) - torch.log(N_neg)
 
         # Calculate expected f_delta
         M_hat = expected_M + 1
-        multiplier = Nxx + k * Nx * Nxt / N
+        multiplier = Nxx + N_neg
         difference = 1/(1+np.e**(-expected_M)) - 1/(1+np.e**(-M_hat))
         expected_delta = multiplier * difference
 
-        cooc_stats = h.corpus_stats.get_test_stats(3)
+        bigram = h.corpus_stats.get_test_bigram(3)
         found_embedder = h.embedder.get_w2v_embedder(
-            cooc_stats, k=k, alpha=alpha, t=t,
-            undersample_method='expectation', verbose=False
+            bigram, k=k, alpha=alpha, verbose=False
         )
         found_delta_calculator = found_embedder.delta
         found_delta = found_delta_calculator.calc_shard(M_hat)
@@ -65,7 +56,7 @@ class TestGetEmbedder(TestCase):
 
     def test_get_glove_embedder(self):
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
         d=300
         learning_rate = 1e-6
         one_sided = False
@@ -77,19 +68,18 @@ class TestGetEmbedder(TestCase):
 
         np.random.seed(0)
         torch.manual_seed(0)
-        M = h.M.M(
-            cooc_stats=cooc_stats, 
-            base=base,
+        M = h.M.M_logNxx(
+            bigram=bigram, 
             neg_inf_val=neg_inf_val,
         ).load_all()
-        f_delta_str = 'glove'
-        f_delta = h.f_delta.DeltaGlove(
-            cooc_stats=cooc_stats,
+        delta_str = 'glove'
+        delta = h.f_delta.DeltaGlove(
+            bigram=bigram,
             M=M,
             X_max=X_max,
         )
         expected_embedder = h.embedder.HilbertEmbedder(
-            delta=f_delta,
+            delta=delta,
             d=d,
             learning_rate=learning_rate,
             one_sided=one_sided,
@@ -100,18 +90,14 @@ class TestGetEmbedder(TestCase):
         np.random.seed(0)
         torch.manual_seed(0)
         found_embedder = h.embedder.get_embedder(
-            cooc_stats=cooc_stats,
-            f_delta=f_delta_str,
+            bigram=bigram,
+            delta=delta_str,
             base=base,
             solver=solver,
             X_max=X_max,
 
             # vvv Defaults
             k=None,
-            #t_undersample=None,
-
-            undersample=None,
-            t=None,
             smooth_unigram=None,
             shift_by=None,
             # ^^^ Defaults
@@ -121,9 +107,6 @@ class TestGetEmbedder(TestCase):
             # vvv Defaults
             clip_thresh=None,
             diag=None,
-            k_samples=1,
-            k_weight=None,
-            alpha=1.0,
             # ^^^ Defaults
 
             d=d,
@@ -181,49 +164,29 @@ class TestCorpusStats(TestCase):
 
 
     def test_PMI(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
         expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
-        found_PMI = h.corpus_stats.calc_PMI(cooc_stats)
+        found_PMI = h.corpus_stats.calc_PMI(bigram)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
 
     def test_sparse_PMI(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
         expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
         # PMI sparse treats all negative infinite values as zero
         expected_PMI[expected_PMI==-np.inf] = 0
-        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(cooc_stats)
-        self.assertTrue(len(pmi_data) < np.product(cooc_stats.Nxx.shape))
-        found_PMI = sparse.coo_matrix((pmi_data,(I,J)),cooc_stats.Nxx.shape)
+        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(bigram)
+        self.assertTrue(len(pmi_data) < np.product(bigram.Nxx.shape))
+        found_PMI = sparse.coo_matrix((pmi_data,(I,J)),bigram.Nxx.shape)
         self.assertTrue(np.allclose(found_PMI.toarray(), expected_PMI))
 
 
-    def test_calc_positive_PMI(self):
-        expected_positive_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
-        expected_positive_PMI[expected_positive_PMI < 0] = 0
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        found_positive_PMI = h.corpus_stats.calc_positive_PMI(cooc_stats)
-        self.assertTrue(np.allclose(found_positive_PMI, expected_positive_PMI))
-
-
-    def test_calc_shifted_PMI(self):
-        k = 15.0
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        expected_PMI_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'expected_PMI.npz')
-        expected_PMI = np.load(expected_PMI_path)['arr_0']
-        expected_shifted_PMI = expected_PMI - np.log(k)
-        found = h.corpus_stats.calc_shifted_PMI(
-            cooc_stats, torch.tensor(k, device=h.CONSTANTS.MATRIX_DEVICE))
-        self.assertTrue(np.allclose(found, expected_shifted_PMI))
-
-
     def test_PMI_star(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
         expected_PMI_star_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'expected_PMI_star.npz')
         expected_PMI_star = np.load(expected_PMI_star_path)['arr_0']
-        found_PMI_star = h.corpus_stats.calc_PMI_star(cooc_stats)
+        found_PMI_star = h.corpus_stats.calc_PMI_star(bigram)
         self.assertTrue(np.allclose(found_PMI_star, expected_PMI_star))
 
 
@@ -231,16 +194,16 @@ class TestCorpusStats(TestCase):
         # Next, test with a cooccurrence window of +/-2
         dtype=h.CONSTANTS.DEFAULT_DTYPE
         device=h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(
             Nxx, 
             torch.tensor(self.N_XX_2, dtype=dtype, device=device)
         ))
 
         # Next, test with a cooccurrence window of +/-3
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(3)
+        Nxx, Nx, Nxt, N = bigram
         self.assertTrue(np.allclose(
             Nxx,
             torch.tensor(
@@ -254,11 +217,11 @@ class TestM(TestCase):
 
 
     def test_calc_M_pmi(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
 
         # First calculate using no options
-        found_M = h.M.M(cooc_stats, 'pmi').load_all()
+        found_M = h.M.M_pmi(bigram).load_all()
 
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         self.assertTrue(np.allclose(found_M, expected_M))
@@ -268,28 +231,28 @@ class TestM(TestCase):
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
-        found_M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
+        found_M = h.M.M_pmi(bigram, shift_by=shift_by).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         clip_thresh = -0.1
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(bigram)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.M(cooc_stats, 'pmi', clip_thresh=clip_thresh).load_all()
+        found_M = h.M.M_pmi(bigram, clip_thresh=clip_thresh).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         diag = 5
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(bigram)
         h.utils.fill_diagonal(expected_M, diag)
-        found_M = h.M.M(cooc_stats, 'pmi', diag=diag).load_all()
+        found_M = h.M.M_pmi(bigram, diag=diag).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
 
     def test_calc_M_logNxx(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
 
         # First calculate using no options.
-        M = h.M.M(cooc_stats, 'logNxx').load_all()
+        M = h.M.M_logNxx(bigram).load_all()
         expected_M = torch.log(Nxx)
         self.assertTrue(torch.allclose(M, expected_M))
 
@@ -299,32 +262,32 @@ class TestM(TestCase):
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = torch.log(Nxx) + shift_by
-        found_M = h.M.M(cooc_stats, 'logNxx', shift_by=shift_by).load_all()
+        found_M = h.M.M_logNxx(bigram, shift_by=shift_by).load_all()
         self.assertTrue(torch.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
         clip_thresh = -0.1
         expected_M = torch.log(Nxx)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.M(
-            cooc_stats, 'logNxx', clip_thresh=clip_thresh).load_all()
+        found_M = h.M.M_logNxx(
+            bigram, clip_thresh=clip_thresh).load_all()
         self.assertTrue(torch.allclose(found_M, expected_M))
 
         # Test setting diagonal values to a given constant.
         diag = 5
         expected_M = torch.log(Nxx)
         h.utils.fill_diagonal(expected_M, diag)
-        found_M = h.M.M(cooc_stats, 'logNxx', diag=diag).load_all()
+        found_M = h.M.M_logNxx(bigram, diag=diag).load_all()
         self.assertTrue(torch.allclose(found_M, expected_M))
 
 
     def test_calc_M_pmi_star(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
 
         # First calculate using no options
-        M = h.M.M(cooc_stats, 'pmi-star').load_all()
-        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        M = h.M.M_pmi_star(bigram).load_all()
+        expected_M = h.corpus_stats.calc_PMI_star(bigram)
         self.assertTrue(np.allclose(M, expected_M))
 
         # Test shift option.
@@ -332,35 +295,35 @@ class TestM(TestCase):
             15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
-        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats) + shift_by
-        found_M = h.M.M(cooc_stats, 'pmi-star', shift_by=shift_by).load_all()
+        expected_M = h.corpus_stats.calc_PMI_star(bigram) + shift_by
+        found_M = h.M.M_pmi_star(bigram, shift_by=shift_by).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         # Test setting a clip threshold.
         clip_thresh = -0.1
-        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI_star(bigram)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        found_M = h.M.M(
-            cooc_stats, 'pmi-star', clip_thresh=clip_thresh).load_all()
+        found_M = h.M.M_pmi_star(
+            bigram, clip_thresh=clip_thresh).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
         # Test setting diagonal values to a given constant.
         diag = 5
-        expected_M = h.corpus_stats.calc_PMI_star(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI_star(bigram)
         h.utils.fill_diagonal(expected_M, diag)
-        found_M = h.M.M(cooc_stats, 'pmi-star', diag=diag).load_all()
+        found_M = h.M.M_pmi_star(bigram, diag=diag).load_all()
         self.assertTrue(np.allclose(found_M, expected_M))
 
 
     def test_sharding(self):
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        cooc_stats.truncate(6)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram.truncate(6)
+        Nxx, Nx, Nxt, N = bigram
 
         # First calculate using no options
         shards = h.shards.Shards(2)
-        M = h.M.M(cooc_stats, 'pmi')
+        M = h.M.M_pmi(bigram)
         found_M = np.zeros(Nxx.shape)
         for shard_num, shard in enumerate(shards):
             found_M[shard] = M[shard]
@@ -374,7 +337,7 @@ class TestM(TestCase):
         ))
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
 
-        M = h.M.M(cooc_stats, 'pmi', shift_by=shift_by).load_all()
+        M = h.M.M_pmi(bigram, shift_by=shift_by).load_all()
         found_M = np.zeros(Nxx.shape)
         for shard_num, shard in enumerate(shards):
             found_M[shard] = M[shard]
@@ -382,192 +345,22 @@ class TestM(TestCase):
         self.assertTrue(np.allclose(found_M, expected_M))
 
         clip_thresh = -0.1
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(bigram)
         expected_M[expected_M<clip_thresh] = clip_thresh
-        M = h.M.M(cooc_stats, 'pmi', clip_thresh=clip_thresh).load_all()
+        M = h.M.M_pmi(bigram, clip_thresh=clip_thresh).load_all()
         found_M = np.zeros(Nxx.shape)
         for shard_num, shard in enumerate(shards):
             found_M[shard] = M[shard]
         self.assertTrue(np.allclose(found_M, expected_M))
 
         diag = 5
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(bigram)
         h.utils.fill_diagonal(expected_M, diag)
-        M = h.M.M(cooc_stats, 'pmi', diag=diag).load_all()
+        M = h.M.M_pmi(bigram, diag=diag).load_all()
         found_M = np.zeros(Nxx.shape)
         for shard_num, shard in enumerate(shards):
             found_M[shard] = M[shard]
         self.assertTrue(np.allclose(found_M, expected_M))
-
-
-
-    ####################################################################
-    #
-    #   Deactivate all these tests until I find an approach with good enough
-    #   performance for this to even be worth it.
-    #
-    #def test_sample_multi_multinomial(self):
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    # Set k really high, so that sample statistics approach their
-    #    # limiting values.
-    #    k = 150000
-    #    np.random.seed(0)
-    #    Nxx, Nx, Nxt, N = cooc_stats
-
-    #    kNx = k * Nx
-    #    px = Nx / N
-    #    sample = h.M._sample_multi_multinomial(kNx, px)
-
-    #    # The number of samples in each row is exactly equal to the unigram
-    #    # frequency of the corresponding token, times k
-    #    self.assertTrue(np.allclose(
-    #        np.sum(sample, axis=1) / float(k), Nx.reshape(-1)))
-
-    #    # Given the very high value of k, the number of samples in each column
-    #    # is approximately equal to the unigram frequency of the corresponding
-    #    # token, times k.
-    #    self.assertTrue(np.allclose(
-    #        np.sum(sample, axis=0) / float(k), Nx.reshape(-1), atol=0.1))
-
-
-    #def test_sample_multi_multinomial_torch(self):
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    # Set k really high, so that sample statistics approach their
-    #    # limiting values.
-    #    k = 150000
-    #    torch.random.manual_seed(0)
-    #    Nxx, Nx, Nxt, N = cooc_stats
-
-    #    kNx = k * Nx
-    #    px = Nx / N
-    #    sample = h.M._sample_multi_multinomial_torch(kNx, px)
-
-    #    # The number of samples in each row is exactly equal to the unigram
-    #    # frequency of the corresponding token, times k
-    #    self.assertTrue(torch.allclose(
-    #        torch.sum(sample, dim=1) / float(k), Nx.view(-1)))
-
-    #    # Given the very high value of k, the number of samples in each column
-    #    # is approximately equal to the unigram frequency of the corresponding
-    #    # token, times k.
-    #    self.assertTrue(np.allclose(
-    #        torch.sum(sample, dim=0) / float(k), Nx.view(-1), atol=0.1))
-
-
-
-    #def test_calc_M_neg_samp(self):
-
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, Nxt, N = cooc_stats
-    #    np.random.seed(0)
-    #    atol = 0.1
-    #    usamp_atol = 0.3
-    #    k_samples = 1000
-
-    #    # If we take enough samples, then negative sampling simulates PMI
-    #    k_weight = 1.
-    #    alpha = 1.
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, 
-    #        k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        device='cpu'
-    #    )
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-    #    # Now try using a k_weight not equal to 1.
-    #    k_weight = 15.
-    #    alpha = 1.
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        device='cpu'
-    #    )
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k_weight)
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-    #    # Now we will use an alpha value not equal to 1
-    #    k_weight = 15.
-    #    alpha = 0.75
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        device='cpu'
-    #    )
-    #    distorted_unigram = Nx**alpha
-    #    distorted_unigram = distorted_unigram / np.sum(distorted_unigram)
-    #    with np.errstate(divide='ignore'):
-    #        expected_M = (
-    #            np.log(Nxx) - np.log(Nx) - np.log(distorted_unigram.T) 
-    #            - np.log(k_weight)
-    #        )
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-    #    # Test shift option.
-    #    shift_by = -np.log(15)
-    #    k_weight = 1.
-    #    alpha = 1.
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        shift_by=-np.log(15), device='cpu'
-    #    )
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(15)
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-
-    #    # If we take enough samples, then negative sampling simulates PMI
-    #    k_weight = 1.
-    #    alpha = 1.
-    #    t_undersample = 0.1
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, 
-    #        k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        t_undersample=t_undersample,
-    #        device='cpu'
-    #    )
-    #    cooc_stats = h.corpus_stats.get_test_stats(2)
-    #    Nxx, Nx, Nxt, N = h.M.undersample(cooc_stats, t_undersample)
-    #    expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=usamp_atol))
-
-
-    #    # Test setting a clip threshold.
-    #    clip_thresh = -0.1
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-    #    expected_M[expected_M<clip_thresh] = clip_thresh
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        clip_thresh=clip_thresh, device='cpu'
-    #    )
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-
-    #    # Test setting diagonal values to a given constant.
-    #    diag = 5
-    #    expected_M = h.corpus_stats.calc_PMI(cooc_stats)
-    #    np.fill_diagonal(expected_M, diag)
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, k_samples=k_samples, k_weight=k_weight, alpha=alpha,
-    #        diag=diag, device='cpu'
-    #    )
-    #    self.assertTrue(np.allclose(found_M, expected_M, atol=atol))
-
-
-    #    # Test explicitly choosing implementation.
-    #    implementation='numpy'
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, implementation=implementation)
-    #    self.assertTrue(isinstance(found_M, np.ndarray))
-
-
-    #    # Test explicitly choosing implementation.
-    #    implementation='torch'
-    #    device='cpu'
-    #    found_M = h.M.calc_M_neg_samp(
-    #        cooc_stats, implementation=implementation, device=device)
-    #    self.assertTrue(isinstance(found_M, torch.Tensor))
-    #    self.assertEqual(str(found_M.device), 'cpu')
 
 
 
@@ -578,8 +371,8 @@ class TestFDeltas(TestCase):
         # This should work for np.array and torch.Tensor
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        PMI = h.corpus_stats.calc_PMI(cooc_stats)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        PMI = h.corpus_stats.calc_PMI(bigram)
         expected = np.array([
             [1/(1+np.e**(-pmi)) for pmi in row]
             for row in PMI
@@ -598,30 +391,33 @@ class TestFDeltas(TestCase):
 
     def test_N_neg(self):
         k = 15.0
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        expected = k * cooc_stats.Nx * cooc_stats.Nx.T / cooc_stats.N
-        found = h.f_delta.calc_N_neg(cooc_stats, k)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
+        uNx, uNxt, uN = bigram.unigram
+        expected = k * (Nx-Nxx) * (uNxt / uN)
+        found = h.M.negative_sample(Nxx, Nx, uNxt, uN, k)
         self.assertTrue(np.allclose(expected, found))
 
 
     def test_f_w2v(self):
         k = 15
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats) - np.log(k)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram
+        uNx, uNxt, uN = bigram.unigram
+        N_neg = k * (Nx - Nxx) * (uNxt / uN ) 
+        expected_M = torch.log(Nxx) - torch.log(N_neg)
         expected_M_hat = expected_M + 1
-        N_neg = h.f_delta.calc_N_neg(cooc_stats, k)
         expected_difference = (
             h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(expected_M_hat))
         expected_multiplier = N_neg + Nxx
         expected = expected_multiplier * expected_difference
 
-        M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k))
+        M = h.M.M_w2v(bigram, k=k)
         M_ = M.load_all()
         M_hat = M_ + 1
 
-        delta_w2v = h.f_delta.DeltaW2V(cooc_stats, M, k)
-        found = torch.zeros(cooc_stats.Nxx.shape)
+        delta_w2v = h.f_delta.DeltaW2V(bigram, M, k)
+        found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
             found[shard] = delta_w2v.calc_shard(M_hat[shard], shard)
@@ -634,33 +430,33 @@ class TestFDeltas(TestCase):
 
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        cooc_stats.truncate(10)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram.truncate(10)
 
-        Nxx, Nx, Nxt, N = cooc_stats
+        Nxx, Nx, Nxt, N = bigram
         expected_M = torch.log(Nxx)
         # Zero out cells containing negative infinity, which are ignored
         # by glove.  We still need to zero them out to avoid nans.
         expected_M[expected_M==-np.inf] = 0
         expected_M_hat = expected_M + 1
         multiplier = torch.tensor([[
-                2 * min(1, (cooc_stats.Nxx[i,j] / 100.0)**0.75) 
-                for j in range(cooc_stats.Nxx.shape[1])
-            ] for i in range(cooc_stats.Nxx.shape[0])
+                2 * min(1, (bigram.Nxx[i,j] / 100.0)**0.75) 
+                for j in range(bigram.Nxx.shape[1])
+            ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
         difference = torch.tensor([[
                 expected_M[i,j] - expected_M_hat[i,j]
-                if cooc_stats.Nxx[i,j] > 0 else 0 
-                for j in range(cooc_stats.Nxx.shape[1])
-            ] for i in range(cooc_stats.Nxx.shape[0])
+                if bigram.Nxx[i,j] > 0 else 0 
+                for j in range(bigram.Nxx.shape[1])
+            ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
         expected = multiplier * difference
 
-        M = h.M.M(cooc_stats, 'logNxx', neg_inf_val=0)
+        M = h.M.M_logNxx(bigram, neg_inf_val=0)
         M_ = M.load_all()
         M_hat = M_ + 1
-        delta_glove = h.f_delta.DeltaGlove(cooc_stats, M)
-        found = torch.zeros(cooc_stats.Nxx.shape)
+        delta_glove = h.f_delta.DeltaGlove(bigram, M)
+        found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
             found[shard] = delta_glove.calc_shard(M_hat[shard], shard)
@@ -671,19 +467,19 @@ class TestFDeltas(TestCase):
         alpha = 0.8
         X_max = 10
         delta_glove = h.f_delta.DeltaGlove(
-            cooc_stats, M, X_max=X_max, alpha=alpha)
-        found2 = torch.zeros(cooc_stats.Nxx.shape)
+            bigram, M, X_max=X_max, alpha=alpha)
+        found2 = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
             found2[shard] = delta_glove.calc_shard(M_hat[shard], shard)
         expected2 = torch.tensor([
             [
-                2 * min(1, (cooc_stats.Nxx[i,j] / X_max)**alpha) 
+                2 * min(1, (bigram.Nxx[i,j] / X_max)**alpha) 
                     * (expected_M[i,j] - expected_M_hat[i,j])
-                if cooc_stats.Nxx[i,j] > 0 else 0 
-                for j in range(cooc_stats.Nxx.shape[1])
+                if bigram.Nxx[i,j] > 0 else 0 
+                for j in range(bigram.Nxx.shape[1])
             ]
-            for i in range(cooc_stats.Nxx.shape[0])
+            for i in range(bigram.Nxx.shape[0])
         ], dtype=dtype, device=device)
         # The X_max setting has an effect, and matches a different expectation
         self.assertTrue(np.allclose(expected2, found2))
@@ -693,42 +489,42 @@ class TestFDeltas(TestCase):
 
     def test_f_MSE(self):
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        cooc_stats.truncate(10)  # Need a compound number for sharding
+        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram.truncate(10)  # Need a compound number for sharding
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
         M_hat = M_ + 1
         expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M)
+        delta_mse = h.f_delta.DeltaMSE(bigram, M)
         found = delta_mse.calc_shard(M_hat)
         self.assertTrue(torch.allclose(expected, found))
 
         shards = h.shards.Shards(5)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
         M_hat = M_ + 1
         expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(cooc_stats, M)
-        found = torch.zeros(cooc_stats.Nxx.shape, device=device, dtype=dtype)
+        delta_mse = h.f_delta.DeltaMSE(bigram, M)
+        found = torch.zeros(bigram.Nxx.shape, device=device, dtype=dtype)
         for shard in shards:
             found[shard] = delta_mse.calc_shard(M_hat[shard], shard)
         self.assertTrue(torch.allclose(expected, found))
 
 
     def test_f_swivel(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
 
-        M = h.M.M(cooc_stats, 'pmi-star')
+        M = h.M.M_pmi_star(bigram)
         M_ = M.load_all()
         M_hat = M_ + 1
 
         expected = np.array([
             [
-                np.sqrt(cooc_stats.Nxx[i,j]) * (M_[i,j] - M_hat[i,j]) 
-                if cooc_stats.Nxx[i,j] > 0 else
+                np.sqrt(bigram.Nxx[i,j]) * (M_[i,j] - M_hat[i,j]) 
+                if bigram.Nxx[i,j] > 0 else
                 (np.e**(M_[i,j] - M_hat[i,j]) /
                     (1 + np.e**(M_[i,j] - M_hat[i,j])))
                 for j in range(M_.shape[1])
@@ -736,8 +532,8 @@ class TestFDeltas(TestCase):
             for i in range(M_.shape[0])
         ])
 
-        delta_swivel = h.f_delta.DeltaSwivel(cooc_stats, M)
-        found = torch.zeros(cooc_stats.Nxx.shape)
+        delta_swivel = h.f_delta.DeltaSwivel(bigram, M)
+        found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(5)
         for shard in shards:
             found[shard] = delta_swivel.calc_shard(M_hat[shard], shard)
@@ -747,22 +543,22 @@ class TestFDeltas(TestCase):
 
     def test_f_MLE(self):
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        cooc_stats.truncate(10)
-        Nxx, Nx, Nxt, N = cooc_stats
+        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram.truncate(10)
+        Nxx, Nx, Nxt, N = bigram
 
-        expected_M = h.corpus_stats.calc_PMI(cooc_stats)
+        expected_M = h.corpus_stats.calc_PMI(bigram)
         expected_M_hat = expected_M + 1
-        N_indep_xx = cooc_stats.Nx * cooc_stats.Nx.T
+        N_indep_xx = bigram.Nx * bigram.Nx.T
         N_indep_max = np.max(N_indep_xx)
         multiplier = N_indep_xx / N_indep_max
         difference = np.e**expected_M - np.e**expected_M_hat
         expected = multiplier * difference
 
-        M = h.M.M(cooc_stats, 'pmi')
+        M = h.M.M_pmi(bigram)
         M_ = M.load_all()
         M_hat = M_ + 1
-        delta_mle = h.f_delta.DeltaMLE(cooc_stats, M)
+        delta_mle = h.f_delta.DeltaMLE(bigram, M)
         found = torch.zeros(Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
@@ -799,14 +595,14 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         # First make a non-one-sided embedder.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
             verbose=False
@@ -842,7 +638,7 @@ class TestHilbertEmbedder(TestCase):
         # Check that the update was performed.
         M_hat = torch.mm(old_V, old_V.t())
         #M_ = torch.tensor(M_, dtype=torch.float32)
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         delta = f_MSE.calc_shard(M_hat) # No shard -> calculates full matrix
         nabla_V = torch.mm(delta.t(), old_V)
         new_V = old_V + learning_rate * nabla_V
@@ -866,14 +662,14 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for the test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(3)
-        #cooc_stats.truncate(10)
+        bigram = h.corpus_stats.get_test_bigram(3)
+        #bigram.truncate(10)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         # Make the embedder, whose method we are testing.
-        delta_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        delta_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             delta_MSE, d, learning_rate=learning_rate, verbose=False, 
             shard_factor=2
@@ -910,15 +706,15 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for the test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        offset_W = torch.rand(len(cooc_stats.Nx),d, device=device, dtype=dtype)
-        offset_V = torch.rand(len(cooc_stats.Nx),d, device=device, dtype=dtype)
+        offset_W = torch.rand(len(bigram.Nx),d, device=device, dtype=dtype)
+        offset_V = torch.rand(len(bigram.Nx),d, device=device, dtype=dtype)
 
         # Create an embedder, whose get_gradient method we are testing.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False
@@ -952,11 +748,11 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for the test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
@@ -989,14 +785,14 @@ class TestHilbertEmbedder(TestCase):
         # Set up test conditions.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         offset_V = torch.rand(
-            len(cooc_stats.Nx), d, device=device, dtype=dtype)
+            len(bigram.Nx), d, device=device, dtype=dtype)
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
             verbose=False
@@ -1027,11 +823,11 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         # Make mock f_delta whose integration with an embedder is being tested.
@@ -1039,12 +835,12 @@ class TestHilbertEmbedder(TestCase):
 
             def __init__(
                 self,
-                cooc_stats,
+                bigram,
                 M,
                 test_case,
                 device=None,
             ):
-                self.cooc_stats = cooc_stats
+                self.bigram = bigram
                 self.M = M
                 self.test_case = test_case
                 self.device=device
@@ -1055,7 +851,7 @@ class TestHilbertEmbedder(TestCase):
                 return self.M[shard] - M_hat
                 
 
-        f_delta = DeltaMock(cooc_stats, M, self)
+        f_delta = DeltaMock(bigram, M, self)
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.embedder.HilbertEmbedder(
@@ -1101,25 +897,25 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
         delta_amount = 0.1
         delta_always = torch.zeros(
-            cooc_stats.Nxx.shape, device=device, dtype=dtype) + delta_amount
+            bigram.Nxx.shape, device=device, dtype=dtype) + delta_amount
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         # Test integration between an embedder and the following f_delta:
         class DeltaMock:
-            def __init__(self, cooc_stats, M):
+            def __init__(self, bigram, M):
                 self.M = M
             def calc_shard(self, M_hat, shard=None, **kwargs):
                 return delta_always[shard]
                 
 
         # Make the embedder whose integration with f_delta we are testing.
-        f_delta = DeltaMock(cooc_stats, M)
+        f_delta = DeltaMock(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             delta=f_delta, d=d, learning_rate=learning_rate, shard_factor=3,
             verbose=False
@@ -1152,12 +948,12 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for test.
         d = 3
         learning_rate = 0.01
-        cooc_stats= h.corpus_stats.get_test_stats(2)
+        bigram= h.corpus_stats.get_test_bigram(2)
 
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2,
             verbose=False
@@ -1165,8 +961,8 @@ class TestHilbertEmbedder(TestCase):
 
         # Generate some random update to be applied
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
-        delta_V = torch.rand(len(cooc_stats.Nx), d, device=device, dtype=dtype)
-        delta_W = torch.rand(len(cooc_stats.Nx), d, device=device, dtype=dtype)
+        delta_V = torch.rand(len(bigram.Nx), d, device=device, dtype=dtype)
+        delta_W = torch.rand(len(bigram.Nx), d, device=device, dtype=dtype)
         updates = delta_V, delta_W
 
         # Apply the updates.
@@ -1185,14 +981,14 @@ class TestHilbertEmbedder(TestCase):
         # Set up test conditions.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor = 3,
             constrainer=h.constrainer.glove_constrainer,
@@ -1234,12 +1030,12 @@ class TestHilbertEmbedder(TestCase):
         # Set up conditions for test.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=5,
             verbose=False
@@ -1268,12 +1064,12 @@ class TestHilbertEmbedder(TestCase):
         # Set up test conditions.
         d = 3
         learning_rate = 0.01
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False, 
@@ -1321,12 +1117,12 @@ class TestHilbertEmbedder(TestCase):
         tolerance = 0.002
         learning_rate = 0.1
         torch.random.manual_seed(0)
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
         M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=2, 
             verbose=False
@@ -1354,18 +1150,18 @@ class TestHilbertEmbedder(TestCase):
         learning_rate = 0.01
         torch.random.manual_seed(0)
 
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        vocab = len(cooc_stats.Nx)
-        M = h.M.M(cooc_stats, 'pmi', neg_inf_val=0)
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
             verbose=False
         )
 
-        cooc_stats_sharded = h.corpus_stats.get_test_stats(2)
-        M_sharded = h.M.M(cooc_stats_sharded, 'pmi', neg_inf_val=0)
-        f_MSE_sharded = h.f_delta.DeltaMSE(cooc_stats_sharded, M_sharded)
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M_sharded = h.M.M_pmi(bigram, neg_inf_val=0)
+        f_MSE_sharded = h.f_delta.DeltaMSE(bigram, M_sharded)
         embedder_sharded = h.embedder.HilbertEmbedder(
             f_MSE_sharded, d, learning_rate=learning_rate, shard_factor=3, 
             verbose=False
@@ -2020,12 +1816,12 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi')
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False,
@@ -2040,12 +1836,12 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi')
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False,
@@ -2060,12 +1856,12 @@ class TestEmbedderSolverIntegration(TestCase):
         times = 3
         learning_rate = 0.01
         momentum_decay = 0.8
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        M = h.M.M(cooc_stats, 'pmi')
+        bigram = h.corpus_stats.get_test_bigram(2)
+        M = h.M.M_pmi(bigram)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(cooc_stats, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False,
@@ -2808,462 +2604,6 @@ class TestBigram(TestCase):
 
 
 
-class TestCoocStats(TestCase):
-
-
-    def test_cooc_stats_unpacking(self):
-        device = h.CONSTANTS.MATRIX_DEVICE
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        cooc_stats = h.corpus_stats.get_test_stats(2)
-        Nxx, Nx, Nxt, N = cooc_stats
-        self.assertTrue(torch.allclose(Nxx, torch.tensor(
-            cooc_stats.Nxx.toarray(), device=device, dtype=dtype)))
-        self.assertTrue(torch.allclose(Nx, torch.tensor(
-            cooc_stats.Nx, device=device, dtype=dtype)))
-        self.assertTrue(torch.allclose(N, torch.tensor(
-            cooc_stats.N, device=device, dtype=dtype)))
-
-
-
-    def get_test_cooccurrence_stats(self):
-        DICTIONARY = h.dictionary.Dictionary([
-            'banana', 'socks', 'car', 'field'])
-        COUNTS = {
-            (0,1):3, (1,0):3,
-            (0,3):1, (3,0):1,
-            (2,1):1, (1,2):1,
-            (0,2):1, (2,0):1
-        }
-        DIJ = ([3,1,1,1,3,1,1,1], ([0,0,2,0,1,3,1,2], [1,3,1,2,0,0,2,0]))
-        ARRAY = np.array([[0,3,1,1],[3,0,1,0],[1,1,0,0],[1,0,0,0]])
-        return DICTIONARY, COUNTS, DIJ, ARRAY
-
-
-    def test_invalid_arguments(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-
-        # Can make an empty CoocStats instance.
-        h.cooc_stats.CoocStats()
-
-        # Can make a non-empty CoocStats instance using counts and
-        # a matching dictionary.
-        h.cooc_stats.CoocStats(dictionary, counts)
-
-        # Must supply a dictionary to make a  non-empty CoocStats
-        # instance when using counts.
-        with self.assertRaises(ValueError):
-            h.cooc_stats.CoocStats(
-                counts=counts)
-
-        # Can make a non-empty CoocStats instance using Nxx and
-        # a matching dictionary.
-        Nxx = sparse.coo_matrix(dij).tocsr()
-        h.cooc_stats.CoocStats(dictionary, counts)
-
-        # Must supply a dictionary to make a  non-empty CoocStats
-        # instance when using Nxx.
-        with self.assertRaises(ValueError):
-            h.cooc_stats.CoocStats(Nxx=Nxx)
-
-        # Cannot provide both an Nxx and counts
-        with self.assertRaises(ValueError):
-            h.cooc_stats.CoocStats(
-                dictionary, counts, Nxx=Nxx)
-
-
-    def test_add_when_basis_is_counts(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        cooccurrence.add('banana', 'rice')
-        self.assertEqual(cooccurrence.dictionary.get_id('rice'), 4)
-        expected_counts = Counter(counts)
-        expected_counts[0,4] += 1
-        self.assertEqual(cooccurrence.counts, expected_counts)
-
-
-    def test_add_when_basis_is_Nxx(self):
-
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        Nxx = array
-        Nx = np.sum(Nxx, axis=1).reshape(-1,1)
-        Nxt = np.sum(Nxx, axis=0).reshape(1,-1)
-        N = np.sum(Nxx)
-
-        # Create a cooccurrence instance using counts
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, Nxx=Nxx, verbose=False)
-
-        # Currently the cooccurrence instance has no internal counter for
-        # cooccurrences, because it is based on the cooccurrence_array
-        self.assertTrue(cooccurrence._counts is None)
-        self.assertTrue(np.allclose(cooccurrence._Nxx.toarray(), Nxx))
-        self.assertTrue(np.allclose(cooccurrence._Nx, Nx))
-        self.assertTrue(np.allclose(cooccurrence._Nxt, Nxt))
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), Nxx))
-        self.assertTrue(np.allclose(cooccurrence.Nx, Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxt, Nxt))
-        self.assertTrue(np.allclose(cooccurrence.N, N))
-
-        # Adding more cooccurrence statistics will force it to "decompile" into
-        # a counter, then add to the counter.  This will cause the stale Nxx
-        # arrays to be dropped.
-        cooccurrence.add('banana', 'rice')
-        cooccurrence.add('rice', 'banana')
-        expected_counts = Counter(counts)
-        expected_counts[4,0] += 1
-        expected_counts[0,4] += 1
-        self.assertEqual(cooccurrence._counts, expected_counts)
-        self.assertEqual(cooccurrence._Nxx, None)
-        self.assertEqual(cooccurrence._Nxt, None)
-        self.assertEqual(cooccurrence._Nx, None)
-        self.assertEqual(cooccurrence._N, None)
-
-        # Asking for Nxx forces it to sync itself.  
-        # Ensure it it obtains the correct cooccurrence matrix
-        expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
-        expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
-        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
-        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
-        expected_N = np.sum(expected_Nx)
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
-        self.assertEqual(cooccurrence.N, expected_N)
-
-
-    def test_uncompile(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        Nxx = sparse.coo_matrix(dij)
-        Nx = np.array(np.sum(Nxx, axis=1)).reshape(-1)
-
-        # Create a cooccurrence instance using Nxx
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, Nxx=Nxx, verbose=False)
-        self.assertEqual(cooccurrence._counts, None)
-
-        cooccurrence.decompile()
-        self.assertEqual(cooccurrence._counts, counts)
-
-
-    def test_compile(self):
-
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-
-        # Create a cooccurrence instance using counts
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-
-        # The cooccurrence instance has no Nxx array, but it will be calculated
-        # when we try to access it directly.
-        expected_Nx = np.sum(array, axis=1).reshape(-1,1)
-        expected_Nxt = np.sum(array, axis=0).reshape(1,-1)
-        self.assertEqual(cooccurrence._Nxx, None)
-        self.assertEqual(cooccurrence._Nx, None)
-        self.assertEqual(cooccurrence._Nxt, None)
-        self.assertEqual(cooccurrence._N, None)
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), array))
-        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
-        self.assertEqual(cooccurrence.N, np.sum(array))
-
-        # We can still add more counts.  This causes it to drop the stale Nxx.
-        cooccurrence.add('banana', 'rice')
-        cooccurrence.add('rice', 'banana')
-        self.assertEqual(cooccurrence._Nxx, None)
-        self.assertEqual(cooccurrence._Nx, None)
-        self.assertEqual(cooccurrence._Nxt, None)
-        self.assertEqual(cooccurrence._N, None)
-
-        # Asking for an array forces it to sync itself.
-        expected_Nxx = np.append(array, [[1],[0],[0],[0]], axis=1)
-        expected_Nxx = np.append(expected_Nxx, [[1,0,0,0,0]], axis=0)
-        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
-        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
-        self.assertEqual(cooccurrence.N, np.sum(expected_Nxx))
-
-        # Adding more counts once again causes it to drop the stale Nxx.
-        cooccurrence.add('banana', 'field')
-        cooccurrence.add('field', 'banana')
-        self.assertEqual(cooccurrence._Nxx, None)
-        self.assertEqual(cooccurrence._Nx, None)
-        self.assertEqual(cooccurrence._Nxt, None)
-        self.assertEqual(cooccurrence._N, None)
-
-        # Asking for an array forces it to sync itself.  This time start with
-        # Nx.
-        expected_Nxx[0,3] += 1
-        expected_Nxx[3,0] += 1
-        expected_N = np.sum(expected_Nxx)
-        expected_Nx = np.sum(expected_Nxx, axis=1).reshape(-1,1)
-        expected_Nxt = np.sum(expected_Nxx, axis=0).reshape(1,-1)
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(cooccurrence.Nx, expected_Nx))
-        self.assertTrue(np.allclose(cooccurrence.Nxt, expected_Nxt))
-        self.assertEqual(cooccurrence.N, expected_N)
-
-
-
-    def test_sort(self):
-        unsorted_dictionary = h.dictionary.Dictionary([
-            'field', 'car', 'socks', 'banana'
-        ])
-        unsorted_counts = {
-            (0,3): 1, (3,0): 1,
-            (1,2): 1, (2,1): 1,
-            (1,3): 1, (3,1): 1,
-            (2,3): 3, (3,2): 3
-        }
-        unsorted_Nxx = np.array([
-            [0,0,0,1],
-            [0,0,1,1],
-            [0,1,0,3],
-            [1,1,3,0],
-        ])
-        sorted_dictionary = h.dictionary.Dictionary([
-            'banana', 'socks', 'car', 'field'])
-        sorted_counts = {
-            (0,1):3, (1,0):3,
-            (0,3):1, (3,0):1,
-            (2,1):1, (1,2):1,
-            (0,2):1, (2,0):1
-        }
-        sorted_array = np.array([
-            [0,3,1,1],
-            [3,0,1,0],
-            [1,1,0,0],
-            [1,0,0,0]
-        ])
-        cooccurrence = h.cooc_stats.CoocStats(
-            unsorted_dictionary, unsorted_counts, verbose=False
-        )
-        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), sorted_array))
-        self.assertEqual(cooccurrence.counts, sorted_counts)
-        self.assertEqual(
-            cooccurrence.dictionary.tokens, sorted_dictionary.tokens)
-
-
-    def test_save_load(self):
-
-        write_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'test-save-load-cooccurrences')
-        if os.path.exists(write_path):
-            shutil.rmtree(write_path)
-
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-
-        # Create a cooccurrence instance using counts
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        Nxx, Nx, Nxt, N = cooccurrence
-
-        # Save it, then load it
-        cooccurrence.save(write_path)
-        cooccurrence2 = h.cooc_stats.CoocStats.load(
-            write_path, verbose=False)
-
-        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
-        self.assertEqual(
-            cooccurrence2.dictionary.tokens, 
-            cooccurrence.dictionary.tokens
-        )
-
-        self.assertEqual(cooccurrence2.counts, cooccurrence.counts)
-        self.assertTrue(np.allclose(Nxx2, Nxx))
-        self.assertTrue(np.allclose(Nx2, Nx))
-        self.assertTrue(np.allclose(Nxt2, Nxt))
-        self.assertTrue(np.allclose(N2, N))
-
-        shutil.rmtree(write_path)
-
-
-    def test_density(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        self.assertEqual(cooccurrence.density(), 0.5)
-        self.assertEqual(cooccurrence.density(2), 0.125)
-
-
-    def test_truncate(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        cooccurrence.truncate(3)
-        trunc_Nxx = np.array([
-            [0,3,1],
-            [3,0,1],
-            [1,1,0],
-        ])
-        trunc_Nx = np.sum(trunc_Nxx, axis=1, keepdims=True)
-        trunc_Nxt = np.sum(trunc_Nxx, axis=0, keepdims=True)
-        trunc_N = np.sum(trunc_Nx)
-
-        Nxx, Nx, Nxt, N = cooccurrence
-        self.assertTrue(np.allclose(Nxx, trunc_Nxx))
-        self.assertTrue(np.allclose(Nx, trunc_Nx))
-        self.assertTrue(np.allclose(Nxt, trunc_Nxt))
-        self.assertTrue(np.allclose(N, trunc_N))
-
-
-    def test_dict_to_sparse(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        csr_matrix = h.cooc_stats.dict_to_sparse(counts)
-        self.assertTrue(isinstance(csr_matrix, sparse.csr_matrix))
-        self.assertTrue(np.allclose(csr_matrix.todense(), array))
-
-
-    def test_deepcopy(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence1 = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
-
-        cooccurrence2 = deepcopy(cooccurrence1)
-
-        self.assertTrue(cooccurrence2 is not cooccurrence1)
-        self.assertTrue(
-            cooccurrence2.dictionary is not cooccurrence1.dictionary)
-        self.assertTrue(cooccurrence2.counts is not cooccurrence1.counts)
-        self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
-        self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
-
-        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
-        self.assertTrue(np.allclose(Nxx2, Nxx1))
-        self.assertTrue(np.allclose(Nx2, Nx1))
-        self.assertEqual(N2, N1)
-        self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
-        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
-        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
-
-
-    def test_copy(self):
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence1 = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
-
-        cooccurrence2 = copy(cooccurrence1)
-
-        self.assertTrue(cooccurrence2 is not cooccurrence1)
-        self.assertTrue(
-            cooccurrence2.dictionary is not cooccurrence1.dictionary)
-        self.assertTrue(cooccurrence2.counts is not cooccurrence1.counts)
-        self.assertTrue(cooccurrence2.Nxx is not cooccurrence1.Nxx)
-        self.assertTrue(cooccurrence2.Nx is not cooccurrence1.Nx)
-
-        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
-        self.assertTrue(np.allclose(Nxx2, Nxx1))
-        self.assertTrue(np.allclose(Nx2, Nx1))
-        self.assertEqual(N2, N1)
-        self.assertEqual(cooccurrence2.counts, cooccurrence1.counts)
-        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
-        self.assertEqual(cooccurrence2.verbose, cooccurrence1.verbose)
-
-
-    def test_add(self):
-        """
-        When CoocStats add, their counts add.
-        """
-
-        dtype=h.CONSTANTS.DEFAULT_DTYPE
-        device=h.CONSTANTS.MATRIX_DEVICE
-
-        # Make one CoocStat instance to be added.
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        cooccurrence1 = h.cooc_stats.CoocStats(
-            dictionary, counts, verbose=False)
-
-        # Make another CoocStat instance to be added.
-        token_pairs2 = [
-            ('banana', 'banana'),
-            ('banana','car'), ('banana','car'),
-            ('banana','socks'), ('cave','car'), ('cave','socks')
-        ]
-        dictionary2 = h.dictionary.Dictionary([
-            'banana', 'car', 'socks', 'cave'])
-        counts2 = {
-            (0,0):2,
-            (0,1):2, (0,2):1, (3,1):1, (3,2):1,
-            (1,0):2, (2,0):1, (1,3):1, (2,3):1
-        }
-        array2 = np.array([
-            [2,2,1,0],
-            [2,0,0,1],
-            [1,0,0,1],
-            [0,1,1,0],
-        ])
-
-        cooccurrence2 = h.cooc_stats.CoocStats(verbose=False)
-        for tok1, tok2 in token_pairs2:
-            cooccurrence2.add(tok1, tok2)
-            cooccurrence2.add(tok2, tok1)
-
-        cooccurrence_sum = cooccurrence2 + cooccurrence1
-
-        # Ensure that cooccurrence1 was not changed
-        dictionary, counts, dij, array = self.get_test_cooccurrence_stats()
-        array = torch.tensor(array, device=device, dtype=dtype)
-        self.assertEqual(cooccurrence1.counts, counts)
-        Nxx1, Nx1, Nxt1, N1 = cooccurrence1
-        self.assertTrue(np.allclose(Nxx1, array))
-        expected_Nx = torch.sum(array, dim=1).reshape(-1,1)
-        expected_Nxt = torch.sum(array, dim=0).reshape(1,-1)
-        self.assertTrue(np.allclose(Nx1, expected_Nx))
-        self.assertTrue(np.allclose(Nxt1, expected_Nxt))
-        self.assertTrue(torch.allclose(N1[0], torch.sum(array)))
-        self.assertEqual(cooccurrence1.dictionary.tokens, dictionary.tokens)
-        self.assertEqual(
-            cooccurrence1.dictionary.token_ids, dictionary.token_ids)
-        self.assertEqual(cooccurrence1.verbose, False)
-
-        # Ensure that cooccurrence2 was not changed
-        self.assertEqual(cooccurrence2.counts, counts2)
-
-        Nxx2, Nx2, Nxt2, N2 = cooccurrence2
-        array2 = torch.tensor(array2, dtype=dtype, device=device)
-        self.assertTrue(np.allclose(Nxx2, array2))
-        expected_Nx2 = torch.sum(array2, dim=1).reshape(-1,1)
-        expected_Nxt2 = torch.sum(array2, dim=0).reshape(1,-1)
-        self.assertTrue(torch.allclose(Nx2, expected_Nx2))
-        self.assertTrue(torch.allclose(Nxt2, expected_Nxt2))
-        self.assertEqual(N2[0], torch.sum(array2))
-        self.assertEqual(cooccurrence2.dictionary.tokens, dictionary2.tokens)
-        self.assertEqual(
-            cooccurrence2.dictionary.token_ids, dictionary2.token_ids)
-        self.assertEqual(cooccurrence2.verbose, False)
-        
-
-        # Ensure that cooccurrence_sum is as desired
-        dictionary_sum = h.dictionary.Dictionary([
-            'banana', 'socks', 'car', 'cave', 'field'])
-        expected_Nxx_sum = torch.tensor([
-            [2, 4, 3, 0, 1],
-            [4, 0, 1, 1, 0],
-            [3, 1, 0, 1, 0],
-            [0, 1, 1, 0, 0],
-            [1, 0, 0, 0, 0],
-        ], dtype=dtype, device=device)
-        expected_Nx_sum = torch.sum(expected_Nxx_sum, dim=1).reshape(-1,1)
-        expected_Nxt_sum = torch.sum(expected_Nxx_sum, dim=0).reshape(1,-1)
-        counts_sum = Counter({
-            (0, 0): 2, 
-            (0, 1): 4, (1, 0): 4, (2, 0): 3, (0, 2): 3, (1, 2): 1, (3, 2): 1,
-            (3, 1): 1, (2, 1): 1, (1, 3): 1, (2, 3): 1, (0, 4): 1, (4, 0): 1
-        })
-        expected_N_sum = torch.tensor(
-            cooccurrence1.N + cooccurrence2.N, dtype=dtype, device=device)
-        Nxx_sum, Nx_sum, Nxt_sum, N_sum = cooccurrence_sum
-        self.assertTrue(torch.allclose(Nxx_sum, expected_Nxx_sum))
-        self.assertTrue(torch.allclose(Nx_sum, expected_Nx_sum))
-        self.assertTrue(torch.allclose(Nxt_sum, expected_Nxt_sum))
-        self.assertEqual(
-            N_sum, expected_N_sum)
-        self.assertEqual(cooccurrence_sum.counts, counts_sum)
-
 
 def get_test_dictionary():
     return h.dictionary.Dictionary.load(
@@ -3274,11 +2614,11 @@ class TestCoocStatsAlterators(TestCase):
 
 
     def test_expectation_w2v_undersample(self):
-        cooc_stats = h.corpus_stats.get_test_stats(2)
+        bigram = h.corpus_stats.get_test_bigram(2)
         t = 0.1
 
         # Calc expected Nxx, Nx, Nxt, N
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
         survival_probability = torch.clamp(
             torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
         pxx = survival_probability * survival_probability.t()
@@ -3289,7 +2629,7 @@ class TestCoocStatsAlterators(TestCase):
 
         # Found values from the function we are testing
         undersampled = h.cooc_stats.expectation_w2v_undersample(
-            cooc_stats, t, verbose=False)
+            bigram, t, verbose=False)
 
         usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
         self.assertTrue(torch.allclose(usamp_Nxx, expected_Nxx))
@@ -3297,8 +2637,8 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(usamp_Nxt, expected_Nxt))
         self.assertTrue(torch.allclose(usamp_N, expected_N))
 
-        # Check that the original cooc_stats has not been altered
-        Nxx, Nx, Nxt, N = cooc_stats
+        # Check that the original bigram has not been altered
+        Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(Nxx, orig_Nxx))
         self.assertTrue(torch.allclose(Nx, orig_Nx))
         self.assertTrue(torch.allclose(Nxt, orig_Nxt))
@@ -3313,10 +2653,10 @@ class TestCoocStatsAlterators(TestCase):
         t = 0.1
         num_replicates = 100
         window = 2
-        cooc_stats = h.corpus_stats.get_test_stats(window)
+        bigram = h.corpus_stats.get_test_bigram(window)
 
         # Calc expected Nxx, Nx, Nxt, N
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
         survival_probability = torch.clamp(
             torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
         pxx = survival_probability * survival_probability.t()
@@ -3331,9 +2671,9 @@ class TestCoocStatsAlterators(TestCase):
         mean_Nxt = torch.zeros(expected_Nxt.shape, device=device)
         mean_N = torch.zeros(expected_N.shape, device=device)
         for i in range(num_replicates):
-            cooc_stats = h.corpus_stats.get_test_stats(window)
+            bigram = h.corpus_stats.get_test_bigram(window)
             undersampled = h.cooc_stats.w2v_undersample(
-                cooc_stats, t, verbose=False)
+                bigram, t, verbose=False)
             usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
             mean_Nxx += usamp_Nxx / num_replicates
             mean_Nx += usamp_Nx / num_replicates
@@ -3345,8 +2685,8 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(mean_Nxt, expected_Nxt, atol=1))
         self.assertTrue(torch.allclose(mean_N, expected_N, atol=2))
 
-        # Check that the original cooc_stats has not been altered
-        Nxx, Nx, Nxt, N = cooc_stats
+        # Check that the original bigram has not been altered
+        Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(Nxx, orig_Nxx))
         self.assertTrue(torch.allclose(Nx, orig_Nx))
         self.assertTrue(torch.allclose(Nxt, orig_Nxt))
@@ -3358,9 +2698,9 @@ class TestCoocStatsAlterators(TestCase):
         num_replicates = 100
         window = 2
         alpha = 0.75
-        cooc_stats = h.corpus_stats.get_test_stats(window)
+        bigram = h.corpus_stats.get_test_bigram(window)
 
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = cooc_stats
+        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
         # The Nxt and N values are altered to reflect a smoothed unigram dist.
         expected_Nxt = orig_Nxt ** 0.75
         expected_N = torch.sum(expected_Nxt)
@@ -3369,7 +2709,7 @@ class TestCoocStatsAlterators(TestCase):
         expected_Nx = orig_Nx
 
         smoothed = h.cooc_stats.smooth_unigram(
-            cooc_stats, alpha, verbose=False)
+            bigram, alpha, verbose=False)
         smooth_Nxx, smooth_Nx, smooth_Nxt, smooth_N = smoothed
 
         self.assertTrue(torch.allclose(smooth_Nxx, expected_Nxx))
@@ -3378,8 +2718,8 @@ class TestCoocStatsAlterators(TestCase):
         self.assertTrue(torch.allclose(smooth_Nxt, expected_Nxt))
         self.assertTrue(torch.allclose(smooth_N, expected_N))
 
-        # Check that the original cooc_stats has not been altered
-        Nxx, Nx, Nxt, N = cooc_stats
+        # Check that the original bigram has not been altered
+        Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(Nxx, orig_Nxx))
         self.assertTrue(torch.allclose(Nx, orig_Nx))
         self.assertTrue(torch.allclose(Nxt, orig_Nxt))

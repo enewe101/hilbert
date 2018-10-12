@@ -20,50 +20,32 @@ def sim(word, context, embedder, dictionary):
 
 def get_w2v_embedder(
     # Required
-    cooc_stats, 
+    bigram, 
 
     # Theory options
-    k=15, alpha=3./4, t=1e-5, 
-    d=300,                     # embedding dimension
-    constrainer=None,   # constrainer instances can mutate values after update
-    one_sided=False,
+    k=15,               # negative sample weight
+    alpha=3./4,         # unigram smoothing exponent
+    d=300,              # embedding dimension
 
     # Implementation options
     solver='sgd',
-    undersample_method='expectation', # None | 'sample' | 'expectation'
-    shard_factor=10,
+    shard_factor=1,
     learning_rate=1e-6,
     momentum_decay=0.9,
     verbose=True,
     device=None
 ):
 
-    # Undersample cooc_stats.
-    if t is None:
-        print('WARNING: not using common-word undersampling')
-    else:
-        if undersample_method == 'sample':
-            cooc_stats = h.cooc_stats.w2v_undersample(
-                cooc_stats, t, verbose=verbose)
-        elif undersample_method == 'expectation':
-            cooc_stats = h.cooc_stats.expectation_w2v_undersample(
-                cooc_stats, t, verbose=verbose)
-        else:
-            raise ValueError(
-                'If `t` is not `None`, `undersample_method` must be either '
-                '"sample" or "expectation".'
-            )
-
     # Smooth unigram distribution.
-    cooc_stats = h.cooc_stats.smooth_unigram(cooc_stats, alpha, verbose=verbose)
+    bigram.unigram.apply_smoothing(alpha)
 
     # Make M, delta, and the embedder.
-    M = h.M.M(cooc_stats, 'pmi', shift_by=-np.log(k))
-    delta = h.f_delta.DeltaW2V(cooc_stats, M, k, device=device)
+    M = h.M.M_w2v(bigram, k=k)
+    delta = h.f_delta.DeltaW2V(bigram, M, k, device=device)
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, learning_rate=learning_rate,
-        shard_factor=shard_factor, one_sided=one_sided,
-        constrainer=constrainer, verbose=verbose, device=device,
+        shard_factor=shard_factor,
+        verbose=verbose, device=device
     )
 
     return embedder
@@ -73,29 +55,23 @@ def get_w2v_embedder(
 
 # TODO: test that all options are respected
 def get_embedder(
-    cooc_stats,
-    f_delta,            # 'mse' | 'w2v' | 'glove' | 'swivel' | 'mse'
-    base,               # 'pmi' | 'logNxx' | 'pmi-star' | ('neg-samp')
-
+    bigram,
+    delta,            # 'mse' | 'mle' | 'w2v' | 'glove' | 'swivel'
+    base,               # 'pmi' | 'w2v' | 'logNxx' | 'pmi_star'  
     solver='sgd',       # 'sgd' | 'momentum' | 'nesterov' | 'slosh'
 
-    # Options for f_delta
+    # Glove-specific options
     X_max=None,         # denominator of multiplier (glove only)
+
+    # w2v-specific options
     k=None,             # weight of negative samples (w2v only)
 
     # Options for M
-    undersample=None,   # None|'sample'|'expectation' Whether/how to undersample
-    t=None,             # Tokens more common than this are undersampled.
     smooth_unigram=None,# Exponent used to smooth unigram.  Use 0.75 for w2v.
     shift_by=None,      # None | float -- shift all vals e.g. -np.log(k)
     neg_inf_val=None,   # None | float -- set any negative infinities to given
     clip_thresh=None,   # None | float -- clip values below thresh to thresh.
     diag=None,          # None | float -- set main diagonal to given value.
-
-    # Options for M if base is 'neg-samp':
-    k_samples=1,
-    k_weight=None,
-    alpha=1.0,
 
     # Options for embedder
     d=300,              # embedding dimension
@@ -107,100 +83,37 @@ def get_embedder(
     # Options for solver
     momentum_decay=0.9,
 
-    # Implementation details
+    # Misc.
     verbose=True,
     device=None
 ):
 
-
-    if undersample is 'sample':
-        cooc_stats = w2v_undersample(cooc_stats, t, verbose=verbose)
-    elif undersample is 'expectation':
-        cooc_stats = expectation_w2v_undersample(cooc_stats, t, verbose=verbose)
-    elif undersample is not None:
-        raise ValueError(
-            "Expected None, 'sample', or 'expectation' as values for "
-            "undersample.  Found %s" % repr(undersample)
-        )
-
     # Smooth unigram distribution.
-    cooc_stats = h.cooc_stats.smooth_unigram(
-        cooc_stats, smooth_unigram, verbose=verbose)
+    bigram.unigram.apply_smoothing(smooth_unigram)
 
-    M_args = {
-        'cooc_stats':cooc_stats, 'base':base, #'t_undersample':t_undersample,
-        'shift_by':shift_by, 'neg_inf_val':neg_inf_val,
-        'clip_thresh':clip_thresh, 'diag':diag,
-    }
+    # Create the M instance.
+    M_args = {}
+    if base == 'w2v': M_args['k'] = k
+    M = h.M.get_M(
+        base, bigram=bigram, shift_by=shift_by, neg_inf_val=neg_inf_val, 
+        clip_thresh=clip_thresh, diag=diag, **M_args)
 
-    ###
-    #
-    #   The negative sampling base is not currently available.
-    #
-    #if base == 'neg-samp':
-    #    M_args.update({
-    #        'k_samples':k_samples, 'k_weight':k_weight, 'alpha':alpha})
-    #
-    ###
-    if base == 'neg-samp':
-        raise NotImplemented(
-            'The negative sampling base is not currently available.')
+    # Create the delta instance.
+    delta_args = {'bigram':bigram, 'M':M, 'device':device}
+    if delta == 'w2v': delta_args['k'] = k
+    elif delta == 'glove': delta_args['X_max'] = X_max
+    delta = h.f_delta.get_delta(delta, **delta_args)
 
-    M = h.M.M(**M_args)
-
-    DeltaClass = (
-        h.f_delta.DeltaMSE if f_delta=='mse' else
-        h.f_delta.DeltaW2V if f_delta=='w2v' else
-        h.f_delta.DeltaGlove if f_delta=='glove' else
-        h.f_delta.DeltaSwivel if f_delta=='swivel' else
-        h.f_delta.DeltaMLE if f_delta=='mle' else
-        None
-    )
-
-    if DeltaClass is None: 
-        raise ValueError('Unexpected value for f_delta: %s' % repr(f_delta))
-
-    f_options = {}
-    if f_delta == 'w2v':
-        if k is None: 
-            raise ValueError(
-                'A negative sample weight `k` must be a given when f_delta is '
-                '"w2v".'
-            )
-        f_options['k'] = k
-    elif k is not None:
-        raise ValueError(
-            'Negative sample weight `k` can only be given when f_delta is '
-            '"w2v".'
-        )
-
-    if f_delta == 'glove':
-        if X_max is None: 
-            raise ValueError(
-                'Multiplier denominator `X_max` must be a given when f_delta '
-                'is "glove".'
-            )
-        f_options['X_max'] = X_max
-    elif X_max is not None:
-        raise ValueError(
-            'Multiplier denominator `X_max` can only be given when f_delta is '
-            '"glove".'
-        )
-
-    f_delta = DeltaClass(
-        cooc_stats, M, device=device, **f_options
-    )
-
-    # TODO: delegate validation of option combinations to a validation
-    #   subroutine
+    # Create the embedder.
     embedder = h.embedder.HilbertEmbedder(
-        delta=f_delta, d=d, learning_rate=learning_rate, 
+        delta=delta, d=d, learning_rate=learning_rate, 
         shard_factor=shard_factor,
         one_sided=one_sided, constrainer=constrainer,
         verbose=verbose,
         device=device,
     )
 
+    # Create the solver, if desired.
     solver_instance = (
         embedder if solver=='sgd' else
         h.solver.MomentumSolver(embedder, learning_rate, momentum_decay,

@@ -7,6 +7,7 @@ except ImportError:
 import hilbert as h
 
 
+#TODO: ensure the dtype is float32 not float64
 class Unigram(object):
     """Represents unigram statistics."""
 
@@ -43,6 +44,15 @@ class Unigram(object):
 
         self.device = device
         self.verbose = verbose
+
+
+    def apply_smoothing(self, alpha):
+        if alpha == 1 or alpha is None:
+            if self.verbose: print('unigram-smoothing:\t1')
+            return
+        self.Nx = [count**alpha for count in self.Nx]
+        self.N = sum(self.Nx)
+        if self.verbose: print('unigram-smoothing:\t{}'.format(alpha))
 
 
     #   CHECK
@@ -139,31 +149,20 @@ class Unigram(object):
             )
 
 
-    #@property
-    #def dictionary(self):
-    #    # So that it always returns a consistent result, we want the 
-    #    # dictionary to undergo sorting, which happens during compilation.
-    #    # Testing whether self.Nxx is None here is a way to test if the
-    #    # correctness of the dictionary's ordering has gone stale.
-    #    if not self.sorted:
-    #        self.sort()
-    #    return self.dictionary
+    # TODO: TEST
+    def count(self, token):
+        token_id = self.dictionary.get_id(token)
+        return self.Nx[token_id]
 
 
-    #@property
-    #def Nx(self):
-    #    if not self.sorted:
-    #        self.sort()
-    #    return self.Nx
+    def freq(self, token):
+        return self.freq_id(self.dictionary.get_id(token))
 
 
-    #@property
-    #def N(self):
-    #    # Sorting doesn't matter, but keep this hook in case other
-    #    # reconciliation is found to be necessary later.
-    #    return self.N
+    def freq_id(self, token_idx):
+        return self.Nx[token_idx] / self.N
 
-
+        
     def add(self, token, count=1):
         idx = self.dictionary.add_token(token)
         if idx == len(self.Nx):
@@ -209,7 +208,7 @@ class Unigram(object):
     def sort(self):
         """
         Re-assign token indices.  The most common words get the lowest indices.
-        This affects the dictionary mapping, and The indexing of Nx and Nx.
+        This affects the dictionary mapping, and The indexing of Nx.
         """
 
         # momentarily convert into numpy, to take advantage of their easy 

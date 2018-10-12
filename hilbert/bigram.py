@@ -20,6 +20,7 @@ def read_stats(path):
     return Bigram.load(path)
 
 
+#TODO: ensure the dtype is float32 not float64
 class Bigram(object):
     """Represents cooccurrence statistics."""
 
@@ -97,6 +98,10 @@ class Bigram(object):
 
     def __copy__(self):
         return deepcopy(self)
+
+
+    def __len__(self):
+        return self.vocab
 
 
     def __deepcopy__(self, memo):
@@ -194,6 +199,13 @@ class Bigram(object):
         self.N += count
 
 
+    # Test
+    def count(self, token1, token2):
+        id1 = self.dictionary.get_id(token1)
+        id2 = self.dictionary.get_id(token2)
+        return self.Nxx[id1, id2]
+
+
     def sort(self, force=False):
         """
         Re-assign token indices providing lower indices to more common words.
@@ -240,14 +252,13 @@ class Bigram(object):
 
 
     @staticmethod
-    def load(path, verbose=None):
+    def load(path, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        verbose = verbose if verbose is not None else self.verbose
         unigram = h.unigram.Unigram.load(path)
-        Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tocsr()
+        Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
         return Bigram(unigram, Nxx=Nxx, verbose=verbose)
 
 
@@ -255,139 +266,4 @@ class Bigram(object):
     def load_unigram(path, verbose=True):
         unigram = h.unigram.Unigram.load(path)
         return Bigram(unigram, verbose=verbose)
-
-
-
-### COOC_STATS ALTERATTIONS ###
-def w2v_undersample(cooc_stats, t, verbose=True):
-    """
-    Given a h.cooc_stats.Bigram instance returns an altered version (leaves
-    original unchanged) to reflect undersampling of common words as done in
-    word2vec.
-
-    The Nxx matrix is altered by multiplying by p_xx, which is equal to
-    the product of the probability of having *not* rejected the focal word and 
-    not rejected the context word.
-
-    The Nx matrix contains new sums, based on the undersampling expectation
-    values.
-
-    The Nxt matrix, on the other hand, is left unchanged, as is N, which
-    preserves a representation of the unigram distribution.  In the 
-    word2vec's normal choices for M and Delta, this naturally provides
-    for the fact that negative samples draw from the unigram distribution,
-    according to the natural appearance of Nxt and N.
-    """
-    if t is None:
-        return cooc_stats
-
-    if verbose:
-        print('undersample_method\tsample')
-        print('t_undersample\t{}'.format(t))
-
-    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
-
-    p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
-
-    # Take the original number of observations as a number of trials, 
-    # and the survaval probability in a binomial distribution for undersampling.
-    I, J = cooc_stats.Nxx.nonzero()
-    keep_Nxx_data = stats.binom.rvs(cooc_stats.Nxx[I,J], p_xx[I,J])
-
-
-    # Modify Nxx, and Nx to reflect undersampling; leave Nxt, and N unchanged.
-    # unigram distribution unchanged).
-    new_cooc_stats.Nxx = sparse.coo_matrix(
-        (keep_Nxx_data, (I,J)), cooc_stats.Nxx.shape).tocsr()
-    new_cooc_stats.Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
-    new_cooc_stats.Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats.N = cooc_stats.N.copy()
-
-    return new_cooc_stats
-
-
-
-def expectation_w2v_undersample(cooc_stats, t, verbose=True):
-    """
-    Given a h.cooc_stats.Bigram instance, returns an altered version (leaves
-    original unchanged) by reducing counts for common words, simulating the
-    rejection of common words in word2vec.  The counts are changed into the
-    expectation of counts under the undersampled distribution.
-
-    The Nxx matrix is altered by multiplying by p_xx, which is equal to
-    the product of the probability of having *not* rejected the focal word and 
-    not rejected the context word.
-
-    The Nx matrix contains new sums, based on the undersampling expectation
-    values.
-
-    The Nxt matrix, on the other hand, is left unchanged, as is N, which
-    preserves a representation of the unigram distribution.  In the 
-    word2vec's normal choices for M and Delta, this naturally provides
-    for the fact that negative samples draw from the unigram distribution,
-    according to the natural appearance of Nxt and N.
-
-    (A separate but related modification that word2vec can make is to 
-    distort the unigram distribution... see h.cooc_stats.distort_unigram.)
-    """
-
-    if t is None:
-        return cooc_stats
-
-    if verbose:
-        print('undersample_method\texpectation')
-        print('t_undersample\t{}'.format(t))
-
-    # We will copy count statistics to a new cooc_stats object, but with
-    # alterations.
-    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
-
-    p_xx = calc_w2v_undersample_survival_probability(cooc_stats, t)
-    new_cooc_stats.Nxx = cooc_stats.Nxx.multiply(p_xx)
-    new_cooc_stats.Nx = np.asarray(np.sum(new_cooc_stats.Nxx, axis=1))
-    new_cooc_stats.Nxt = cooc_stats.Nxt.copy()
-    new_cooc_stats.N = cooc_stats.N.copy()
-
-    return new_cooc_stats
-
-
-
-def calc_w2v_undersample_survival_probability(cooc_stats, t):
-    # Probability that token of a given type is kept.
-    p_x = np.sqrt(t * cooc_stats.N / cooc_stats.Nx)
-    p_x[p_x > 1] = 1
-
-    # Calculate the elements of p_x * p_x.T that correspond to nonzero elements
-    # of Nxx.  That way we keep it sparse.
-    p_x = sparse.csr_matrix(p_x)
-    I, J = cooc_stats.Nxx.nonzero()
-    nonzero_mask = sparse.coo_matrix(
-        (np.ones(I.shape),(I,J)),cooc_stats.Nxx.shape).tocsr()
-    p_xx = nonzero_mask.multiply(p_x).multiply(p_x.T)
-    return p_xx
-
-
-
-def smooth_unigram(cooc_stats, alpha=None, verbose=True):
-
-    if verbose:
-        print('smooth_unigram_alpha\t{}'.format(alpha))
-
-    if alpha is None:
-        return cooc_stats
-
-    new_cooc_stats = h.cooc_stats.Bigram(dictionary=cooc_stats.dictionary)
-
-    # We consider Nxt and N to be the holders of unigram frequency info,
-    new_cooc_stats.Nxt = cooc_stats.Nxt**alpha
-    new_cooc_stats.N = np.sum(new_cooc_stats.Nxt)
-    # Nxx, and Nx remain unchanged
-    new_cooc_stats.Nxx = cooc_stats.Nxx.copy()
-    new_cooc_stats.Nx = cooc_stats.Nx.copy()
-
-    return new_cooc_stats
-
-
-
-
 

@@ -10,52 +10,31 @@ except ImportError:
     torch = None
 
 
-#def get_expectation_M_w2v(cooc_stats, k, t, alpha):
-#    return M(
-#        cooc_stats, 'pmi', t_undersample=t, undersample_method='expectation',
-#        unigram_exponent=alpha, shift_by=-np.log(k)
-#    )
-#
-#def get_sample_M_w2v(cooc_stats, k, t, alpha):
-#    return M(
-#        cooc_stats, 'pmi', t_undersample=t, undersample_method='sample',
-#        unigram_exponent=alpha, shift_by=-np.log(k)
-#    )
-
-
-
 class M:
 
     def __init__(
         self,
-        cooc_stats, 
-        base,
-        #t_undersample=None,
-        #undersample_method=None,
-        #unigram_exponent=None,
+        bigram, 
         shift_by=None,
         neg_inf_val=None,
         clip_thresh=None,
         diag=None,
-        **kwargs
     ):
 
-        self.cooc_stats = cooc_stats
-        self.base = _get_base(base)
+        self.bigram = bigram
         self.shift_by = shift_by
         self.neg_inf_val = neg_inf_val
         self.clip_thresh = clip_thresh
         self.diag = diag
-        self.base_args = kwargs
-        self.shape = self.cooc_stats.Nxx.shape
+        self.shape = self.bigram.Nxx.shape
 
+    def calc_base(self, shard):
+        raise NotImplementedError(
+            'Use a concrete M class that implements calc_base().')
 
-    # TODO: For logNxx base, pre-calculate logNxx for only non-zero elements,
-    #   which will be sparse
     def __getitem__(self, shard):
-        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard)
         # Calculate the basic elements of M.
-        M_shard = self.base((Nxx, Nx, Nxt, N), **self.base_args)
+        M_shard = self.calc_base(shard)
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
         use_diag = self.diag if h.shards.on_diag(shard) else None
         affected_M = apply_effects(
@@ -64,38 +43,66 @@ class M:
         )
         return affected_M
 
-
     def load_all(self):
         return self[h.shards.whole]
 
 
+# TODO: test
+class M_w2v(M):
 
-def _get_base(base_or_name, **base_kwargs):
+    def __init__(self, *args, **kwargs):
+        device = kwargs.pop('device', None) or h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.k = torch.tensor(kwargs.pop('k'), device=device, dtype=dtype)
+        super().__init__(*args, **kwargs)
+
+    def calc_base(self, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard)
+        N_neg = negative_sample(Nxx, Nx, uNxt, uN, self.k)
+        return torch.log(Nxx) - torch.log(N_neg)
+
+
+def negative_sample(Nxx, Nx, uNxt, uN, k):
+    return k * (Nx - Nxx) * (uNxt / uN)
+
+
+class M_logNxx(M):
+    def calc_base(self, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        return torch.log(Nxx)
+
+
+class M_pmi_star(M):
+    def calc_base(self, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        return h.corpus_stats.calc_PMI_star((Nxx, Nx, Nxt, N))
+
+
+class M_pmi(M):
+    def calc_base(self, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        return h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+
+
+
+def get_M(M_name, **M_args):
     """
-    Allows the base to be specified by name using a string, or by providing
-    a callable that expects a CoocStats-like.  If ``base_or_name`` is 
-    string-like, then it is treated as a name, otherwise it is assumed to be
-    the callable base itself.
+    Convenience function to be able to select and instantiate an M class by 
+    name.
     """
-    # Internal usage in the hilbert module is always by providing a string.
-    # Allowing to pass a callable is for extensibility, should you want to 
-    # define a new callable
-
-    if not isinstance(base_or_name, str):
-        return base_or_name
-
-    if base_or_name == 'pmi':
-        return calc_M_pmi
-    elif base_or_name == 'logNxx':
-        return calc_M_logNxx
-    elif base_or_name == 'pmi-star':
+    if M_name.lower() == 'pmi':
+        return M_pmi(**M_args)
+    elif M_name.lower() == 'w2v':
+        return M_logNxx(**M_args)
+    elif M_name.lower() == 'lognxx':
+        return M_logNxx(**M_args)
+    elif M_name.lower() == 'pmi_star':
         return calc_M_pmi_star
-    #elif base_or_name == 'neg-samp':
-    #    return calc_M_neg_samp
     else:
         raise ValueError(
             "Unexpected base for calculating M: %s.  "
-            "Expected one of: 'pmi', 'logNxx', 'pmi-star', or 'neg-samp'."
+            "Expected one of: 'pmi', 'w2v', 'logNxx', or 'pmi_star'."
         )
 
 
@@ -112,23 +119,6 @@ def apply_effects(
     clip_below(M, clip_thresh) 
     set_diag(M, diag)
     return M
-
-
-
-## BASES ##
-
-
-def calc_M_pmi(cooc_stats):
-    return h.corpus_stats.calc_PMI(cooc_stats)
-
-
-def calc_M_logNxx(cooc_stats):
-    Nxx, Nx, Nxt, N = cooc_stats
-    return torch.log(Nxx)
-
-
-def calc_M_pmi_star(cooc_stats):
-    return h.corpus_stats.calc_PMI_star(cooc_stats)
 
 
 

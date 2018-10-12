@@ -12,30 +12,30 @@ except ImportError:
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
 
-
 def load_tokens(path):
     with open(path) as f:
         return f.read().split()
 
-
 def get_test_bigram(window_size):
-    return get_bigram(load_test_tokens(), window_size, verbose=False)
+    bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
+    bigram.sort()
+    return bigram
 
 def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def calc_PMI(cooc_stats):
-    Nxx, Nx, Nxt, N = cooc_stats
+def calc_PMI(bitram):
+    Nxx, Nx, Nxt, N = bitram
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
-def calc_PMI_sparse(cooc_stats):
-    I, J = cooc_stats.Nxx.nonzero()
-    log_Nxx_nonzero = np.log(np.array(cooc_stats.Nxx[I,J]).reshape(-1))
-    log_Nx_nonzero = np.log(cooc_stats.Nx[I,0])
-    log_Nxt_nonzero = np.log(cooc_stats.Nxt[0,J])
-    log_N = np.log(cooc_stats.N)
+def calc_PMI_sparse(bigram):
+    I, J = bigram.Nxx.nonzero()
+    log_Nxx_nonzero = np.log(np.array(bigram.Nxx[I,J]).reshape(-1))
+    log_Nx_nonzero = np.log(bigram.Nx[I,0])
+    log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
+    log_N = np.log(bigram.N)
     pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
 
     # Here, the default (unrepresented value) in our sparse representation
@@ -46,16 +46,6 @@ def calc_PMI_sparse(cooc_stats):
     return pmi_data, I, J
 
 
-def calc_positive_PMI(cooc_stats):
-    PMI = calc_PMI(cooc_stats)
-    PMI[PMI<0] = 0
-    return PMI
-
-
-def calc_shifted_PMI(cooc_stats, k):
-    return calc_PMI(cooc_stats) - torch.log(k)
-
-
 def calc_PMI_star(cooc_stats):
     Nxx, Nx, Nxt, N = cooc_stats
     useNxx = Nxx.clone()
@@ -63,23 +53,23 @@ def calc_PMI_star(cooc_stats):
     return calc_PMI((useNxx, Nx, Nxt, N))
 
 
-def get_stats(token_list, window_size, verbose=True):
-    cooc_stats = h.cooc_stats.CoocStats(verbose=verbose)
-    for i in range(len(token_list)):
-        focal_word = token_list[i]
-        for j in range(i-window_size, i +window_size+1):
-            if i==j or j < 0:
-                continue
-            try:
-                context_word = token_list[j]
-            except IndexError:
-                continue
-            cooc_stats.add(focal_word, context_word)
-    return cooc_stats
+#def get_stats(token_list, window_size, verbose=True):
+#    cooc_stats = h.cooc_stats.CoocStats(verbose=verbose)
+#    for i in range(len(token_list)):
+#        focal_word = token_list[i]
+#        for j in range(i-window_size, i +window_size+1):
+#            if i==j or j < 0:
+#                continue
+#            try:
+#                context_word = token_list[j]
+#            except IndexError:
+#                continue
+#            cooc_stats.add(focal_word, context_word)
+#    return cooc_stats
 
 
 def get_bigram(token_list, window_size, verbose=True):
-    unigram = h.unigram.Unigram()
+    unigram = h.unigram.Unigram(verbose=verbose)
     for token in token_list:
         unigram.add(token)
     bigram = h.bigram.Bigram(unigram, verbose=verbose)

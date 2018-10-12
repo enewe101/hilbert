@@ -13,17 +13,10 @@ except ImportError:
 def load_shard(
     source,
     shard=None,
-    from_sparse=None,
     dtype=h.CONSTANTS.DEFAULT_DTYPE,
     device=None
 ):
     device = device or h.CONSTANTS.MATRIX_DEVICE
-
-    if from_sparse is not None:
-        print(
-            'from_sparse option is deprecated, in favor of inspecting the type '
-            'of the passed argument.'
-        )
 
     # Handle Scipy sparse matrix types
     if isinstance(source, (sparse.csr_matrix, sparse.lil_matrix)):
@@ -110,3 +103,5 @@ def fill_diagonal(tensor_2d, diag):
     return tensor_2d * (1. - eye) + eye * float(diag)
 
 
+def clip(min, max, val):
+    return min if val < min else max if val > max else val

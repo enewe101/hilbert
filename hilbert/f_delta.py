@@ -13,8 +13,8 @@ import hilbert as h
 
 class DeltaMSE:
 
-    def __init__(self, cooc_stats, M, device=None):
-        self.cooc_stats = cooc_stats
+    def __init__(self, bigram, M, device=None):
+        self.bigram = bigram
         self.M = M
         self.device=device
 
@@ -24,20 +24,24 @@ class DeltaMSE:
 
 class DeltaW2V:
 
-    def __init__(self, cooc_stats, M, k, device=None):
-        self.cooc_stats = cooc_stats
+    def __init__(self, bigram, M, k, device=None):
+        self.bigram = bigram
         self.M = M
-        self.k = k
         self.device = device
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.k = torch.tensor(k, device=device, dtype=dtype)
         self.last_shard = -1
         self.multiplier = None
         self.exp_M = None
 
+
     def calc_shard(self, M_hat, shard=None):
         if self.last_shard != shard:
             self.last_shard = shard
-            Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard)
-            N_neg = calc_N_neg((Nxx, Nx, Nxt, N), self.k)
+            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+            uNx, uNxt, uN = self.bigram.unigram.load_shard(shard)
+            N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, self.k)
             self.multiplier = Nxx + N_neg
             self.exp_M = sigmoid(self.M[shard])
             return self.multiplier * (self.exp_M - sigmoid(M_hat))
@@ -50,18 +54,17 @@ class DeltaW2V:
         return self.calculated_shard
 
 
-
 class DeltaGlove:
 
     def __init__(
         self,
-        cooc_stats,
+        bigram,
         M,
         X_max=100.0,
         alpha=0.75,
         device=None
     ):
-        self.cooc_stats = cooc_stats
+        self.bigram = bigram
         self.M = M
         self.X_max = float(X_max)
         self.alpha = alpha
@@ -69,41 +72,40 @@ class DeltaGlove:
         self.precalculate_multiplier()
 
     def precalculate_multiplier(self):
-        self.multiplier = (self.cooc_stats.Nxx / self.X_max).power(self.alpha)
+        self.multiplier = (self.bigram.Nxx / self.X_max).power(self.alpha)
         self.multiplier[self.multiplier>1] = 1
         self.multiplier *= 2
 
     def calc_shard(self, M_hat, shard=None):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         multiplier = h.utils.load_shard(
-            self.multiplier, shard, from_sparse=True, device=device)
+            self.multiplier, shard, device=device)
         return multiplier * (self.M[shard] - M_hat)
 
 
 
 class DeltaMLE:
 
-    def __init__(self, cooc_stats, M, device=None):
-        self.cooc_stats = cooc_stats
+    def __init__(self, bigram, M, device=None):
+        self.bigram = bigram
         self.M = M
         self.device=device
         self.precalculate_exp_M()
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         self.max_multiplier = torch.tensor(
-            np.max(cooc_stats.Nx)**2, dtype=torch.float32, device=device)
+            np.max(bigram.Nx)**2, dtype=torch.float32, device=device)
 
     def precalculate_exp_M(self):
-        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(self.cooc_stats)
+        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(self.bigram)
         exp_M_data = np.e**pmi_data
         self.exp_M = sparse.coo_matrix(
-            (exp_M_data, (I,J)), self.cooc_stats.Nxx.shape).tocsr()
+            (exp_M_data, (I,J)), self.bigram.Nxx.shape).tocsr()
 
     def calc_shard(self, M_hat, shard=None, t=1):
-        Nxx, Nx, Nxt, N = self.cooc_stats.load_shard(shard)
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
         multiplier = Nx * Nxt / self.max_multiplier
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
-        exp_M = h.utils.load_shard(
-            self.exp_M, shard, from_sparse=True, device=device)
+        exp_M = h.utils.load_shard(self.exp_M, shard, device=device)
         return multiplier**(1.0/t) * (exp_M - np.e**M_hat)
 
 
@@ -111,19 +113,18 @@ class DeltaMLE:
 class DeltaSwivel:
 
 
-    def __init__(self, cooc_stats, M, device=None):
-        self.cooc_stats = cooc_stats
+    def __init__(self, bigram, M, device=None):
+        self.bigram = bigram
         self.M = M
         self.device=device
-        self.sqrtNxx = np.sqrt(cooc_stats.Nxx)
+        self.sqrtNxx = np.sqrt(bigram.Nxx)
 
     def calc_shard(self, M_hat, shard=None):
 
         # Calculate case 1
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         difference = self.M[shard] - M_hat
-        sqrtNxx = h.utils.load_shard(
-            self.sqrtNxx, shard, from_sparse=True, device=device)
+        sqrtNxx = h.utils.load_shard(self.sqrtNxx, shard, device=device)
         case1 = sqrtNxx * difference
 
         # Calculate case 2 (only applies where Nxx is zero).
@@ -136,105 +137,26 @@ class DeltaSwivel:
         return case1
 
 
-
-## TODO: Deprecated, eliminate this
-#def get_f_MLE(cooc_stats, M, implementation='torch', device='cuda'):
-#    return f_MLE
-#
-#
-## TODO: Deprecated, eliminate this
-#def get_f_MSE(cooc_stats, M, implementation='torch', device='cuda'):
-#    def f_MSE(M_hat):
-#        with np.errstate(invalid='ignore'):
-#            return M - M_hat
-#    return f_MSE
-#
-#
-## TODO: Deprecated, eliminate this
-#def get_f_w2v(cooc_stats, M, k, implementation='torch', device='cuda'):
-#    h.utils.ensure_implementation_valid(implementation)
-#    N_neg_xx = calc_N_neg(cooc_stats.Nx, k)
-#    multiplier = cooc_stats.denseNxx + N_neg_xx
-#    sigmoid_M = sigmoid(M)
-#    if implementation == 'torch':
-#        multiplier = torch.tensor(
-#            multiplier, dtype=torch.float32, device=device)
-#        sigmoid_M = torch.tensor(
-#            sigmoid_M, dtype=torch.float32, device=device)
-#
-#    def f_w2v(M_hat):
-#        return multiplier * (sigmoid_M - sigmoid(M_hat))
-#
-#    return f_w2v
-#
-#
-## TODO: Deprecated, eliminate this
-#def get_f_glove(
-#    cooc_stats, M,
-#    X_max=100.0,
-#    implementation='torch',
-#    device='cuda'
-#):
-#    h.utils.ensure_implementation_valid(implementation)
-#    X_max = float(X_max)
-#    multiplier = (cooc_stats.denseNxx / X_max) ** (0.75)
-#    multiplier[multiplier>1] = 1
-#    multiplier *= 2
-#    if implementation == 'torch':
-#        multiplier = torch.tensor(
-#            multiplier, dtype=torch.float32, device=device)
-#
-#    def f_glove(M_hat):
-#        return multiplier * (M - M_hat)
-#
-#    return f_glove
-#
-#
-## TODO: Deprecated, eliminate this
-#def get_f_MLE(cooc_stats, M, implementation='torch', device='cuda'):
-#    h.utils.ensure_implementation_valid(implementation)
-#    multiplier = cooc_stats.Nx * cooc_stats.Nx.T
-#    multiplier = multiplier / np.max(multiplier)
-#    exp_M = np.e**M
-#    if implementation == 'torch':
-#        multiplier = torch.tensor(
-#            multiplier, dtype=torch.float32, device=device)
-#        exp_M = torch.tensor(exp_M, dtype=torch.float32, device=device)
-#
-#    def f_MLE(M_hat, t=1):
-#        return multiplier**(1.0/t) * (exp_M - np.e**M_hat)
-#
-#    return f_MLE
-#
-#
-## TODO: Deprecated, eliminate this
-#def get_f_swivel(cooc_stats, M, implementation='torch', device='cuda'):
-#    h.utils.ensure_implementation_valid(implementation)
-#    sqrtNxx = np.sqrt(cooc_stats.denseNxx)
-#    if implementation == 'torch':
-#        sqrtNxx = torch.tensor(sqrtNxx, dtype=torch.float32, device=device)
-#
-#    def f_swivel(M_hat):
-#
-#        # Calculate case 1
-#        difference = M - M_hat
-#        case1 = sqrtNxx * difference
-#
-#        # Calculate case 2 (only applies where Nxx is zero).
-#        exp_diff = np.e**difference[sqrtNxx==0]
-#        case2 = exp_diff / (1 + exp_diff)
-#
-#        # Combine the cases
-#        case1[sqrtNxx==0] = case2
-#
-#        return case1
-#
-#    return f_swivel
-
-
-def calc_N_neg(cooc_stats, k):
-    Nxx, Nx, Nxt, N = cooc_stats
-    return k * Nx * Nxt / N
+def get_delta(name, **kwargs):
+    """
+    Convenience function to be able to select and instantiate a Delta class by
+    name.
+    """
+    if name.lower() == 'mse':
+        return DeltaMSE(**kwargs)
+    elif name.lower() == 'mle':
+        return DeltaMLE(**kwargs)
+    elif name.lower() == 'w2v':
+        return DeltaW2V(**kwargs)
+    elif name.lower() == 'glove':
+        return DeltaGlove(**kwargs)
+    elif name.lower() == 'swivel':
+        return DeltaSwivel(**kwargs)
+    else:
+        raise ValueError(
+            "``name`` must be one of 'mse', 'mle', 'w2v', 'glove', or "
+            "'swivel'. Got {}.".format(repr(name))
+        )
 
 
 def sigmoid(M):
