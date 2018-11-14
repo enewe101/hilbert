@@ -1,4 +1,5 @@
 import hilbert as h
+import sys
 import time
 try:
     import torch
@@ -26,6 +27,8 @@ def get_w2v_embedder(
     k=15,               # negative sample weight
     alpha=3./4,         # unigram smoothing exponent
     d=300,              # embedding dimension
+    init_V=None,
+    init_W=None,
 
     # Implementation options
     solver='sgd',
@@ -40,8 +43,32 @@ def get_w2v_embedder(
     bigram.unigram.apply_smoothing(alpha)
 
     # Make M, delta, and the embedder.
-    M = h.M.M_w2v(bigram, k=k)
+    M = h.M.M_w2v(bigram, k=k, device=device)
     delta = h.f_delta.DeltaW2V(bigram, M, k, device=device)
+    embedder = h.embedder.HilbertEmbedder(
+        delta=delta, d=d, learning_rate=learning_rate,
+        init_V=init_V, init_W=init_W,
+        shard_factor=shard_factor,
+        verbose=verbose, device=device
+    )
+
+    solver = h.solver.get_solver(solver, embedder, learning_rate=learning_rate)
+
+    return embedder, solver
+
+
+def get_w2v_sample_embedder(
+    dictionary,
+    d=300,
+    solver='sgd',
+    shard_factor=1,
+    learning_rate=1e-3,
+    verbose=True,
+    device=None
+):
+
+    M = h.M.M_w2v(bigram, k=k)
+    delta = h.f_delta.DeltaW2V(sample_path, dictionary)
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, learning_rate=learning_rate,
         shard_factor=shard_factor,
@@ -49,7 +76,6 @@ def get_w2v_embedder(
     )
 
     return embedder
-
     
 
 
@@ -110,7 +136,7 @@ def get_embedder(
         shard_factor=shard_factor,
         one_sided=one_sided, constrainer=constrainer,
         verbose=verbose,
-        device=device,
+        device=device
     )
 
     # Create the solver, if desired.
@@ -132,6 +158,79 @@ def get_embedder(
 
 
 
+class W2VReplica:
+
+    def __init__(
+        self, 
+        sampler,
+        d=300,
+        learning_rate=1e-3,
+        delay_update=True,  # Whether to update vectors once at end of sample
+        vocab=None,
+        verbose=True,
+        device=None
+    ):
+        self.sampler = sampler
+        self.d = d
+        self.learning_rate = learning_rate
+        self.delay_update = delay_update
+        if vocab is None:
+            vocab = len(sampler.dictionary)
+        self.vocab = vocab
+        self.verbose = verbose
+        self.device = device
+        self.reset()
+
+
+    def reset(self):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        self.V = torch.rand((self.vocab, self.d), device=device) - 0.5
+        self.W = torch.rand((self.vocab, self.d), device=device) - 0.5
+
+
+
+    # TODO: test delay_update
+    def cycle(self, times=1):
+
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        delta_V = torch.zeros(self.d, device=device)
+        cycles_completed = 0
+
+        while times is None or cycles_completed < times:
+
+            delta_V.fill_(0)
+            last_token_id1 = None
+            for fields in self.sampler.next_sample():
+
+                token_id1, token_id2, val = fields[0], fields[1], fields[2]
+
+                # One sample should provide many word pairs having the
+                # same token_id1, but different token_id2's
+                if last_token_id1 is not None:
+                    assert token_id1 == last_token_id1
+
+                dot = torch.dot(self.V[token_id1], self.W[token_id2])
+                g = (val - h.f_delta.sigmoid(dot)) * self.learning_rate
+                #print(g, fields[3])
+
+                self.W[token_id2] += g * self.V[token_id1]
+
+                if self.delay_update:
+                    delta_V += g * self.W[token_id2]
+                else:
+                    self.V[token_id1] += g * self.W[token_id2]
+
+                last_token_id1 = token_id1
+
+            if self.delay_update:
+                self.V[last_token_id1] += delta_V
+
+            cycles_completed += 1
+
+
+
+
+
 class HilbertEmbedder(object):
 
     def __init__(
@@ -141,6 +240,8 @@ class HilbertEmbedder(object):
         num_vecs=None,
         num_covecs=None,
         learning_rate=1e-6,
+        init_V = None,
+        init_W = None,
         one_sided=False,
         constrainer=None,
         shard_factor=10,
@@ -165,27 +266,64 @@ class HilbertEmbedder(object):
                 'A one-sided embedder must have the same number of vectors '
                 'and covectors.'
             )
-        self.reset()
+        self.reset(init_V, init_W)
 
 
-    def sample_sphere(self, device=None):
-        device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
-        sample = torch.rand(
-            (self.num_vecs, self.d), device=device
-        ).mul_(2).sub_(1)
-        return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
+    def reset(self, init_V, init_W):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
 
+        # Use initialized Vectors if provided...
+        if init_V is not None:
+            self.V = init_V
+            if self.V.shape[0] != self.num_vecs:
+                raise ValueError(
+                    'Incorrect number of vectors provided for initialization.'
+                    'Got {}, expected {}'.format(self.V.shape[0], self.num_vecs)
+                )
 
-    def reset(self):
-        self.V = self.sample_sphere()
-        if self.one_sided:
-            self.W = self.V
+        # ... or generate them randomly.
         else:
-            self.W = self.sample_sphere()
+            #self.V = h.utils.sample_sphere(self.num_vecs, self.d, self.device)
+            self.V = (
+                torch.rand((self.num_vecs, self.d), device=device) - .5
+            ) / self.d
+
+        # Use initialized covectors if provided...
+        if init_W is not None:
+            if self.one_sided:
+                raise ValueError(
+                    'One-sided embedder should not have covector '
+                    'initialization'
+                )
+            self.W = init_W
+            if self.W.shape[0] != self.num_covecs:
+                raise ValueError(
+                    'Incorrect number of covectors provided for '
+                    'initialization. Got {}, expected {}.'
+                    .format(self.W.shape[0], self.num_covecs)
+                )
+
+        # ... or generate them randomly.
+        else:
+            if self.one_sided:
+                self.W = self.V
+            else:
+                #self.W = h.utils.sample_sphere(
+                #    self.num_vecs, self.d, self.device)
+                self.W = (
+                    torch.rand((self.num_vecs, self.d), device=device) - .5
+                ) / self.d
+
         self.badness = None
 
 
-    def get_gradient(self, offsets=None, pass_args=None, verbose=None):
+    def get_gradient(
+        self,
+        shard=None,
+        offsets=None,
+        pass_args=None,
+        verbose=None
+    ):
         """ 
         Calculate and return the current gradient.  
             `offsets`: 
@@ -196,6 +334,9 @@ class HilbertEmbedder(object):
                 Allowed values: dict of keyword arguments.  Supplies the
                 keyword arguments to delta.
         """
+        if shard is None:
+            shard = h.shards.whole
+
         if verbose is None:
             verbose = self.verbose
 
@@ -205,42 +346,29 @@ class HilbertEmbedder(object):
         if offsets is not None:
             if not self.one_sided:
                 dV, dW = offsets
-                use_V = self.V + dV
-                use_W = self.W + dW
+                use_V = self.V[shard[1]] + dV
+                use_W = self.W[shard[0]] + dW
             else:
                 dV = offsets
-                use_V = self.V + dV
+                use_V = self.V[shard[1]] + dV
                 use_W = use_V
         else:
-            use_W, use_V = self.W, self.V
+            use_W, use_V = self.W[shard[0]], self.V[shard[1]]
 
-        # Determine the gradient, one shard at a time
-        nabla_V = torch.zeros_like(self.V)
-        if not self.one_sided:
-            nabla_W = torch.zeros_like(self.W)
-        self.badness = 0
-        shards = h.shards.Shards(self.shard_factor)
-        for i, shard in enumerate(shards):
-            #if self.verbose:
-            #    print('Shard ', i)
-            # Determine the errors.
-            M_hat = torch.mm(use_W[shard[0]], use_V[shard[1]].t())
-            start = time.time()
-            delta = self.delta.calc_shard(M_hat, shard, **pass_args)
-            #if self.verbose:
-            #    print('delta calc time: ', time.time() - start)
-            self.badness += torch.sum(abs(delta))
-            nabla_V[shard[1]] += torch.mm(delta.t(), use_W[shard[0]])
-            if not self.one_sided:
-                nabla_W[shard[0]] += torch.mm(delta, use_V[shard[1]])
+        # Determine the gradient for this shard
+        M_hat = torch.mm(use_W, use_V.t())
+        delta = self.delta.calc_shard(M_hat, shard, **pass_args)
+        self.badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
+        nabla_V = torch.mm(delta.t(), use_W)
+        nabla_W = torch.mm(delta, use_V)
 
-        self.badness /= self.num_pairs
-
-        if self.one_sided:
-            return nabla_V
         return nabla_V, nabla_W
 
 
+    # TODO: adapt handlingn of one-sided: Now updates are being applied on a
+    # shard-by-shard basis, which means that there are distinct V and W
+    # updates, even for one-sided embedders, because V and W will represent
+    # different parts of V.
     def update(self, delta_V=None, delta_W=None):
         if self.one_sided and delta_W is not None:
             raise ValueError(
@@ -254,14 +382,10 @@ class HilbertEmbedder(object):
         self.apply_constraints()
 
 
-    def update_self(self, pass_args=None):
-        if self.one_sided:
-            nabla_V = self.get_gradient(pass_args=pass_args)
-            self.V += nabla_V * self.learning_rate
-        else:
-            nabla_V, nabla_W = self.get_gradient(pass_args=pass_args)
-            self.V += nabla_V * self.learning_rate
-            self.W += nabla_W * self.learning_rate
+    def update_self(self, shard=None, pass_args=None):
+        nabla_V, nabla_W = self.get_gradient(shard=shard, pass_args=pass_args)
+        self.W[shard[0]] += nabla_W * self.learning_rate
+        self.V[shard[1]] += nabla_V * self.learning_rate
 
 
     def apply_constraints(self):
@@ -269,12 +393,20 @@ class HilbertEmbedder(object):
             self.constrainer(self.W, self.V)
 
 
-    def cycle(self, times=1, print_badness=True, pass_args=None):
-        for i in range(times):
-            self.update_self(pass_args)
-            self.apply_constraints()
-            if print_badness:
+    # TODO: rename times => epochs
+    # TODO: test making times able to be zero for unlimited cycling.
+    def cycle(self, times=1, shard_times=1, pass_args=None):
+        cycles_completed = 0
+        while times is None or cycles_completed < times:
+            for shard in h.shards.Shards(self.shard_factor):
+                for shard_time in range(shard_times):
+                    self.update_self(shard, pass_args)
+                    self.apply_constraints()
+
+            if self.verbose:
                 print('badness\t{}'.format(self.badness.item()))
+
+            cycles_completed += 1
 
 
 

@@ -8,6 +8,19 @@ except ImportError:
 import hilbert as h
 
 
+def get_solver(solver_type, objective, **solver_args):
+    if solver_type == 'sgd':
+        return objective
+    elif solver_type == 'momentum':
+        return MomentumSolver(objective, **solver_args)
+    elif solver_type == 'nesterov':
+        return NesterovSolver(objective, **solver_args)
+    elif solver_type == 'nesterov_cautious':
+        return NesterovSolverCautious(objective, **solver_args)
+    else:
+        raise ValueError('Unexpected solver type: {}'.format(solver_type))
+
+
 class MomentumSolver(object):
     """
     Accepts an objective object, and finds a local minumum using stochastic
@@ -23,11 +36,17 @@ class MomentumSolver(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
+        self, 
+        objective,
+        learning_rate=0.001,
+        momentum_decay=0.9,
+        device=None,
+        verbose=True
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
+        self.verbose = verbose
         self.device = device
         self.allocate()
 
@@ -51,9 +70,13 @@ class MomentumSolver(object):
                 self.momenta[j] += gradients[j] * self.learning_rate
 
             self.objective.update(*self.momenta)
+            if self.verbose:
+                print(self.objective.badness.item())
 
 
 
+# TODO: Currently not compatible with sharding.  Can be used as long as
+#   the objective object has a single shard, or no sharding.
 class NesterovSolver(object):
     """
     Accepts an objective object, and finds a local minumum using stochastic
@@ -69,12 +92,18 @@ class NesterovSolver(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
+        self,
+        objective,
+        learning_rate=0.001,
+        momentum_decay=0.9,
+        verbose=True,
+        device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
         self.device = device
+        self.verbose = verbose
         self.allocate()
 
 
@@ -85,6 +114,12 @@ class NesterovSolver(object):
         for param in param_gradients:
             self.momenta.append(torch.zeros(
                 param.shape, dtype=torch.float32, device=device))
+
+
+    def clear_momenta(self):
+        self.last_norm = None
+        for j in range(len(self.momenta)):
+            self.momenta[j][...] = 0
 
 
     def cycle(self, times=1, pass_args=None):
@@ -106,6 +141,8 @@ class NesterovSolver(object):
                 self.momenta[j] += gradients[j] * self.learning_rate
 
             self.objective.update(*self.momenta)
+            if self.verbose:
+                print(self.objective.badness.item())
 
 
 
@@ -124,12 +161,18 @@ class NesterovSolverOptimized(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
+        self,
+        objective,
+        learning_rate=0.001,
+        momentum_decay=0.9,
+        verbose=True,
+        device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
         self.device = device
+        self.verbose = verbose
         self.allocate()
 
 
@@ -163,6 +206,8 @@ class NesterovSolverOptimized(object):
                 )
 
             self.objective.update(*self.updates)
+            if self.verbose:
+                print(self.objective.badness.item())
 
 
 
@@ -182,12 +227,18 @@ class NesterovSolverCautious(object):
     """
 
     def __init__(
-        self, objective, learning_rate=0.001, momentum_decay=0.9, device=None
+        self,
+        objective,
+        learning_rate=0.001,
+        momentum_decay=0.9,
+        verbose=False,
+        device=None
     ):
         self.objective = objective
         self.learning_rate = learning_rate
         self.momentum_decay = momentum_decay
         self.device = device
+        self.verbose = verbose
         self.allocate()
 
 
@@ -269,6 +320,8 @@ class NesterovSolverCautious(object):
                 )
 
             self.objective.update(*self.updates)
+            if self.verbose:
+                print(self.objective.badness.item())
 
 
 

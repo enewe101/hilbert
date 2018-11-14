@@ -115,7 +115,7 @@ class Bigram(object):
         """
         Returns Nxx, Nx, Nxt, N, which means that the Bigram instance can
         easily unpack into cooccurrence counts, unigram counts, and the total
-        number of tokens.  Useful for functions expecting such a stats triplet,
+        number of tokens.  Useful for functions expecting such a stats tuple,
         and for getting raw access to the data.
         """
         return iter(self[h.shards.whole])
@@ -186,11 +186,23 @@ class Bigram(object):
         return self.unigram.dictionary
 
 
-    def add(self, token1, token2, count=1):
+    #TODO: test skip_unk functionality
+    def add(self, token1, token2, count=1, skip_unk=False):
 
-        # Get token idx's.
-        id1 = self.dictionary.get_id(token1)
-        id2 = self.dictionary.get_id(token2)
+        # Get token idxs.
+        id1 = self.dictionary.get_id_safe(token1)
+        id2 = self.dictionary.get_id_safe(token2)
+
+        # Handle tokens that aren't in the dictionary
+        if id1 == None or id2 == None: 
+            missing_token = token1 if id1 is None else token2
+            if skip_unk: 
+                print('skip', missing_token)
+                return
+            raise ValueError(
+                'Cannot add cooccurrence, no entry for "{}" in dictionary'
+                .format(missing_token)
+            )
 
         # Add counts.
         self.Nxx[id1, id2] += count
@@ -228,6 +240,8 @@ class Bigram(object):
         return float(num_filled) / num_cells
 
 
+    # TODO: this should truncate the unigram first, and then truncate
+    # the bigram.
     def truncate(self, k):
         """Drop all but the `k` most common words."""
         self.Nxx = self.Nxx[:k][:,:k]

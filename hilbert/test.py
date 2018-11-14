@@ -5,6 +5,7 @@ from unittest import main, TestCase
 from copy import copy, deepcopy
 from collections import Counter
 import hilbert as h
+import random
 
 try:
     import numpy as np
@@ -43,7 +44,10 @@ class TestGetEmbedder(TestCase):
         expected_delta = multiplier * difference
 
         bigram = h.corpus_stats.get_test_bigram(3)
-        found_embedder = h.embedder.get_w2v_embedder(
+
+        # Note, in this case embedder is the solver, so the tuple return
+        # is reduntant, but is done for consistency.
+        found_embedder, found_solver = h.embedder.get_w2v_embedder(
             bigram, k=k, alpha=alpha, verbose=False
         )
         found_delta_calculator = found_embedder.delta
@@ -121,11 +125,12 @@ class TestGetEmbedder(TestCase):
             verbose=False,
         )
 
-        expected_embedder.cycle(times=10, print_badness=False)
-        found_embedder.cycle(times=10, print_badness=False)
+        expected_embedder.cycle(times=10)
+        found_embedder.cycle(times=10)
 
         self.assertTrue(torch.allclose(expected_embedder.V, found_embedder.V))
-        self.assertTrue(expected_embedder.badness, found_embedder.badness)
+        self.assertTrue(torch.allclose(
+            expected_embedder.badness, found_embedder.badness))
 
 
 
@@ -591,6 +596,55 @@ class TestConstrainer(TestCase):
 class TestHilbertEmbedder(TestCase):
 
 
+    def test_cycle(self):
+        torch.random.manual_seed(0)
+        d = 3
+        learning_rate = 0.01
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+        shard_factor = 3
+        device = h.CONSTANTS.MATRIX_DEVICE
+
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
+        M_ = M.load_all()
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+
+        # Now make an embedder.
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate,
+            verbose=False, 
+            shard_factor=shard_factor
+        )
+
+        # Ensure that the relevant variables are tensors
+        self.assertTrue(isinstance(embedder.V, torch.Tensor))
+        self.assertTrue(isinstance(embedder.W, torch.Tensor))
+
+        # Calculate the expected update for one cycle.
+        V = embedder.V.clone()
+        W = embedder.W.clone()
+        shards = h.shards.Shards(shard_factor)
+        for shard_num, shard in enumerate(shards):
+            M_hat = torch.mm(W[shard[0]], V[shard[1]].t())
+            delta = M_[shard] - M_hat
+            badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
+            nabla_V = torch.mm(delta.t(), W[shard[0]])
+            nabla_W = torch.mm(delta, V[shard[1]])
+            V[shard[1]] += learning_rate * nabla_V
+            W[shard[0]] += learning_rate * nabla_W
+
+        # Do one cycle on the actual embedder.
+        embedder.cycle()
+
+        # Check that the cycle produced the expected update.
+        self.assertTrue(torch.allclose(embedder.V, V))
+        self.assertTrue(torch.allclose(embedder.W, W))
+
+        # Check that the badness is correct 
+        # (badness is based on the error before last update)
+        self.assertTrue(torch.allclose(badness, embedder.badness))
+
+
     def test_one_sided(self):
         torch.random.manual_seed(0)
         d = 3
@@ -604,7 +658,7 @@ class TestHilbertEmbedder(TestCase):
         # First make a non-one-sided embedder.
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            f_MSE, d, learning_rate=learning_rate, shard_factor=1,
             verbose=False
         )
 
@@ -620,7 +674,7 @@ class TestHilbertEmbedder(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
             verbose=False, 
-            shard_factor=3
+            shard_factor=1
         )
 
         # Ensure that the relevant variables are tensors
@@ -631,17 +685,17 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.W, embedder.V))
 
         old_V = embedder.V.clone()
-        embedder.cycle(print_badness=False)
+        embedder.cycle()
 
         self.assertTrue(isinstance(old_V, torch.Tensor))
 
         # Check that the update was performed.
         M_hat = torch.mm(old_V, old_V.t())
-        #M_ = torch.tensor(M_, dtype=torch.float32)
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         delta = f_MSE.calc_shard(M_hat) # No shard -> calculates full matrix
         nabla_V = torch.mm(delta.t(), old_V)
-        new_V = old_V + learning_rate * nabla_V
+        nabla_W = torch.mm(delta, old_V)
+        new_V = old_V + learning_rate * (nabla_V + nabla_W)
         self.assertTrue(torch.allclose(embedder.V, new_V))
 
         # Check that the vectors and covectors are still identical after the
@@ -652,6 +706,75 @@ class TestHilbertEmbedder(TestCase):
         # (badness is based on the error before last update)
         delta = abs(M_ - M_hat)
         badness = torch.sum(delta) / (vocab * vocab)
+        self.assertTrue(torch.allclose(badness, embedder.badness))
+
+
+    def test_one_sided_sharded(self):
+
+        torch.random.manual_seed(0)
+        d = 11
+        learning_rate = 0.01
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
+        M_ = M.load_all()
+        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+
+        # Make a one-sided embedder.
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            verbose=False, shard_factor=3
+        )
+
+        # Ensure that the relevant variables are tensors
+        self.assertTrue(isinstance(embedder.V, torch.Tensor))
+        self.assertTrue(isinstance(embedder.W, torch.Tensor))
+
+        # Now, the covectors and vectors are the same.
+        self.assertTrue(torch.allclose(embedder.W, embedder.V))
+
+        # Clone current embeddings to manually calculate expected update.
+        old_V = embedder.V.clone()
+        new_V = old_V.clone()
+
+        # Ask the embedder to advance through an update cycle.
+        embedder.cycle()
+
+        # Check that the update was performed.
+        shards = h.shards.Shards(3)
+        for shard in shards:
+
+            delta = M_[shard] - torch.mm(old_V[shard[0]], old_V[shard[1]].t())
+            nabla_V = torch.mm(delta.t(), old_V[shard[0]])
+            nabla_W = torch.mm(delta, old_V[shard[1]])
+            new_V[shard[1]] += learning_rate * nabla_V
+            new_V[shard[0]] += learning_rate * nabla_W
+
+            old_V = new_V
+            badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
+
+        self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
+        self.assertTrue(torch.allclose(embedder.W, new_V, atol=0.0001))
+
+        # Check that the badness is correct 
+        # (badness is based on the error before last update)
+        self.assertTrue(torch.allclose(badness, embedder.badness))
+
+
+
+
+
+
+
+
+
+        # Check that the vectors and covectors are still identical after the
+        # update.
+        self.assertTrue(torch.allclose(embedder.W, embedder.V))
+
+        # Check that the badness is correct 
+        # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
 
@@ -767,7 +890,7 @@ class TestHilbertEmbedder(TestCase):
         expected_nabla_V = torch.mm(delta.t(), V)
 
         # Get the gradient using the embedders method (which we are testing).
-        nabla_V = embedder.get_gradient()
+        nabla_V, nabla_W = embedder.get_gradient()
 
         # Gradient from embedder should match that manually calculated.
         self.assertTrue(torch.allclose(nabla_V, expected_nabla_V, atol=1e-6))
@@ -806,7 +929,7 @@ class TestHilbertEmbedder(TestCase):
         expected_nabla_V = torch.mm(delta.t(), V)
 
         # Calculate gradients using embedder's method (which we are testing).
-        nabla_V = embedder.get_gradient(offsets=offset_V)
+        nabla_V, nabla_W = embedder.get_gradient(offsets=offset_V)
 
         # Gradients from embedder should match those calculated manuall.
         self.assertTrue(torch.allclose(nabla_V, expected_nabla_V))
@@ -855,7 +978,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.embedder.HilbertEmbedder(
-            f_delta, d, learning_rate=learning_rate, shard_factor=3,
+            f_delta, d, learning_rate=learning_rate, shard_factor=1,
             verbose=False
         )
 
@@ -871,7 +994,7 @@ class TestHilbertEmbedder(TestCase):
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
 
         # Ask the embedder to progress through one update cycle.
-        embedder.cycle(pass_args=pass_args, print_badness=False)
+        embedder.cycle(pass_args=pass_args)
 
         # Calculate teh expected changes due to the update.
         #M = torch.tensor(M, dtype=torch.float32)
@@ -926,13 +1049,14 @@ class TestHilbertEmbedder(TestCase):
         old_W = embedder.W.clone()
 
         # Ask the embedder to advance through an update cycle.
-        embedder.cycle(print_badness=False)
+        embedder.cycle()
 
         # Check that the update was performed.
         new_V = old_V + learning_rate * torch.mm(delta_always.t(), old_W)
         new_W = old_W + learning_rate * torch.mm(delta_always, old_V)
-        self.assertTrue(torch.allclose(embedder.V, new_V))
-        self.assertTrue(torch.allclose(embedder.W, new_W))
+
+        self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
+        self.assertTrue(torch.allclose(embedder.W, new_W, atol=0.0001))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
@@ -1061,6 +1185,7 @@ class TestHilbertEmbedder(TestCase):
         device = h.CONSTANTS.MATRIX_DEVICE
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         torch.random.manual_seed(0)
+
         # Set up test conditions.
         d = 3
         learning_rate = 0.01
@@ -1071,7 +1196,7 @@ class TestHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
+            f_MSE, d, learning_rate=learning_rate, shard_factor=1,
             verbose=False, 
             constrainer=h.constrainer.glove_constrainer
         )
@@ -1082,11 +1207,12 @@ class TestHilbertEmbedder(TestCase):
         old_W = embedder.W.clone()
 
         # Ask the embedder to advance through one update cycle.
-        embedder.cycle(print_badness=False)
+        embedder.cycle()
 
         # Calculate the expected update, with constraints applied.
         M_hat = torch.mm(old_W, old_V.t())
         delta = M_ - M_hat
+
         new_V = old_V + learning_rate * torch.mm(delta.t(), old_W)
         new_W = old_W + learning_rate * torch.mm(delta, old_V)
 
@@ -1094,8 +1220,8 @@ class TestHilbertEmbedder(TestCase):
 
         # Verify that manually updated embeddings match those of the embedder.
         h.constrainer.glove_constrainer(new_W, new_V)
-        self.assertTrue(torch.allclose(embedder.V, new_V))
-        self.assertTrue(torch.allclose(embedder.W, new_W))
+        self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
+        self.assertTrue(torch.allclose(embedder.W, new_W, atol=0.0001))
 
         # Verify that the contstraints really were applied.
         self.assertTrue(torch.allclose(
@@ -1113,7 +1239,7 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         # Set up conditions for test.
         d = 11
-        num_cycles = 100
+        num_cycles = 200
         tolerance = 0.002
         learning_rate = 0.1
         torch.random.manual_seed(0)
@@ -1124,12 +1250,12 @@ class TestHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=2, 
+            f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
             verbose=False
         )
 
         # Run the embdder for many update cycles.
-        embedder.cycle(num_cycles, print_badness=False)
+        embedder.cycle(num_cycles)
 
         # Ensure that the embeddings have the right shape.
         self.assertEqual(embedder.V.shape, (vocab,d))
@@ -1139,12 +1265,21 @@ class TestHilbertEmbedder(TestCase):
         # fact that the delta value for the embedder is near zero.
         M_hat = torch.mm(embedder.W, embedder.V.t())
         delta = f_MSE.calc_shard(M_hat) # shard is None -> calculate full delta
-        self.assertTrue(torch.sum(delta) < tolerance)
+
+        self.assertTrue(
+            torch.sum(delta).item() < tolerance
+        )
         
 
+    # The premise of this test is not wrong.  Sharding will lead to a different
+    # trajectory for parameters, because individual shards are carried through
+    # full update cycles, rather than gathering gradient accross all shards
+    # before updating.
     def test_sharding_equivalence(self):
-        torch.random.manual_seed(0)
+
         # Set up conditions for test.
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
         d = 11
         num_cycles = 20
         learning_rate = 0.01
@@ -1152,35 +1287,43 @@ class TestHilbertEmbedder(TestCase):
 
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
+
         M = h.M.M_pmi(bigram, neg_inf_val=0)
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        M_ = M.load_all()
+        f_delta = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
+            f_delta, d, learning_rate=learning_rate, shard_factor=3, 
             verbose=False
         )
 
-        bigram = h.corpus_stats.get_test_bigram(2)
-        M_sharded = h.M.M_pmi(bigram, neg_inf_val=0)
-        f_MSE_sharded = h.f_delta.DeltaMSE(bigram, M_sharded)
-        embedder_sharded = h.embedder.HilbertEmbedder(
-            f_MSE_sharded, d, learning_rate=learning_rate, shard_factor=3, 
-            verbose=False
-        )
+        # Clone current embeddings to manually calculate expected update.
+        old_V = embedder.V.clone()
+        old_W = embedder.W.clone()
+        new_V = old_V.clone()
+        new_W = old_W.clone()
 
-        # Force the two embedders to start with the same initial vectors
-        embedder_sharded.V = embedder.V.clone()
-        embedder_sharded.W = embedder.W.clone()
+        # Ask the embedder to advance through an update cycle.
+        embedder.cycle()
 
-        # Run the embdder for many update cycles.
-        embedder.cycle(num_cycles, print_badness=False)
-        embedder_sharded.cycle(num_cycles, print_badness=False)
+        # Check that the update was performed.
+        shards = h.shards.Shards(3)
+        for shard in shards:
 
-        # Check that we have essentially reached convergence, based on the 
-        # fact that the delta value for the embedder is near zero.
-        self.assertTrue(torch.allclose(embedder_sharded.V, embedder.V))
-        self.assertTrue(torch.allclose(embedder_sharded.W, embedder.W))
-        
+            delta = M_[shard] - torch.mm(old_W[shard[0]], old_V[shard[1]].t())
+            new_V[shard[1]] = old_V[shard[1]] + learning_rate * torch.mm(
+                delta.t(), old_W[shard[0]])
+            new_W[shard[0]] = old_W[shard[0]] + learning_rate * torch.mm(
+                delta, old_V[shard[1]])
+            old_V = new_V
+            old_W = new_W
+            badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
 
+        self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
+        self.assertTrue(torch.allclose(embedder.W, new_W, atol=0.0001))
+
+        # Check that the badness is correct 
+        # (badness is based on the error before last update)
+        self.assertTrue(torch.allclose(badness, embedder.badness))
 
 
 
@@ -1240,7 +1383,7 @@ class TestSolvers(TestCase):
         mock_objective = MockObjective((1,), (3,3))
 
         solver = h.solver.MomentumSolver(
-            mock_objective, learning_rate, momentum_decay)
+            mock_objective, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1296,7 +1439,7 @@ class TestSolvers(TestCase):
         mock_objective = MockObjective((1,), (3,3))
 
         solver = h.solver.MomentumSolver(
-            mock_objective, learning_rate, momentum_decay)
+            mock_objective, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1395,7 +1538,8 @@ class TestSolvers(TestCase):
 
         np.random.seed(0)
         mo = MockObjective((1,), (3,3))
-        solver = h.solver.NesterovSolver(mo, learning_rate, momentum_decay)
+        solver = h.solver.NesterovSolver(
+            mo, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1423,13 +1567,13 @@ class TestSolvers(TestCase):
         np.random.seed(0)
         torch_mo = MockObjective((1,), (3,3))
         torch_solver = h.solver.NesterovSolver(
-            torch_mo, learning_rate, momentum_decay)
+            torch_mo, learning_rate, momentum_decay, verbose=False)
         torch_solver.cycle(times=times, pass_args={'a':1})
 
         np.random.seed(0)
         numpy_mo = MockObjective((1,), (3,3))
         numpy_solver = h.solver.NesterovSolver(
-            numpy_mo, learning_rate, momentum_decay)
+            numpy_mo, learning_rate, momentum_decay, verbose=False)
         numpy_solver.cycle(times=times, pass_args={'a':1})
 
         # Verify that the solver visited to the expected parameter values
@@ -1448,7 +1592,8 @@ class TestSolvers(TestCase):
 
         np.random.seed(0)
         mo = MockObjective((1,), (3,3))
-        solver = h.solver.NesterovSolver(mo, learning_rate, momentum_decay)
+        solver = h.solver.NesterovSolver(
+            mo, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1482,7 +1627,7 @@ class TestSolvers(TestCase):
         np.random.seed(0)
         mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverOptimized(
-            mo, learning_rate, momentum_decay)
+            mo, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1512,7 +1657,7 @@ class TestSolvers(TestCase):
         np.random.seed(0)
         mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverOptimized(
-            mo, learning_rate, momentum_decay)
+            mo, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1579,7 +1724,7 @@ class TestSolvers(TestCase):
         np.random.seed(0)
         mo = MockObjective((1,), (3,3))
         solver = h.solver.NesterovSolverCautious(
-            mo, learning_rate, momentum_decay)
+            mo, learning_rate, momentum_decay, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
 
@@ -1610,11 +1755,11 @@ class TestSolvers(TestCase):
 
         mock_objective_1 = MockObjective((1,), (3,3))
         nesterov_solver = h.solver.NesterovSolver(
-            mock_objective_1, learning_rate, momentum_decay)
+            mock_objective_1, learning_rate, momentum_decay, verbose=False)
 
         mock_objective_2 = MockObjective((1,), (3,3))
         nesterov_solver_optimized = h.solver.NesterovSolver(
-            mock_objective_2, learning_rate, momentum_decay)
+            mock_objective_2, learning_rate, momentum_decay, verbose=False)
 
         for i in range(times):
 
@@ -1817,16 +1962,18 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False,
-            )
-        solver = h.solver.NesterovSolver(embedder,learning_rate,momentum_decay)
+            verbose=False
+        )
+        solver = h.solver.NesterovSolver(
+            embedder, learning_rate, momentum_decay, verbose=False
+        )
         solver.cycle(times=times)
 
 
@@ -1837,7 +1984,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -1846,7 +1993,9 @@ class TestEmbedderSolverIntegration(TestCase):
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             verbose=False,
             )
-        solver = h.solver.MomentumSolver(embedder,learning_rate,momentum_decay)
+        solver = h.solver.MomentumSolver(
+            embedder, learning_rate, momentum_decay, verbose=False
+        )
         solver.cycle(times=times)
 
 
@@ -1857,7 +2006,7 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram)
+        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
@@ -1867,7 +2016,8 @@ class TestEmbedderSolverIntegration(TestCase):
             verbose=False,
         )
         solver = h.solver.NesterovSolverOptimized(
-            embedder, learning_rate, momentum_decay)
+            embedder, learning_rate, momentum_decay, verbose=False
+        )
         solver.cycle(times=times)
 
 
@@ -2321,7 +2471,7 @@ class TestBigram(TestCase):
         self.assertEqual(bigram.N, expected_N)
 
         # We cannot add tokens if they are outside of the unigram vocabulary
-        with self.assertRaises(KeyError):
+        with self.assertRaises(ValueError):
             bigram.add('archaeopteryx', 'socks')
 
 
@@ -3227,6 +3377,62 @@ class TestEmbeddings(TestCase):
                 embeddings.get_covec((slice(0,5000,1),slice(0,300,1))), W))
 
 
+    def test_sort_like(self):
+        random.seed(0)
+        in_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
+
+        embeddings_pristine = h.embeddings.Embeddings.load(in_path)
+        embeddings_to_be_sorted = h.embeddings.Embeddings.load(in_path)
+        embeddings_to_sort_by = h.embeddings.Embeddings.load(in_path)
+        sort_tokens = embeddings_to_sort_by.dictionary.tokens
+        random.shuffle(sort_tokens)
+
+        # Sort the embeddings according to a new shuffled token order.
+        embeddings_to_be_sorted.sort_like(embeddings_to_sort_by)
+
+        # The pristine and sorted embeddings are no longer the same
+        self.assertFalse(torch.allclose(
+            embeddings_pristine.V, embeddings_to_be_sorted.V))
+        self.assertFalse(torch.allclose(
+            embeddings_pristine.W, embeddings_to_be_sorted.W))
+
+        # The sorted embeddings' dictionary matches shuffled token order.
+        # And is different from the pristine embeddings' dictionary order.
+        self.assertEqual(
+            embeddings_to_be_sorted.dictionary.tokens,
+            sort_tokens
+        )
+        self.assertNotEqual(
+            embeddings_pristine.dictionary.tokens,
+            embeddings_to_be_sorted.dictionary.tokens
+        )
+
+        # The embeddings themselves are reordered too, but they are still bound
+        # to the same tokens.
+        for i, token in enumerate(sort_tokens):
+            self.assertTrue(torch.allclose(
+                embeddings_to_be_sorted.V[i],
+                embeddings_to_be_sorted.get_vec(token)
+            ))
+            self.assertTrue(torch.allclose(
+                embeddings_to_be_sorted.W[i],
+                embeddings_to_be_sorted.get_covec(token)
+            ))
+            self.assertTrue(torch.allclose(
+                embeddings_pristine.get_vec(token),
+                embeddings_to_be_sorted.get_vec(token)
+            ))
+            self.assertTrue(torch.allclose(
+                embeddings_pristine.get_covec(token),
+                embeddings_to_be_sorted.get_covec(token)
+            ))
+
+
+
+
+
+
 
 
 class TestUtils(TestCase):
@@ -3364,6 +3570,350 @@ class TestShards(TestCase):
                 self.assertTrue(torch.allclose(
                     M[shard], expected_shard
                 ))
+
+
+class TestDeltaW2VSampleFullCorpus(TestCase):
+
+    def test_delta_w2v_sample_full_corpus(self):
+
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        d = 300
+
+        Nxx = torch.tensor(np.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample-full-corpus', 'Nxx.npy'
+        )), device=device, dtype=dtype)
+        Nxx_neg = torch.tensor(np.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample-full-corpus', 
+            'Nxx_neg.npy'
+        )), device=device, dtype=dtype)
+
+        # Make a random M_hat to use as a test input.
+        vocab = Nxx.shape[0]
+        V = torch.rand((vocab, d), device=device)
+        W = torch.rand((vocab, d), device=device)
+        M_hat = torch.mm(W,V.t())
+
+        # Calculate expected delta.
+        expected_M  = torch.log(Nxx) - torch.log(Nxx_neg)
+        # Force nans to be zero. 
+        expected_M[expected_M != expected_M] = 0
+        expected_delta = (Nxx + Nxx_neg) * (
+            h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(M_hat)
+        )
+
+        # Now check if this is what we get from DeltaW2VSamplesFullCorpus
+        f_delta = h.f_delta.DeltaW2VSamplesFullCorpus(Nxx, Nxx_neg)
+        delta = f_delta.calc_shard(M_hat)
+
+        self.assertTrue(torch.allclose(delta, expected_delta))
+
+
+
+
+class TestDeltaW2VSample(TestCase):
+
+    def test_sample_reader(self):
+
+        sample_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'trace.txt')
+        dictionary = h.dictionary.Dictionary.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'dictionary'))
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, verbose=False)
+
+        with open(sample_path) as sample_file:
+            lines = sample_file.readlines()
+
+        num_lines = 0
+        num_epochs = 0
+        while True:
+
+            try:
+                next_sample = sample_reader.next_sample()
+            except h.f_delta.NewEpoch:
+                num_epochs += 1
+                num_lines += 1
+                continue
+            except h.f_delta.NoMoreSamples:
+                break
+
+            for token_id1, token_id2, val in next_sample:
+                token1 = dictionary.tokens[token_id1]
+                token2 = dictionary.tokens[token_id2]
+                self.assertEqual(
+                    lines[num_lines],
+                    '{}\t{}\t{}\n'.format(token1,token2,val)
+                )
+                num_lines += 1
+
+        sample_reader.sample_file.close()
+
+
+    def test_sample_reader_ignore_epoch(self):
+
+        sample_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'trace.txt')
+        dictionary = h.dictionary.Dictionary.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'dictionary'))
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, signal_epochs=False, verbose=False)
+
+        with open(sample_path) as sample_file:
+            lines = sample_file.readlines()
+
+        line_num = 0
+        while True:
+
+            try:
+                next_sample = sample_reader.next_sample()
+            except h.f_delta.NewEpoch:
+                self.assertTrue(False) # We should not see new epoch signals
+            except h.f_delta.NoMoreSamples:
+                break
+
+            for token_id1, token_id2, val in next_sample:
+                token1 = dictionary.tokens[token_id1]
+                token2 = dictionary.tokens[token_id2]
+
+                if lines[line_num].startswith('Epoch'):
+                    line_num += 1
+
+                self.assertEqual(
+                    lines[line_num],
+                    '{}\t{}\t{}\n'.format(token1,token2,val)
+                )
+                line_num += 1
+
+        sample_reader.sample_file.close()
+        
+
+    def test_f_delta_w2v_sample(self):
+
+        torch.random.manual_seed(0)
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        device=h.CONSTANTS.MATRIX_DEVICE
+        sample_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'trace.txt')
+        dictionary_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'dictionary')
+        d = 300
+        dictionary = h.dictionary.Dictionary.load(dictionary_path)
+        vocab = len(dictionary)
+
+        # Create random vectors, and use them to make an M_hat
+        V = h.utils.sample_sphere(vocab, d)
+        W = h.utils.sample_sphere(vocab, d)
+        M_hat = torch.mm(W,V.t())
+
+        # Make a DeltaW2VSamples instance
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, signal_epochs=False, verbose=False)
+        f_delta = h.f_delta.DeltaW2VSamples(sample_reader)
+
+        # Make a sample reader, separate from the one used to make the 
+        # DeltaW2V Samples instance, for generating the expected deltas.
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, signal_epochs=False, verbose=False)
+
+        # Get some samples, and use them to make an expected delta
+        for sample_num in range(6):
+            sample = sample_reader.next_sample()
+            Nxx = torch.zeros((vocab, vocab), device=device, dtype=dtype)
+            Nxx_neg = torch.zeros((vocab, vocab), device=device, dtype=dtype)
+            for token_id1, token_id2, val in sample:
+                if val == 1:
+                    Nxx[token_id1, token_id2] += 1
+                elif val == 0:
+                    Nxx_neg[token_id1, token_id2] += 1
+                else:
+                    assert False, 'Val must be 1 or 0'
+            expected_delta = (
+                (Nxx + Nxx_neg) * (
+                    h.f_delta.sigmoid(torch.log(Nxx / Nxx_neg))
+                    - h.f_delta.sigmoid(M_hat)
+                )
+            )
+            # Set nans in expected_delta to zero.  They represent places where
+            # both Nxx and Nxx_neg are zero, and so should be zero.  Use the 
+            # trick that nan != nan.
+            expected_delta[expected_delta != expected_delta] = 0
+            found_delta = f_delta.calc_shard(M_hat)
+            self.assertTrue(torch.allclose(found_delta, expected_delta))
+
+        sample_reader.sample_file.close()
+        f_delta.sample_reader.sample_file.close()
+
+
+    #def test_w2v_sample_embedder(self):
+
+    #    torch.random.manual_seed(0)
+
+    #    dtype=h.CONSTANTS.DEFAULT_DTYPE
+    #    device=h.CONSTANTS.MATRIX_DEVICE
+    #    sample_path = os.path.join(
+    #        h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'trace.txt')
+    #    dictionary_path = os.path.join(
+    #        h.CONSTANTS.TEST_DIR, 'delta-w2v-sample', 'dictionary')
+    #    d = 300
+    #    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    #    vocab = len(dictionary)
+
+    #    # Make an embedder based on a DeltaW2VSamples instance.
+    #    sample_reader = h.f_delta.SampleReader(
+    #        sample_path, dictionary, verbose=False)
+    #    f_delta = h.f_delta.DeltaW2VSamples(sample_reader)
+    #    embedder = h.embedder.Embedder(
+    #        f_delta,d=d, num_vecs=vocab, num_covecs=vocab, learning_rate=1e-3,
+    #        shard_factor=1, verbose=False
+    #    )
+
+    #    # Create random vectors, and use them to make an M_hat
+    #    V = embedder.V.clone()
+    #    W = embedder.W.clone()
+
+    #    M_hat = torch.mm(W,V.t())
+
+    #    # Make a sample reader, separate from the one used to make the 
+    #    # DeltaW2V Samples instance, for generating the expected deltas.
+    #    sample_reader = h.f_delta.SampleReader(
+    #        sample_path, dictionary, verbose=False)
+
+    #    # Get some samples, and use them to make an expected delta
+    #    for sample_num in range(6):
+    #        sample = sample_reader.next_sample()
+    #        Nxx = torch.zeros((vocab, vocab), device=device, dtype=dtype)
+    #        Nxx_neg = torch.zeros((vocab, vocab), device=device, dtype=dtype)
+    #        for token_id1, token_id2, val in sample:
+    #            if val == 1:
+    #                Nxx[token_id1, token_id2] += 1
+    #            elif val == 0:
+    #                Nxx_neg[token_id1, token_id2] += 1
+    #            else:
+    #                assert False, 'Val must be 1 or 0'
+    #        expected_delta = (
+    #            (Nxx + Nxx_neg) * (
+    #                h.f_delta.sigmoid(torch.log(Nxx / Nxx_neg))
+    #                - h.f_delta.sigmoid(M_hat)
+    #            )
+    #        )
+    #        # Set nans in expected_delta to zero.  They represent places where
+    #        # both Nxx and Nxx_neg are zero, and so should be zero.  Use the 
+    #        # trick that nan != nan.
+    #        expected_delta[expected_delta != expected_delta] = 0
+    #        found_delta = f_delta.calc_shard(M_hat)
+    #        self.assertTrue(torch.allclose(found_delta, expected_delta))
+
+    #    sample_reader.sample_file.close()
+    #    f_delta.sample_reader.sample_file.close()
+
+
+
+class TestW2VReplica(TestCase):
+
+    def test_w2v_updates(self):
+        learning_rate = 0.025
+
+        # Create a word2vec replica embedder
+        sample_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-w2v', 'trace.txt')
+        dictionary = h.dictionary.Dictionary.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-w2v', 'dictionary'))
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, verbose=False)
+
+        w2v_replica = h.embedder.W2VReplica(
+            sample_reader, learning_rate=learning_rate, delay_update=False)
+
+        # Initialize it with vectors used to initialize a real w2v run
+        embeddings_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-w2v', 'epoch-init')
+        init_embeddings = h.embeddings.Embeddings.load(embeddings_path)
+        w2v_replica.V = init_embeddings.V.clone()
+        w2v_replica.W = init_embeddings.W.clone()
+
+        # First read past the first epoch marker, which comes before any
+        # samples.
+        try:
+            w2v_replica.cycle(None)
+        except h.f_delta.NewEpoch:
+            pass
+
+        # Now track updates through 10 epochs, comparing the resulting
+        # embeddings to those obtained by the original w2v algo.
+        for i in range(5):
+
+            try:
+                w2v_replica.cycle(None)
+            except h.f_delta.NewEpoch:
+                pass
+
+            # The w2v_replica's vectors should now match those obtained by w2v
+            # after one epoch.
+            embeddings_path = os.path.join(
+                h.CONSTANTS.TEST_DIR, 'test-w2v', 'epoch{}'.format(i))
+            expected_embeddings = h.embeddings.Embeddings.load(embeddings_path)
+            self.assertTrue(torch.allclose(
+                w2v_replica.V, expected_embeddings.V, atol=0.08))
+            self.assertTrue(torch.allclose(
+                w2v_replica.W, expected_embeddings.W, atol=0.08))
+
+
+    def test_w2v_updates_no_delay(self):
+
+        learning_rate = 0.025
+        delay_update = False
+
+        # Create a word2vec replica embedder
+        sample_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-w2v', 'trace.txt')
+        dictionary = h.dictionary.Dictionary.load(os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-w2v', 'dictionary'))
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, verbose=False)
+        w2v_replica = h.embedder.W2VReplica(
+            sample_reader,
+            learning_rate=learning_rate,
+            delay_update=delay_update
+        )
+
+        # Clone the initialized embeddings.  We'll use these as a starting
+        # point for calculating the expected embeddings after an epoch.
+        V = w2v_replica.V.clone()
+        W = w2v_replica.W.clone()
+
+        # To apply an epoch's worth of updates, it is necessary to pass
+        # the first epoch marker, and proceed up until the second.
+        for i in range(2):
+            try:
+                w2v_replica.cycle(None)
+            except h.f_delta.NewEpoch:
+                pass
+
+        # Calculate the expected embeddings after one epoch
+        sample_reader = h.f_delta.SampleReader(
+            sample_path, dictionary, verbose=False)
+        num_epochs = 0
+        while num_epochs < 2:
+            try:
+                next_sample = sample_reader.next_sample()
+            except h.f_delta.NewEpoch:
+                num_epochs += 1
+                continue
+
+            for fields in next_sample:
+                t1, t2, val = fields[:3]
+                dot = torch.dot(V[t1], W[t2])
+                g = ( val - 1/(1+np.e**(-dot)) ) * learning_rate
+                W[t2] += g * V[t1]
+                V[t1] += g * W[t2]
+
+        self.assertTrue(torch.allclose(w2v_replica.V, V))
+
+        self.assertTrue(torch.allclose(w2v_replica.W, W))
+
+
+
 
 
 

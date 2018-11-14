@@ -21,13 +21,38 @@ def get_test_bigram(window_size):
     bigram.sort()
     return bigram
 
+
 def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def calc_PMI(bitram):
-    Nxx, Nx, Nxt, N = bitram
+def calc_PMI(bigram):
+    Nxx, Nx, Nxt, N = bigram
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
+
+
+def calc_PMI_smooth(bigram):
+    Nxx, Nx, Nxt, N = bigram
+
+
+    Nxx_exp = Nx * Nxt / N
+
+    Nxx_smooth = torch.tensor([
+        [
+            Nxx[i,j] if Nxx[i,j] > Nxx_exp[i,j] else
+            Nxx_exp[i,j] if Nxx_exp[i,j] > 1 else
+            1
+            for j in range(Nxx.shape[1])
+        ]
+        for i in range(Nxx.shape[0])
+    ])
+    Nx = Nxx_smooth.sum(dim=1, keepdim=True)
+    Nxt = Nxx_smooth.sum(dim=0, keepdim=True)
+    N = Nxx_smooth.sum()
+    return Nxx_smooth, Nx, Nxt, N
+
+
+    
 
 
 def calc_PMI_sparse(bigram):

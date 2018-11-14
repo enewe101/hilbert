@@ -105,3 +105,11 @@ def fill_diagonal(tensor_2d, diag):
 
 def clip(min, max, val):
     return min if val < min else max if val > max else val
+
+
+def sample_sphere(num_vecs, d, device=None):
+    device = device or h.CONSTANTS.MATRIX_DEVICE
+    sample = torch.rand((num_vecs, d), device=device).mul_(2).sub_(1)
+    return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
+
+

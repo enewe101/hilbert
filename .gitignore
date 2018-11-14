@@ -8,3 +8,5 @@ env3
 *.egg-info
 test-data
 .nfs*
+_build
+pdf

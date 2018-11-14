@@ -19,6 +19,7 @@ class M:
         neg_inf_val=None,
         clip_thresh=None,
         diag=None,
+        device=None
     ):
 
         self.bigram = bigram
@@ -27,12 +28,14 @@ class M:
         self.clip_thresh = clip_thresh
         self.diag = diag
         self.shape = self.bigram.Nxx.shape
+        self.device = device
 
     def calc_base(self, shard):
         raise NotImplementedError(
             'Use a concrete M class that implements calc_base().')
 
     def __getitem__(self, shard):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         # Calculate the basic elements of M.
         M_shard = self.calc_base(shard)
         # Apply effects to M.  Only apply diagonal value for diagonal shards.
@@ -51,14 +54,16 @@ class M:
 class M_w2v(M):
 
     def __init__(self, *args, **kwargs):
-        device = kwargs.pop('device', None) or h.CONSTANTS.MATRIX_DEVICE
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        self.k = torch.tensor(kwargs.pop('k'), device=device, dtype=dtype)
+        k = kwargs.pop('k')
         super().__init__(*args, **kwargs)
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        dtype=h.CONSTANTS.DEFAULT_DTYPE
+        self.k = torch.tensor(k, device=device, dtype=dtype)
 
     def calc_base(self, shard):
-        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
-        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard)
+        device =  self.device or h.CONSTANTS.MATRIX_DEVICE
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=device)
+        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard, device=device)
         N_neg = negative_sample(Nxx, Nx, uNxt, uN, self.k)
         return torch.log(Nxx) - torch.log(N_neg)
 

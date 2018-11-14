@@ -24,8 +24,6 @@ class Unigram(object):
         ``Nx`` -- A 1D array-like instance (e.g. numpy.ndarray,
             scipy.sparse.csr_matrix, or list), in which the ith element
             contains the number of cooccurrences for token with ID i.
-        ``autosort`` -- Boolean.  Whether to sort upon attempting to access
-            Nx or dictionary, if not already sorted.
 
         Unigram Keeps track of token occurrence counts, and saves/loads from
         disk.  Provide no arguments to create an empty instance, useful for 
@@ -44,6 +42,21 @@ class Unigram(object):
 
         self.device = device
         self.verbose = verbose
+
+        self.sorted = self.check_sorted()
+
+
+    def check_sorted(self):
+        """
+        Check whether the dictionary tokens are sorted in decreasing order of 
+        frequency.
+        """
+        last_count = np.inf
+        for count in self.Nx:
+            if count > last_count:
+                return False
+            last_count = count
+        return True
 
 
     def apply_smoothing(self, alpha):

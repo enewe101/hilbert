@@ -138,6 +138,29 @@ class Embeddings:
         return self._unkW
 
 
+    def sort_like(self, other):
+        self.sort_by_tokens(other.dictionary.tokens)
+
+
+    def sort_by_tokens(self, tokens):
+        """
+        Re-orders vectors / covectors, by assigning new indices to 
+        tokens according to their position in ``tokens``.  ``tokens`` should
+        be an iterable of strings, and it should have exactly the same 
+        elements as self.dictionary.tokens, otherwise it's an error.
+        """
+        if len(set(tokens)) != len(self.dictionary):
+            raise ValueError(
+                'Every token in the vocabulary must appear in the list of '
+                'tokens to sort by exactly once.'
+            )
+        sort_ids = [self.dictionary.get_id(token) for token in tokens]
+        self.V = self.V[sort_ids]
+        self.W = self.W[sort_ids]
+        self.dictionary = h.dictionary.Dictionary(tokens)
+
+
+
     def check_normalized(self):
         """
         Returns ``True`` if vectors and covectors have unit norm.  
@@ -298,7 +321,7 @@ class Embeddings:
         """
         Gets the embedding for vector ``key``.  Key can either be an ``int``
         representing the index of the embedding in V, or it can be the
-        name of the embedded word.  The embeddins have to have an associated 
+        name of the embedded word.  The embeddings have to have an associated 
         dictionary to access embeddings by name.
 
         If key is a ``str`` but is not found in ``self.dictionary``, then

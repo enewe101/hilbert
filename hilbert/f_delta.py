@@ -22,6 +22,205 @@ class DeltaMSE:
         return self.M[shard] - M_hat
         
 
+
+class NewEpoch(Exception):
+    """Marker for end of epoch"""
+    def __init__(self, epoch_num, *args, **kwargs):
+        self.epoch_num = epoch_num
+        super().__init__('Epoch #{}'.format(epoch_num))
+
+class NoMoreSamples(Exception):
+    """Signals that there are no more samples left."""
+
+
+class SampleReader:
+    """
+    Replays samples based on a trace from running standard word2vec.
+    Call next_sample() to get the next sample, consisting of a positive
+    example and k negative examples.  Each example is a triple of two token
+    ids and a value indicating whether it is a positive (1) or negative (0)
+    example.  Treat as an iterable to iterate through all sampless.
+
+    If signal_epochs is True, then a special NewEpoch exception is raised
+    whenever a new epoch is started, so that an external process can intervene.
+
+    When all samples are exhausted, raises NoMoreSamples, even if it is being
+    used like an iterator (for self-consistency)
+    """
+
+    def __init__(
+        self,
+        sample_path,
+        dictionary,
+        signal_epochs=True,
+        verbose=True
+    ):
+        self.sample_path = sample_path
+        self.dictionary = dictionary
+        self.signal_epochs = signal_epochs
+        self.verbose = verbose
+        self.sample_file = open(self.sample_path)
+
+        # Internal pointers, state tracking, in-memory samples, and
+        # partialy-built samples
+        self.epoch_num = 0
+        self.samples = []
+        self.cur_sample = []
+        self.sample_pointer = 0
+        self.no_more_samples = False
+
+
+    def __iter__(self):
+        while True:
+            yield self.next_sample()
+
+
+    def next_sample(self):
+
+        while True:
+
+            if self.sample_pointer >= len(self.samples):
+                if self.no_more_samples:
+                    raise NoMoreSamples()
+                self.sample_pointer = 0
+                self.samples = []
+                self.read_some_samples()
+
+            next_item = self.samples[self.sample_pointer]
+
+            # If we hit an epoch marker, signal it, or just step over it.
+            if isinstance(next_item, NewEpoch):
+                self.sample_pointer += 1
+                if self.signal_epochs:
+                    raise next_item
+                else:
+                    continue
+
+            self.sample_pointer += 1
+            return next_item
+
+
+    def read_some_samples(self):
+        for i in range(1000):
+            try:
+                line = next(self.sample_file)
+
+            except StopIteration:
+                self.finalize_epoch()
+                self.no_more_samples = True
+                break
+
+            if line.startswith('Epoch'): 
+                self.finalize_epoch()
+                continue
+
+            self.read_one_line(line)
+
+
+    def finalize_epoch(self):
+        self.finalize_sample()
+        self.samples.append(NewEpoch(self.epoch_num))
+        if self.verbose:
+            print('Epoch #{}'.format(self.epoch_num))
+        self.epoch_num += 1
+
+
+    def read_one_line(self, line):
+        """
+        Read one line.  Possibly start a building a new sample.  Add the
+        instance from this line to currently-accumulating sample.
+        """
+        fields = self.parse_one_line(line)
+        label = fields[2]
+        self.maybe_finalize_sample(label)
+        self.cur_sample.append(fields)
+
+
+    def parse_one_line(self, line):
+        fields = line.strip().split('\t')
+        return [
+            self.dictionary.get_id(fields[0]),
+            self.dictionary.get_id(fields[1]),
+            int(fields[2])
+        ] + fields[3:]
+
+
+    def maybe_finalize_sample(self, label):
+        # Positive samples, having label == 1, mark the start of a new sample.
+        if label == 1:
+            self.finalize_sample()
+        # Meanwhile, validate the value of the label.
+        elif label != 0:
+            raise ValueError(
+                'Label must be either 0 or 1, got {}'.format(label))
+
+
+    def finalize_sample(self):
+        if len(self.cur_sample) > 0:
+            self.samples.append(self.cur_sample)
+        self.cur_sample = []
+
+
+    def __del__(self):
+        self.sample_file.close()
+
+
+
+
+class DeltaW2VSamples:
+    """
+    A delta calculator that can "replay" each sample taken during training of
+    word2vec, so that they are applied as updates using the HilbertEmbedder
+    architecture.  These samples could be taken from a trace of the standard
+    word2vec algorithms samples, useful in exploring the simulation of word2vec
+    using a HilbertEmbedder.  A single sample consists of one positive example
+    along with k negative examples.
+    """
+
+    def __init__(self, sample_reader, device=None):
+        print('WARNING: DeltaW2VSamples can only be used with shard_factor=1')
+        device = device or h.CONSTANTS.MATRIX_DEVICE
+        self.sample_reader = sample_reader
+        self.delta = torch.zeros(
+            len(sample_reader.dictionary), len(sample_reader.dictionary), 
+            device=device
+        )
+
+
+    def calc_shard(self, M_hat, shard=None):
+        self.delta.fill_(0)
+        for fields in self.sample_reader.next_sample():
+            t1, t2, val = fields[:3]
+            self.delta[t1,t2] += val - sigmoid(M_hat[t1,t2])[0]
+        return self.delta
+
+
+
+class DeltaW2VSamplesFullCorpus:
+    """
+    A delta calculator that can take in the positive and negative samples
+    that have been produced by some sampler, for example, taken from a 
+    trace of the standard word2vec algorithms samples, useful in exploring the
+    simulation of word2vec using a HilbertEmbedder.
+    """
+
+    def __init__(self, Nxx, Nxx_neg, device=None):
+        print(
+            'WARNING: DeltaW2VSamplesFullCorpus can only be used with '
+            'shard_factor=1'
+        )
+        device = device or h.CONSTANTS.MATRIX_DEVICE
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.multiplier = torch.tensor(Nxx+Nxx_neg, device=device, dtype=dtype)
+        self.Nxx = torch.tensor(Nxx, device=device, dtype=dtype)
+
+    def calc_shard(self, M_hat, shard=None):
+        return self.Nxx - self.multiplier * sigmoid(M_hat)
+
+
+
+
+
 class DeltaW2V:
 
     def __init__(self, bigram, M, k, device=None):
@@ -39,8 +238,9 @@ class DeltaW2V:
     def calc_shard(self, M_hat, shard=None):
         if self.last_shard != shard:
             self.last_shard = shard
-            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
-            uNx, uNxt, uN = self.bigram.unigram.load_shard(shard)
+            device = self.device or h.CONSTANTS.MATRIX_DEVICE
+            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=device)
+            uNx, uNxt, uN = self.bigram.unigram.load_shard(shard, device=device)
             N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, self.k)
             self.multiplier = Nxx + N_neg
             self.exp_M = sigmoid(self.M[shard])
@@ -48,8 +248,6 @@ class DeltaW2V:
 
         else:
             return self.multiplier * (self.exp_M - sigmoid(M_hat))
-
-
 
         return self.calculated_shard
 
