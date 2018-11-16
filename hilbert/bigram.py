@@ -63,6 +63,31 @@ class Bigram(object):
         self.verbose = verbose
 
 
+    # TODO: test
+    def apply_w2v_undersampling(self, t):
+        """
+        Simulate undersampling of common words, like how is done in word2vec.
+        However, when applied here (as opposed to within the corpus sampler,
+        we are taking expectation values cooccurrence statistics under 
+        undersampling, and undersampling is applied in the "clean" way which
+        does not alter the effective size of the sample window.
+        """
+
+        # For each pair of words, calculate the probability that a given 
+        # cooccurrence would still be observed given undersampling.
+        freqs = np.array(self.unigram.Nx) / self.unigram.N
+        drop_probs = np.clip((freqs - t)/freqs - np.sqrt(t/freqs), 0, 1)
+        keep_probs = 1 - drop_probs
+        p_i = sparse.lil_matrix(keep_probs.reshape((-1,1)))
+        p_it = sparse.lil_matrix(keep_probs.reshape((1, -1)))
+
+        # Calculate the expectation cooccurrence counts given undersampling.
+        self.Nxx = self.Nxx.multiply(p_i).multiply(p_it).tolil()
+        self.Nx = np.array(np.sum(self.Nxx, axis=1))
+        self.Nxt = np.array(np.sum(self.Nxx, axis=0))
+        self.N = np.sum(self.Nx)
+
+
     def validate_args(self, unigram, Nxx):
 
         if Nxx is not None:
@@ -141,7 +166,6 @@ class Bigram(object):
         if not isinstance(other, Bigram):
             return NotImplemented
 
-
         # Find an shared ordering that matches other's ordering, with any words
         # unique to self's vocab placed at the end.
         token_order = list(other.unigram.dictionary.tokens)
@@ -177,6 +201,12 @@ class Bigram(object):
 
 
     @property
+    def sorted(self):
+        # Sorted order is determined by the unigram frequencies.
+        return self.unigram.sorted
+
+
+    @property
     def vocab(self):
         return len(self.unigram)
 
@@ -186,7 +216,6 @@ class Bigram(object):
         return self.unigram.dictionary
 
 
-    #TODO: test skip_unk functionality
     def add(self, token1, token2, count=1, skip_unk=False):
 
         # Get token idxs.
@@ -197,7 +226,6 @@ class Bigram(object):
         if id1 == None or id2 == None: 
             missing_token = token1 if id1 is None else token2
             if skip_unk: 
-                print('skip', missing_token)
                 return
             raise ValueError(
                 'Cannot add cooccurrence, no entry for "{}" in dictionary'
@@ -211,7 +239,6 @@ class Bigram(object):
         self.N += count
 
 
-    # Test
     def count(self, token1, token2):
         id1 = self.dictionary.get_id(token1)
         id2 = self.dictionary.get_id(token2)
@@ -219,15 +246,11 @@ class Bigram(object):
 
 
     def sort(self, force=False):
-        """
-        Re-assign token indices providing lower indices to more common words.
-        The unigram and its dictionary are forced to adopt the same ordering.
-        """
-        top_indices = np.argsort(-self.Nx.reshape(-1))
+        """Adopt decreasing order of unigram frequency."""
+        top_indices = self.unigram.sort()
         self.Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
         self.Nx = self.Nx[top_indices]
         self.Nxt = self.Nxt[:,top_indices]
-        self.unigram.sort_by_idxs(top_indices)
 
 
     def density(self, threshold_count=0):
@@ -240,10 +263,11 @@ class Bigram(object):
         return float(num_filled) / num_cells
 
 
-    # TODO: this should truncate the unigram first, and then truncate
-    # the bigram.
     def truncate(self, k):
         """Drop all but the `k` most common words."""
+        if not self.sorted:
+            self.sort()
+
         self.Nxx = self.Nxx[:k][:,:k]
         self.Nx = np.array(np.sum(self.Nxx, axis=1))
         self.Nxt = np.array(np.sum(self.Nxx, axis=0))

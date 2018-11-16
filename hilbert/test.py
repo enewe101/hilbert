@@ -24,12 +24,16 @@ class TestGetEmbedder(TestCase):
         k = 15
         t = 0.1
         alpha = 0.75
+        t_clean = 1e-5
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
         bigram = h.corpus_stats.get_test_bigram(3)
 
-        # Manually apply unigram_smoothing to the cooccurrence statistics.
+        # Manually apply bigram common word undersampling (clean).
+        bigram.apply_w2v_undersampling(t_clean)
         Nxx, Nx, Nxt, N = bigram
+
+        # Manually apply unigram_smoothing to the cooccurrence statistics.
         bigram.unigram.apply_smoothing(alpha)
         uNx, uNxt, uN = bigram.unigram
         
@@ -48,7 +52,7 @@ class TestGetEmbedder(TestCase):
         # Note, in this case embedder is the solver, so the tuple return
         # is reduntant, but is done for consistency.
         found_embedder, found_solver = h.embedder.get_w2v_embedder(
-            bigram, k=k, alpha=alpha, verbose=False
+            bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False
         )
         found_delta_calculator = found_embedder.delta
         found_delta = found_delta_calculator.calc_shard(M_hat)
@@ -2129,8 +2133,16 @@ class TestUnigram(TestCase):
     def test_unigram_creation_from_corpus(self):
         # Make a unigram and fill it with tokens and counts.
         unigram = h.unigram.Unigram()
+
+        # An empty unigram is by definition sorted.
+        self.assertTrue(unigram.sorted)
+
+        # Add counts
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
+
+        # Adding counts disrupts the sorting
+        self.assertFalse(unigram.sorted)
 
         # The correct number of counts are registered for each token
         counts = Counter(h.corpus_stats.load_test_tokens())
@@ -2144,7 +2156,7 @@ class TestUnigram(TestCase):
             self.assertTrue(unigram.Nx[i] >= unigram.Nx[i+1])
 
 
-    def test_unigram_creation_from_Nxx(self):
+    def test_unigram_creation_from_Nx(self):
         tokens = h.corpus_stats.load_test_tokens()
         dictionary = h.dictionary.Dictionary(tokens)
         Nx = [0] * len(dictionary)
@@ -2157,11 +2169,22 @@ class TestUnigram(TestCase):
 
         unigram = h.unigram.Unigram(dictionary=dictionary, Nx=Nx)
 
+        # Check that unigram knows it is not yet sorted
+        self.assertFalse(unigram.sorted)
+
         # The correct number of counts are registered for each token
         counts = Counter(h.corpus_stats.load_test_tokens())
         for token in counts:
             token_id = unigram.dictionary.get_id(token)
             self.assertEqual(unigram.Nx[token_id], counts[token])
+
+        # Ensure that if adding counts undoes sorting, then the sorting flag
+        # of unigram becomes false.
+        unigram.sort()
+        self.assertTrue(unigram.sorted)
+        for i in range(5):
+            unigram.add('Eat')
+        self.assertFalse(unigram.sorted)
 
 
     def test_load_shard(self):
@@ -2284,6 +2307,14 @@ class TestUnigram(TestCase):
         unigram.sort_by_tokens(tokens)
         self.assertEqual(unigram.dictionary.tokens, tokens)
 
+        # Sort by unigram order, to verify that calling sort_by_tokens resets
+        # the sorted flag
+        self.assertFalse(unigram.sorted)
+        unigram.sort()
+        self.assertTrue(unigram.sorted)
+        unigram.sort_by_tokens(tokens)
+        self.assertFalse(unigram.sorted)
+
 
 
     def test_add(self):
@@ -2356,13 +2387,11 @@ class TestUnigram(TestCase):
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
 
-        # Sort to make the test easier.  Note that normally truncation does
-        # not require sorting, and does not consider token frequency.
-        unigram.sort()
-        expected_tokens = unigram.dictionary.tokens[:5]
+        expected_tokens = ['.', 'the', 'The', 'Eat', 'sandwich']
         expected_Nx = [24, 12, 12, 8, 8]
         expected_N = sum(expected_Nx)
         unigram.truncate(5)
+
         self.assertEqual(unigram.Nx, expected_Nx)
         self.assertEqual(unigram.N, expected_N)
         self.assertEqual(unigram.dictionary.tokens, expected_tokens)
@@ -2423,6 +2452,46 @@ class TestBigram(TestCase):
         return dictionary, array, unigram
 
 
+    def test_apply_w2v_undersampling(self):
+
+        t = 1e-5
+        dictionary, array, unigram = self.get_test_cooccurrence_stats()
+        bigram = h.bigram.Bigram(unigram, array)
+
+        # Initially the counts reflect the provided cooccurrence matrix
+        self.assertTrue(np.allclose(np.asarray(bigram.Nxx.todense()), array))
+        Nxx, Nx, Nxt, N = bigram
+        uNx, uNxt, uN = unigram
+        self.assertTrue(np.allclose(Nxx, array))
+
+        # Now apply undersampling
+        freq_x = uNx / uN
+        freq_xt = uNxt / uN
+        expected_Nxx = torch.zeros_like(Nxx)
+        for i in range(Nxx.shape[0]):
+            for j in range(Nxx.shape[1]):
+                freq_i = torch.clamp(
+                    t/freq_x[i,0] + torch.sqrt(t/freq_x[i,0]), 0, 1)
+                freq_j = torch.clamp(
+                    t/freq_xt[0,j] + torch.sqrt(t/freq_xt[0,j]), 0, 1)
+                expected_Nxx[i,j] = Nxx[i,j]  * freq_i * freq_j
+
+        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+        expected_Nxt = torch.sum(expected_Nxx, dim=0, keepdim=True)
+        expected_N = torch.sum(expected_Nxx)
+
+        bigram.apply_w2v_undersampling(t)
+        found_Nxx, found_Nx, found_Nxt, found_N = bigram
+
+        self.assertTrue(np.allclose(found_Nxx, expected_Nxx))
+        self.assertTrue(np.allclose(found_Nx, expected_Nx))
+        self.assertTrue(np.allclose(found_Nxt, expected_Nxt))
+        self.assertTrue(np.allclose(found_N, expected_N))
+
+
+
+
+
     def test_invalid_arguments(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
 
@@ -2444,6 +2513,13 @@ class TestBigram(TestCase):
         small_unigram = h.unigram.Unigram(dictionary, array[:3,:3].sum(axis=1))
         with self.assertRaises(ValueError):
             bigram = h.bigram.Bigram(small_unigram, array)
+
+
+    def test_count(self):
+        dictionary, array, unigram = self.get_test_cooccurrence_stats()
+        bigram = h.bigram.Bigram(unigram, Nxx=array, verbose=False)
+        self.assertTrue(bigram.count('banana', 'socks'), 3)
+        self.assertTrue(bigram.count('socks', 'car'), 1)
 
 
     def test_add(self):
@@ -2474,44 +2550,58 @@ class TestBigram(TestCase):
         with self.assertRaises(ValueError):
             bigram.add('archaeopteryx', 'socks')
 
+        # If skip_unk is True, then don't raise an error when attempting to
+        # add tokens outside vocabulary, just skip
+        bigram.add('archaeopteryx', 'socks', skip_unk=True)
 
+
+    # Sorting should be based on unigram frequencies.
     def test_sort(self):
+
         unsorted_dictionary = h.dictionary.Dictionary([
-            'field', 'car', 'socks', 'banana'
+            'car', 'banana', 'socks',  'field'
         ])
+        unsorted_Nx = [2, 3, 2, 1]
         unsorted_Nxx = np.array([
-            [0,0,0,1],
-            [0,0,1,1],
-            [0,1,0,3],
-            [1,1,3,0],
-        ])
-        sorted_dictionary = h.dictionary.Dictionary([
-            'banana', 'socks', 'car', 'field'])
-        sorted_Nxx = np.array([
-            [0,3,1,1],
-            [3,0,1,0],
-            [1,1,0,0],
-            [1,0,0,0]
+            [2,2,2,2],
+            [2,0,2,1],
+            [2,2,0,0],
+            [2,1,0,0],
         ])
 
-        unsorted_unigram = h.unigram.Unigram(
-            unsorted_dictionary, unsorted_Nxx.sum(axis=1))
+        sorted_dictionary = h.dictionary.Dictionary([
+            'banana', 'car', 'socks', 'field'])
+        sorted_Nx = [3,2,2,1]
+        sorted_Nxx = np.array([
+            [0,2,2,1],
+            [2,2,2,2],
+            [2,2,0,0],
+            [1,2,0,0]
+        ])
+
+        unsorted_unigram = h.unigram.Unigram(unsorted_dictionary, unsorted_Nx)
         bigram = h.bigram.Bigram(unsorted_unigram, unsorted_Nxx, verbose=False)
 
         # Bigram is unsorted
         self.assertFalse(np.allclose(bigram.Nxx.toarray(), sorted_Nxx))
         self.assertTrue(np.allclose(bigram.Nxx.toarray(), unsorted_Nxx))
+        self.assertFalse(bigram.sorted)
+
+        # Unigram is unsorted
+        self.assertEqual(bigram.unigram.Nx, unsorted_Nx)
+        self.assertFalse(bigram.unigram.sorted)
 
         # Sorting bigram works.
         bigram.sort()
         self.assertTrue(np.allclose(bigram.Nxx.toarray(), sorted_Nxx))
         self.assertFalse(np.allclose(bigram.Nxx.toarray(), unsorted_Nxx))
+        self.assertTrue(bigram.sorted)
 
         # The unigram is also sorted
-        self.assertTrue(np.allclose(bigram.unigram.Nx, sorted_Nxx.sum(axis=1)))
-        self.assertFalse(
-            np.allclose(bigram.unigram.Nx, unsorted_Nxx.sum(axis=1)))
+        self.assertTrue(np.allclose(bigram.unigram.Nx, sorted_Nx))
+        self.assertFalse(np.allclose(bigram.unigram.Nx, unsorted_Nx))
         self.assertEqual(bigram.dictionary.tokens, sorted_dictionary.tokens)
+        self.assertTrue(bigram.unigram.sorted)
 
 
     def test_save_load(self):
@@ -2555,29 +2645,48 @@ class TestBigram(TestCase):
 
 
     def test_truncate(self):
-        dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.Bigram(unigram, array, verbose=False)
 
-        unigram_Nx = bigram.Nx.sum(axis=1)
-        unigram_N = bigram.Nx.sum()
+        unsorted_tokens = ['car', 'banana', 'socks',  'field']
+        unsorted_dictionary = h.dictionary.Dictionary(unsorted_tokens)
+        unsorted_Nx = [1, 3, 2, 1]
+        unsorted_Nxx = np.array([
+            [2,2,2,2],
+            [2,0,2,1],
+            [2,2,0,0],
+            [2,1,0,0],
+        ])
 
-        trunc_Nxx = np.array([[0,3,1], [3,0,1], [1,1,0]])
-        trunc_Nx = np.sum(trunc_Nxx, axis=1, keepdims=True)
-        trunc_Nxt = np.sum(trunc_Nxx, axis=0, keepdims=True)
-        trunc_N = np.sum(trunc_Nx)
+        trunc_tokens = ['banana', 'socks']
+        trunc_Nx = [3, 2]
+        trunc_Nxx = np.array([[0,2],[2,0]])
+        trunc_Nx_bigram = [[2],[2]]
+        trunc_Nxt_bigram = [[2,2]]
+        trunc_N_bigram = 4
 
-        trunc_unigram_Nx = unigram_Nx[:3]
-        trunc_unigram_N = unigram_Nx[:3].sum()
+        unigram = h.unigram.Unigram(unsorted_dictionary, unsorted_Nx)
+        bigram = h.bigram.Bigram(unigram, unsorted_Nxx, verbose=False)
 
-        bigram.truncate(3)
-        Nxx, Nx, Nxt, N = bigram
+        self.assertFalse(bigram.sorted)
+        self.assertFalse(bigram.unigram.sorted)
+        self.assertEqual(bigram.dictionary.tokens, unsorted_tokens)
+        self.assertEqual(bigram.unigram.dictionary.tokens, unsorted_tokens)
+        self.assertTrue(np.allclose(
+            np.asarray(bigram.Nxx.todense()), unsorted_Nxx))
+        self.assertEqual(bigram.unigram.Nx, unsorted_Nx)
 
-        self.assertTrue(np.allclose(Nxx, trunc_Nxx))
-        self.assertTrue(np.allclose(Nx, trunc_Nx))
-        self.assertTrue(np.allclose(Nxt, trunc_Nxt))
-        self.assertTrue(np.allclose(N, trunc_N))
-        self.assertTrue(np.allclose(bigram.unigram.Nx, trunc_unigram_Nx))
-        self.assertTrue(np.allclose(bigram.unigram.N, trunc_unigram_N))
+        bigram.truncate(2)
+        # The top two tokens by unigram frequency are 'banana' and 'socks',
+        # but the top two tokens by bigram frequency are 'car', and 'banana'
+        self.assertTrue(bigram.sorted)
+        self.assertTrue(bigram.unigram.sorted)
+        self.assertEqual(bigram.dictionary.tokens, ['banana', 'socks'])
+        self.assertEqual(bigram.unigram.dictionary.tokens, ['banana', 'socks'])
+        self.assertTrue(np.allclose(
+            np.asarray(bigram.Nxx.todense()), trunc_Nxx))
+        self.assertEqual(bigram.unigram.Nx, trunc_Nx)
+        self.assertTrue(np.allclose(bigram.Nx, trunc_Nx_bigram))
+        self.assertTrue(np.allclose(bigram.Nxt, trunc_Nxt_bigram))
+        self.assertEqual(bigram.N, trunc_N_bigram)
 
 
     def test_deepcopy(self):
@@ -2634,7 +2743,7 @@ class TestBigram(TestCase):
 
     def test_plus(self):
         """
-        When Bigram add, their counts add.
+        When Bigrams add, their counts add.
         """
 
         dtype=h.CONSTANTS.DEFAULT_DTYPE
@@ -2702,8 +2811,9 @@ class TestBigram(TestCase):
         self.assertEqual(bigram2.verbose, False)
         
 
-        # Ensure that bigram_sum is as desired.  First, sort to make comparison
-        # easier.
+        # Ensure that bigram_sum is as desired.  Sort to make comparison
+        # easier.  Double check that sort flag is False to begin with.
+        self.assertFalse(bigram_sum.sorted)
         bigram_sum.sort()
         dictionary_sum = h.dictionary.Dictionary([
             'banana', 'socks', 'car', 'cave', 'field'])
@@ -2727,6 +2837,7 @@ class TestBigram(TestCase):
         self.assertEqual(N_sum, expected_N_sum)
 
 
+    # should be sorted only if unigram is sorted.
     def test_load_unigram(self):
 
         write_path = os.path.join(

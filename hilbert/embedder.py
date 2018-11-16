@@ -26,6 +26,7 @@ def get_w2v_embedder(
     # Theory options
     k=15,               # negative sample weight
     alpha=3./4,         # unigram smoothing exponent
+    t_clean=None,       # clean (post-sample) common-word undersampling
     d=300,              # embedding dimension
     init_V=None,
     init_W=None,
@@ -38,6 +39,11 @@ def get_w2v_embedder(
     verbose=True,
     device=None
 ):
+
+    # TODO: Test!
+    # Possibly apply clean common-word undersampling (in expectation).
+    if t_clean is not None:
+        bigram.apply_w2v_undersampling(t_clean)
 
     # Smooth unigram distribution.
     bigram.unigram.apply_smoothing(alpha)

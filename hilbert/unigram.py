@@ -189,6 +189,7 @@ class Unigram(object):
                 % (idx, token, len(self.Nx))
             )
         self.N += count
+        self.sorted = False
 
 
     def sort_by_tokens(self, token_order):
@@ -206,6 +207,9 @@ class Unigram(object):
         self.Nx += [0] * (len(token_order) - len(self.Nx))
         self.sort_by_idxs(idx_order)
 
+        # We are no longer sorted according to unigram frequencies.
+        self.sorted = False
+
 
     def sort_by_idxs(self, idx_order):
         """
@@ -217,6 +221,9 @@ class Unigram(object):
         self.dictionary = h.dictionary.Dictionary(
             [self.dictionary.tokens[idx] for idx in idx_order])
 
+        # We are no longer sorted according to unigram frequencies.
+        self.sorted = False
+
 
     def sort(self):
         """
@@ -226,11 +233,14 @@ class Unigram(object):
 
         # momentarily convert into numpy, to take advantage of their easy 
         # sorting.
-        self.Nx = np.array(self.Nx)
-        top_indices = np.argsort(-self.Nx)
+        top_indices = np.argsort([-n for n in self.Nx])
         self.Nx = list(self.Nx[top_indices])
         self.dictionary = h.dictionary.Dictionary([
             self.dictionary.tokens[i] for i in top_indices])
+
+        self.sorted = True
+
+        return top_indices
 
 
     def save(self, path, save_dictionary=True):
@@ -249,6 +259,8 @@ class Unigram(object):
 
     def truncate(self, k):
         """Drop all but the `k` most common words."""
+        if not self.sorted:
+            self.sort()
         self.Nx = self.Nx[:k]
         self.N = sum(self.Nx)
         self.dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])

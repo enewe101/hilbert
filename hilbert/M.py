@@ -121,7 +121,19 @@ def apply_effects(
     # Optionally apply a variety of effects
     shift(M, shift_by)
     set_neg_inf(M, neg_inf_val) 
-    clip_below(M, clip_thresh) 
+    if isinstance(clip_thresh, (int, float)):
+        clip_below(M, clip_thresh) 
+    elif isinstance(clip_thresh, tuple):
+        clip_low, clip_high = clip_thresh
+        clip_below(M, clip_low)
+        clip_above(M, clip_high)
+    elif clip_thresh is not None:
+        raise ValueError(
+            'unexpected_value for clip_thresh.  Got {}, should be number '
+            'representing lower bound or tuple of two values representing '
+            'lower and upper bound respectively'.format(clip_thresh)
+        )
+
     set_diag(M, diag)
     return M
 
@@ -139,6 +151,9 @@ def clip_below(M, thresh=None):
     if thresh is not None:
         M[M<thresh] = thresh
 
+def clip_above(M, thresh=None):
+    if thresh is not None:
+        M[M>thresh] = thresh
 
 def set_neg_inf(M, val=None):
     if val is not None:

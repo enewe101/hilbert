@@ -1,4 +1,7 @@
 import hilbert as h
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+
 
 try:
     import torch
@@ -29,6 +32,37 @@ def get_test_stats(window_size):
 def calc_PMI(bigram):
     Nxx, Nx, Nxt, N = bigram
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
+
+
+def histogram(M, predicate=None):
+
+    print('loading')
+    M_npy = M.load_all().cpu().numpy()
+
+    if predicate is not None:
+        mask = predicate(M)
+        M_npy = np.ma.masked_array(M_npy, mask=mask)
+
+    print('accumulating')
+    #n, bins = np.histogram(M_npy, bins='auto')
+
+    # the histogram of the data
+    n, bins, patches = plt.hist(
+	x=M_npy.reshape(-1), bins='auto', density=True, facecolor='green',
+        alpha=0.75
+    )
+
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
+    #plt.axis([40, 160, 0, 0.03])
+    plt.grid(True)
+
+    plt.show()
+
+    return n, bins
+
+
 
 
 def calc_PMI_smooth(bigram):
