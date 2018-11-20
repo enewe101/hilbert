@@ -28,10 +28,10 @@ def get_w2v_embedder(
     alpha=3./4,         # unigram smoothing exponent
     t_clean=None,       # clean (post-sample) common-word undersampling
     d=300,              # embedding dimension
-    init_V=None,
-    init_W=None,
+    init_vecs=None,
 
     # Implementation options
+    update_density=1,
     solver='sgd',
     shard_factor=1,
     learning_rate=1e-6,
@@ -48,12 +48,17 @@ def get_w2v_embedder(
     # Smooth unigram distribution.
     bigram.unigram.apply_smoothing(alpha)
 
-    # Make M, delta, and the embedder.
-    M = h.M.M_w2v(bigram, k=k, device=device)
-    delta = h.f_delta.DeltaW2V(bigram, M, k, device=device)
+    # Note, DeltaW2V no longer needs M!
+    #M = h.M.M_w2v(bigram, k=k, device=device)
+    M = None
+    delta = h.f_delta.DeltaW2V(
+        bigram, M, k, update_density=update_density, device=device)
+
     embedder = h.embedder.HilbertEmbedder(
-        delta=delta, d=d, learning_rate=learning_rate,
-        init_V=init_V, init_W=init_W,
+        delta=delta, d=d, 
+        learning_rate=learning_rate,
+        init_vecs=init_vecs,
+        shape=(bigram.vocab, bigram.vocab),
         shard_factor=shard_factor,
         verbose=verbose, device=device
     )
@@ -82,7 +87,7 @@ def get_w2v_sample_embedder(
     )
 
     return embedder
-    
+
 
 
 # TODO: test that all options are respected
@@ -109,6 +114,7 @@ def get_embedder(
     d=300,              # embedding dimension
     shard_factor=10,
     learning_rate=1e-6,
+    init_vecs=None,
     one_sided=False,    # whether vectors share parameters with covectors
     constrainer=None,   # constrainer instances can mutate values after update
 
@@ -137,8 +143,11 @@ def get_embedder(
     delta = h.f_delta.get_delta(delta, **delta_args)
 
     # Create the embedder.
+    shape = (bigram.vocab,) if one_sided else (bigram.vocab, bigram.vocab)
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, learning_rate=learning_rate, 
+        init_vecs=init_vecs,
+        shape=shape,
         shard_factor=shard_factor,
         one_sided=one_sided, constrainer=constrainer,
         verbose=verbose,
@@ -243,11 +252,9 @@ class HilbertEmbedder(object):
         self,
         delta,
         d=300,
-        num_vecs=None,
-        num_covecs=None,
         learning_rate=1e-6,
-        init_V = None,
-        init_W = None,
+        init_vecs = None,
+        shape = None,
         one_sided=False,
         constrainer=None,
         shard_factor=10,
@@ -257,70 +264,127 @@ class HilbertEmbedder(object):
 
         self.delta = delta
         self.d = d
-        self.num_vecs = num_vecs or self.delta.M.shape[1]
-        self.num_covecs = num_covecs or self.delta.M.shape[0]
         self.learning_rate = learning_rate
-        self.one_sided = one_sided
         self.constrainer = constrainer
         self.shard_factor = shard_factor
         self.verbose = verbose
         self.device = device
 
-        self.num_pairs = self.num_covecs * self.num_vecs
-        if self.one_sided and self.num_covecs != self.num_vecs:
+        # Work out the vector initialization and shape
+        self.one_sided = one_sided
+        self.V = None       #|
+        self.W = None       #| these are set in initialize_vectors().
+        self.shape = None   #|
+        self.initialize_vectors(shape, init_vecs)
+
+
+    def initialize_vectors(self, shape, init_vecs):
+
+        if shape is None and init_vecs is None:
+            raise ValueError("Provide `shape` or `init_vecs`.")
+
+        if init_vecs is not None:
+
+            # Unpack the vectors
+            if isinstance(init_vecs, h.embeddings.Embeddings):
+                self.V = init_vecs.V
+                if not one_sided:
+                    self.W = init_vecs.W
+            else:
+                if self.one_sided:
+                    self.V = init_vecs
+                else:
+                    self.V, self.W = init_vecs
+
+            if self.one_sided:
+                self.shape = (self.V.shape[0],)
+            else:
+                self.shape = (self.V.shape[0], self.W.shape[0])
+
+        # If  not initial vectors are given, get random ones
+        else:
+            self.shape = shape
+            self.validate_shape()
+            self.sample_vectors()
+
+
+    def validate_shape(self):
+
+        if self.one_sided and len(self.shape) != 1:
             raise ValueError(
-                'A one-sided embedder must have the same number of vectors '
-                'and covectors.'
+                "For one-sided embeddings `shape` should be a "
+                "tuple containing a single int, e.g. `(10000,)`."
             )
-        self.reset(init_V, init_W)
+
+        if not self.one_sided and len(self.shape) != 2:
+            raise ValueError(
+                "For two-sided embeddings `shape` should be a "
+                "tuple containing two ints, e.g. `(10000,10000)`."
+            )
 
 
-    def reset(self, init_V, init_W):
+    def sample_vectors(self):
+
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
 
-        # Use initialized Vectors if provided...
-        if init_V is not None:
-            self.V = init_V
-            if self.V.shape[0] != self.num_vecs:
-                raise ValueError(
-                    'Incorrect number of vectors provided for initialization.'
-                    'Got {}, expected {}'.format(self.V.shape[0], self.num_vecs)
-                )
+        #self.V = h.utils.sample_sphere(self.shape[0], self.d, self.device)
+        self.V = (
+            torch.rand((self.shape[0], self.d), device=device) - .5
+        ) / self.d
 
-        # ... or generate them randomly.
+        if self.one_sided:
+            self.W = self.V
         else:
-            #self.V = h.utils.sample_sphere(self.num_vecs, self.d, self.device)
-            self.V = (
-                torch.rand((self.num_vecs, self.d), device=device) - .5
+            #self.W = h.utils.sample_sphere(
+            #    self.shape[0], self.d, self.device)
+            self.W = (
+                torch.rand((self.shape[1], self.d), device=device) - .5
             ) / self.d
 
-        # Use initialized covectors if provided...
-        if init_W is not None:
-            if self.one_sided:
-                raise ValueError(
-                    'One-sided embedder should not have covector '
-                    'initialization'
-                )
-            self.W = init_W
-            if self.W.shape[0] != self.num_covecs:
-                raise ValueError(
-                    'Incorrect number of covectors provided for '
-                    'initialization. Got {}, expected {}.'
-                    .format(self.W.shape[0], self.num_covecs)
-                )
 
-        # ... or generate them randomly.
-        else:
-            if self.one_sided:
-                self.W = self.V
-            else:
-                #self.W = h.utils.sample_sphere(
-                #    self.num_vecs, self.d, self.device)
-                self.W = (
-                    torch.rand((self.num_vecs, self.d), device=device) - .5
-                ) / self.d
+        ## Use initialized Vectors if provided...
+        #if init_V is not None:
+        #    self.V = init_V
+        #    if self.V.shape[0] != self.num_vecs:
+        #        raise ValueError(
+        #            'Incorrect number of vectors provided for initialization.'
+        #            'Got {}, expected {}'.format(self.V.shape[0], self.num_vecs)
+        #        )
 
-        self.badness = None
+        ## ... or generate them randomly.
+        #else:
+        #    #self.V = h.utils.sample_sphere(self.num_vecs, self.d, self.device)
+        #    self.V = (
+        #        torch.rand((self.num_vecs, self.d), device=device) - .5
+        #    ) / self.d
+
+        ## Use initialized covectors if provided...
+        #if init_W is not None:
+        #    if self.one_sided:
+        #        raise ValueError(
+        #            'One-sided embedder should not have covector '
+        #            'initialization'
+        #        )
+        #    self.W = init_W
+        #    if self.W.shape[0] != self.num_covecs:
+        #        raise ValueError(
+        #            'Incorrect number of covectors provided for '
+        #            'initialization. Got {}, expected {}.'
+        #            .format(self.W.shape[0], self.num_covecs)
+        #        )
+
+        ## ... or generate them randomly.
+        #else:
+        #    if self.one_sided:
+        #        self.W = self.V
+        #    else:
+        #        #self.W = h.utils.sample_sphere(
+        #        #    self.num_vecs, self.d, self.device)
+        #        self.W = (
+        #            torch.rand((self.num_vecs, self.d), device=device) - .5
+        #        ) / self.d
+
+        #self.badness = None
 
 
     def get_gradient(

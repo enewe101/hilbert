@@ -21,7 +21,7 @@ def load_tokens(path):
 
 def get_test_bigram(window_size):
     bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
-    bigram.sort()
+    #bigram.sort()
     return bigram
 
 
@@ -91,7 +91,7 @@ def calc_PMI_smooth(bigram):
 
 def calc_PMI_sparse(bigram):
     I, J = bigram.Nxx.nonzero()
-    log_Nxx_nonzero = np.log(np.array(bigram.Nxx[I,J]).reshape(-1))
+    log_Nxx_nonzero = np.log(np.array(bigram.Nxx.tocsr()[I,J]).reshape(-1))
     log_Nx_nonzero = np.log(bigram.Nx[I,0])
     log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
     log_N = np.log(bigram.N)

@@ -55,10 +55,8 @@ class TestGetEmbedder(TestCase):
             bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False
         )
         found_delta_calculator = found_embedder.delta
-        found_delta = found_delta_calculator.calc_shard(M_hat)
-        found_M = found_delta_calculator.M.load_all()
+        found_delta = found_delta_calculator.calc_shard(M_hat, h.shards.whole)
 
-        self.assertTrue(torch.allclose(found_M, expected_M))
         self.assertTrue(torch.allclose(found_delta, expected_delta))
 
 
@@ -89,6 +87,7 @@ class TestGetEmbedder(TestCase):
         expected_embedder = h.embedder.HilbertEmbedder(
             delta=delta,
             d=d,
+            shape=(bigram.vocab, bigram.vocab),
             learning_rate=learning_rate,
             one_sided=one_sided,
             constrainer=constrainer,
@@ -145,44 +144,45 @@ class TestCorpusStats(TestCase):
     'has': 8, 'sandwich': 9, 'spin': 4, 'the': 1, 'wheels': 2
     }
     N_XX_2 = np.array([
-		[0, 12, 23, 8, 8, 8, 8, 12, 7, 4, 4], 
-		[12, 0, 0, 8, 8, 0, 8, 8, 0, 0, 4], 
-		[23, 0, 0, 4, 0, 4, 4, 0, 8, 4, 0], 
-		[8, 8, 4, 0, 4, 4, 0, 0, 4, 0, 0], 
-		[8, 8, 0, 4, 0, 4, 4, 4, 0, 0, 0], 
-		[8, 0, 4, 4, 4, 0, 0, 0, 11, 1, 0], 
-		[8, 8, 4, 0, 4, 0, 0, 4, 0, 4, 0], 
-		[12, 8, 0, 0, 4, 0, 4, 0, 0, 0, 4], 
-		[7, 0, 8, 4, 0, 11, 0, 0, 0, 0, 0], 
-		[4, 0, 4, 0, 0, 1, 4, 0, 0, 0, 3], 
-		[4, 4, 0, 0, 0, 0, 0, 4, 0, 3, 0]
+        [ 0., 23., 12.,  7.,  8.,  8.,  8.,  8., 12.,  4.,  4.],
+        [23.,  0.,  0.,  8.,  4.,  0.,  4.,  4.,  0.,  4.,  0.],
+        [12.,  0.,  0.,  0.,  8.,  8.,  0.,  8.,  8.,  0.,  4.],
+        [ 7.,  8.,  0.,  0.,  4.,  0., 11.,  0.,  0.,  0.,  0.],
+        [ 8.,  4.,  8.,  4.,  0.,  4.,  4.,  0.,  0.,  0.,  0.],
+        [ 8.,  0.,  8.,  0.,  4.,  0.,  4.,  4.,  4.,  0.,  0.],
+        [ 8.,  4.,  0., 11.,  4.,  4.,  0.,  0.,  0.,  1.,  0.],
+        [ 8.,  4.,  8.,  0.,  0.,  4.,  0.,  0.,  4.,  4.,  0.],
+        [12.,  0.,  8.,  0.,  0.,  4.,  0.,  4.,  0.,  0.,  4.],
+        [ 4.,  4.,  0.,  0.,  0.,  0.,  1.,  4.,  0.,  0.,  3.],
+        [ 4.,  0.,  4.,  0.,  0.,  0.,  0.,  0.,  4.,  3.,  0.]
     ]) 
     N_XX_3 = np.array([
-        [0, 16, 23, 16, 12, 16, 15, 12, 15, 8, 8],
-        [16, 0, 8, 12, 4, 8, 8, 12, 0, 0, 4],
-        [23, 8, 0, 0, 12, 4, 4, 0, 11, 5, 3],
-        [16, 12, 0, 0, 4, 4, 4, 4, 4, 0, 0],
-        [12, 4, 12, 4, 0, 0, 4, 0, 11, 1, 0],
-        [16, 8, 4, 4, 0, 8, 0, 4, 0, 4, 0],
-        [15, 8, 4, 4, 4, 0, 8, 0, 4, 0, 0],
-        [12, 12, 0, 4, 0, 4, 0, 8, 0, 3, 4],
-        [15, 0, 11, 4, 11, 0, 4, 0, 0, 0, 0],
-        [8, 0, 5, 0, 1, 4, 0, 3, 0, 0, 3],
-        [8, 4, 3, 0, 0, 0, 0, 4, 0, 3, 0],
+        [ 0., 11.,  4., 15.,  0.,  4., 11.,  0.,  0.,  0.,  0.],
+        [11.,  0.,  4., 23.,  8.,  0., 12.,  5.,  4.,  0.,  3.],
+        [ 4.,  4.,  8., 15.,  8.,  4.,  4.,  0.,  0.,  0.,  0.],
+        [15., 23., 15.,  0., 16., 16., 12.,  8., 16., 12.,  8.],
+        [ 0.,  8.,  8., 16.,  0., 12.,  4.,  0.,  8., 12.,  4.],
+        [ 4.,  0.,  4., 16., 12.,  0.,  4.,  0.,  4.,  4.,  0.],
+        [11., 12.,  4., 12.,  4.,  4.,  0.,  1.,  0.,  0.,  0.],
+        [ 0.,  5.,  0.,  8.,  0.,  0.,  1.,  0.,  4.,  3.,  3.],
+        [ 0.,  4.,  0., 16.,  8.,  4.,  0.,  4.,  8.,  4.,  0.],
+        [ 0.,  0.,  0., 12., 12.,  4.,  0.,  3.,  4.,  8.,  4.],
+        [ 0.,  3.,  0.,  8.,  4.,  0.,  0.,  3.,  0.,  4.,  0.]
     ])
 
 
     def test_PMI(self):
         bigram = h.corpus_stats.get_test_bigram(2)
-        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
+        Nxx, Nx, Nxt, N = bigram
+        expected_PMI = torch.log(Nxx*N / (Nx * Nxt))
         found_PMI = h.corpus_stats.calc_PMI(bigram)
         self.assertTrue(np.allclose(found_PMI, expected_PMI))
 
 
     def test_sparse_PMI(self):
         bigram = h.corpus_stats.get_test_bigram(2)
-        expected_PMI = np.load('test-data/expected_PMI.npz')['arr_0']
-        # PMI sparse treats all negative infinite values as zero
+        Nxx, Nx, Nxt, N = bigram
+        expected_PMI = torch.log(Nxx*N / (Nx * Nxt))
         expected_PMI[expected_PMI==-np.inf] = 0
         pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(bigram)
         self.assertTrue(len(pmi_data) < np.product(bigram.Nxx.shape))
@@ -192,9 +192,10 @@ class TestCorpusStats(TestCase):
 
     def test_PMI_star(self):
         bigram = h.corpus_stats.get_test_bigram(2)
-        expected_PMI_star_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'expected_PMI_star.npz')
-        expected_PMI_star = np.load(expected_PMI_star_path)['arr_0']
+        Nxx, Nx, Nxt, N = bigram
+        Nxx = Nxx.clone()
+        Nxx[Nxx==0] = 1
+        expected_PMI_star = torch.log(Nxx * N / (Nx * Nxt))
         found_PMI_star = h.corpus_stats.calc_PMI_star(bigram)
         self.assertTrue(np.allclose(found_PMI_star, expected_PMI_star))
 
@@ -204,6 +205,10 @@ class TestCorpusStats(TestCase):
         dtype=h.CONSTANTS.DEFAULT_DTYPE
         device=h.CONSTANTS.MATRIX_DEVICE
         bigram = h.corpus_stats.get_test_bigram(2)
+
+        # Sort to make comparison easier
+        bigram.sort()
+
         Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(
             Nxx, 
@@ -508,7 +513,7 @@ class TestFDeltas(TestCase):
         M_hat = M_ + 1
         expected = M_ - M_hat
         delta_mse = h.f_delta.DeltaMSE(bigram, M)
-        found = delta_mse.calc_shard(M_hat)
+        found = delta_mse.calc_shard(M_hat, h.shards.whole)
         self.assertTrue(torch.allclose(expected, found))
 
         shards = h.shards.Shards(5)
@@ -616,6 +621,7 @@ class TestHilbertEmbedder(TestCase):
         # Now make an embedder.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab),
             verbose=False, 
             shard_factor=shard_factor
         )
@@ -662,7 +668,8 @@ class TestHilbertEmbedder(TestCase):
         # First make a non-one-sided embedder.
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=1,
+            f_MSE, d, learning_rate=learning_rate, 
+            shape=(bigram.vocab,bigram.vocab), shard_factor=1,
             verbose=False
         )
 
@@ -676,7 +683,8 @@ class TestHilbertEmbedder(TestCase):
 
         # Now make a one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab,), one_sided=True,
             verbose=False, 
             shard_factor=1
         )
@@ -696,7 +704,7 @@ class TestHilbertEmbedder(TestCase):
         # Check that the update was performed.
         M_hat = torch.mm(old_V, old_V.t())
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
-        delta = f_MSE.calc_shard(M_hat) # No shard -> calculates full matrix
+        delta = f_MSE.calc_shard(M_hat, h.shards.whole)
         nabla_V = torch.mm(delta.t(), old_V)
         nabla_W = torch.mm(delta, old_V)
         new_V = old_V + learning_rate * (nabla_V + nabla_W)
@@ -727,7 +735,8 @@ class TestHilbertEmbedder(TestCase):
 
         # Make a one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab,), one_sided=True,
             verbose=False, shard_factor=3
         )
 
@@ -765,14 +774,6 @@ class TestHilbertEmbedder(TestCase):
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
-
-
-
-
-
-
-
-
         # Check that the vectors and covectors are still identical after the
         # update.
         self.assertTrue(torch.allclose(embedder.W, embedder.V))
@@ -798,7 +799,8 @@ class TestHilbertEmbedder(TestCase):
         # Make the embedder, whose method we are testing.
         delta_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            delta_MSE, d, learning_rate=learning_rate, verbose=False, 
+            delta_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), verbose=False, 
             shard_factor=2
         )
 
@@ -843,8 +845,8 @@ class TestHilbertEmbedder(TestCase):
         # Create an embedder, whose get_gradient method we are testing.
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False
+            f_MSE, d, learning_rate=learning_rate, 
+            shape=(bigram.vocab, bigram.vocab), shard_factor=3, verbose=False
         )
 
         # Manually calculate the gradients we expect, applying offsets to the
@@ -882,7 +884,9 @@ class TestHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, one_sided=True,
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab,), 
+            one_sided=True,
             verbose=False
         )
 
@@ -921,8 +925,8 @@ class TestHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, one_sided=True,
-            verbose=False
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab,), one_sided=True, verbose=False
         )
 
         # Manually calculate expected gradients
@@ -982,7 +986,8 @@ class TestHilbertEmbedder(TestCase):
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.embedder.HilbertEmbedder(
-            f_delta, d, learning_rate=learning_rate, shard_factor=1,
+            f_delta, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), shard_factor=1,
             verbose=False
         )
 
@@ -1044,7 +1049,8 @@ class TestHilbertEmbedder(TestCase):
         # Make the embedder whose integration with f_delta we are testing.
         f_delta = DeltaMock(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            delta=f_delta, d=d, learning_rate=learning_rate, shard_factor=3,
+            delta=f_delta, d=d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), shard_factor=3,
             verbose=False
         )
 
@@ -1083,7 +1089,8 @@ class TestHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=2,
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), shard_factor=2,
             verbose=False
         )
 
@@ -1118,7 +1125,8 @@ class TestHilbertEmbedder(TestCase):
         # Note that we have included a constrainer.
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor = 3,
+            f_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), shard_factor = 3,
             constrainer=h.constrainer.glove_constrainer,
             verbose=False
         )
@@ -1166,6 +1174,7 @@ class TestHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=5,
+            shape=(bigram.vocab, bigram.vocab),
             verbose=False
         )
 
@@ -1176,8 +1185,7 @@ class TestHilbertEmbedder(TestCase):
         # Now make a ONE-SIDED embedder, which should reject covector updates.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, one_sided=True,
-            verbose=False, 
-            shard_factor=5
+            shape=(bigram.vocab,), verbose=False, shard_factor=5
         )
         delta_W = torch.ones(vocab, d, dtype=dtype, device=device)
         with self.assertRaises(ValueError):
@@ -1202,6 +1210,7 @@ class TestHilbertEmbedder(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1,
             verbose=False, 
+            shape=(bigram.vocab, bigram.vocab),
             constrainer=h.constrainer.glove_constrainer
         )
 
@@ -1255,6 +1264,7 @@ class TestHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
+            shape=(bigram.vocab, bigram.vocab),
             verbose=False
         )
 
@@ -1268,17 +1278,13 @@ class TestHilbertEmbedder(TestCase):
         # Check that we have essentially reached convergence, based on the 
         # fact that the delta value for the embedder is near zero.
         M_hat = torch.mm(embedder.W, embedder.V.t())
-        delta = f_MSE.calc_shard(M_hat) # shard is None -> calculate full delta
+        delta = f_MSE.calc_shard(M_hat, h.shards.whole)
 
         self.assertTrue(
             torch.sum(delta).item() < tolerance
         )
         
 
-    # The premise of this test is not wrong.  Sharding will lead to a different
-    # trajectory for parameters, because individual shards are carried through
-    # full update cycles, rather than gathering gradient accross all shards
-    # before updating.
     def test_sharding_equivalence(self):
 
         # Set up conditions for test.
@@ -1297,7 +1303,7 @@ class TestHilbertEmbedder(TestCase):
         f_delta = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_delta, d, learning_rate=learning_rate, shard_factor=3, 
-            verbose=False
+            shape=(bigram.vocab, bigram.vocab), verbose=False
         )
 
         # Clone current embeddings to manually calculate expected update.
@@ -1973,7 +1979,7 @@ class TestEmbedderSolverIntegration(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False
+            shape=(bigram.vocab, bigram.vocab), verbose=False
         )
         solver = h.solver.NesterovSolver(
             embedder, learning_rate, momentum_decay, verbose=False
@@ -1995,8 +2001,8 @@ class TestEmbedderSolverIntegration(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False,
-            )
+            shape=(bigram.vocab, bigram.vocab), verbose=False,
+        )
         solver = h.solver.MomentumSolver(
             embedder, learning_rate, momentum_decay, verbose=False
         )
@@ -2017,7 +2023,7 @@ class TestEmbedderSolverIntegration(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram, M)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
-            verbose=False,
+            shape=(bigram.vocab, bigram.vocab), verbose=False,
         )
         solver = h.solver.NesterovSolverOptimized(
             embedder, learning_rate, momentum_decay, verbose=False
@@ -2862,129 +2868,128 @@ class TestBigram(TestCase):
 
 
 
-
-
-
-
 def get_test_dictionary():
     return h.dictionary.Dictionary.load(
         os.path.join(h.CONSTANTS.TEST_DIR, 'dictionary'))
 
 
-class TestCoocStatsAlterators(TestCase):
-
-
-    def test_expectation_w2v_undersample(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
-        t = 0.1
-
-        # Calc expected Nxx, Nx, Nxt, N
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
-        survival_probability = torch.clamp(
-            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
-        pxx = survival_probability * survival_probability.t()
-        expected_Nxx = orig_Nxx * pxx 
-        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
-        expected_Nxt = orig_Nxt.clone()
-        expected_N = orig_N.clone()
-
-        # Found values from the function we are testing
-        undersampled = h.cooc_stats.expectation_w2v_undersample(
-            bigram, t, verbose=False)
-
-        usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
-        self.assertTrue(torch.allclose(usamp_Nxx, expected_Nxx))
-        self.assertTrue(torch.allclose(usamp_Nx, expected_Nx))
-        self.assertTrue(torch.allclose(usamp_Nxt, expected_Nxt))
-        self.assertTrue(torch.allclose(usamp_N, expected_N))
-
-        # Check that the original bigram has not been altered
-        Nxx, Nx, Nxt, N = bigram
-        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
-        self.assertTrue(torch.allclose(Nx, orig_Nx))
-        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
-        self.assertTrue(torch.allclose(N, orig_N))
-
-
-    def test_w2v_undersample(self):
-        # For reproducibile test, seed randomness
-        np.random.seed(0)
-
-        device=h.CONSTANTS.MATRIX_DEVICE
-        t = 0.1
-        num_replicates = 100
-        window = 2
-        bigram = h.corpus_stats.get_test_bigram(window)
-
-        # Calc expected Nxx, Nx, Nxt, N
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
-        survival_probability = torch.clamp(
-            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
-        pxx = survival_probability * survival_probability.t()
-        expected_Nxx = orig_Nxx * pxx 
-        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
-        expected_Nxt = orig_Nxt.clone()
-        expected_N = orig_N.clone()
-
-        # Found values from the function we are testing
-        mean_Nxx = torch.zeros(expected_Nxx.shape, device=device)
-        mean_Nx = torch.zeros(expected_Nx.shape, device=device)
-        mean_Nxt = torch.zeros(expected_Nxt.shape, device=device)
-        mean_N = torch.zeros(expected_N.shape, device=device)
-        for i in range(num_replicates):
-            bigram = h.corpus_stats.get_test_bigram(window)
-            undersampled = h.cooc_stats.w2v_undersample(
-                bigram, t, verbose=False)
-            usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
-            mean_Nxx += usamp_Nxx / num_replicates
-            mean_Nx += usamp_Nx / num_replicates
-            mean_Nxt += usamp_Nxt / num_replicates
-            mean_N += usamp_N / num_replicates
-
-        self.assertTrue(torch.allclose(mean_Nxx, expected_Nxx, atol=0.5))
-        self.assertTrue(torch.allclose(mean_Nx, expected_Nx, atol=1))
-        self.assertTrue(torch.allclose(mean_Nxt, expected_Nxt, atol=1))
-        self.assertTrue(torch.allclose(mean_N, expected_N, atol=2))
-
-        # Check that the original bigram has not been altered
-        Nxx, Nx, Nxt, N = bigram
-        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
-        self.assertTrue(torch.allclose(Nx, orig_Nx))
-        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
-        self.assertTrue(torch.allclose(N, orig_N))
-
-
-    def test_smooth_unigram(self):
-        t = 0.1
-        num_replicates = 100
-        window = 2
-        alpha = 0.75
-        bigram = h.corpus_stats.get_test_bigram(window)
-
-        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
-        # The Nxt and N values are altered to reflect a smoothed unigram dist.
-        expected_Nxt = orig_Nxt ** 0.75
-        expected_N = torch.sum(expected_Nxt)
-        # ... however, we expect Nxx and Nx to be unchanged
-        expected_Nxx = orig_Nxx
-        expected_Nx = orig_Nx
-
-        smoothed = h.cooc_stats.smooth_unigram(
-            bigram, alpha, verbose=False)
-        smooth_Nxx, smooth_Nx, smooth_Nxt, smooth_N = smoothed
-
-        self.assertTrue(torch.allclose(smooth_Nxx, expected_Nxx))
-
-        self.assertTrue(torch.allclose(smooth_Nx, expected_Nx))
-        self.assertTrue(torch.allclose(smooth_Nxt, expected_Nxt))
-        self.assertTrue(torch.allclose(smooth_N, expected_N))
-
-        # Check that the original bigram has not been altered
-        Nxx, Nx, Nxt, N = bigram
-        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
-        self.assertTrue(torch.allclose(Nx, orig_Nx))
-        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
-        self.assertTrue(torch.allclose(N, orig_N))
+#
+#   CoocStats is deprecated
+#
+#class TestCoocStatsAlterators(TestCase):
+#
+#
+#    def test_expectation_w2v_undersample(self):
+#        bigram = h.corpus_stats.get_test_bigram(2)
+#        t = 0.1
+#
+#        # Calc expected Nxx, Nx, Nxt, N
+#        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
+#        survival_probability = torch.clamp(
+#            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
+#        pxx = survival_probability * survival_probability.t()
+#        expected_Nxx = orig_Nxx * pxx 
+#        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+#        expected_Nxt = orig_Nxt.clone()
+#        expected_N = orig_N.clone()
+#
+#        # Found values from the function we are testing
+#        undersampled = h.cooc_stats.expectation_w2v_undersample(
+#            bigram, t, verbose=False)
+#
+#        usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
+#        self.assertTrue(torch.allclose(usamp_Nxx, expected_Nxx))
+#        self.assertTrue(torch.allclose(usamp_Nx, expected_Nx))
+#        self.assertTrue(torch.allclose(usamp_Nxt, expected_Nxt))
+#        self.assertTrue(torch.allclose(usamp_N, expected_N))
+#
+#        # Check that the original bigram has not been altered
+#        Nxx, Nx, Nxt, N = bigram
+#        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+#        self.assertTrue(torch.allclose(Nx, orig_Nx))
+#        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+#        self.assertTrue(torch.allclose(N, orig_N))
+#
+#
+#    def test_w2v_undersample(self):
+#        # For reproducibile test, seed randomness
+#        np.random.seed(0)
+#
+#        device=h.CONSTANTS.MATRIX_DEVICE
+#        t = 0.1
+#        num_replicates = 100
+#        window = 2
+#        bigram = h.corpus_stats.get_test_bigram(window)
+#
+#        # Calc expected Nxx, Nx, Nxt, N
+#        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
+#        survival_probability = torch.clamp(
+#            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
+#        pxx = survival_probability * survival_probability.t()
+#        expected_Nxx = orig_Nxx * pxx 
+#        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+#        expected_Nxt = orig_Nxt.clone()
+#        expected_N = orig_N.clone()
+#
+#        # Found values from the function we are testing
+#        mean_Nxx = torch.zeros(expected_Nxx.shape, device=device)
+#        mean_Nx = torch.zeros(expected_Nx.shape, device=device)
+#        mean_Nxt = torch.zeros(expected_Nxt.shape, device=device)
+#        mean_N = torch.zeros(expected_N.shape, device=device)
+#        for i in range(num_replicates):
+#            bigram = h.corpus_stats.get_test_bigram(window)
+#            undersampled = h.cooc_stats.w2v_undersample(
+#                bigram, t, verbose=False)
+#            usamp_Nxx, usamp_Nx, usamp_Nxt, usamp_N = undersampled
+#            mean_Nxx += usamp_Nxx / num_replicates
+#            mean_Nx += usamp_Nx / num_replicates
+#            mean_Nxt += usamp_Nxt / num_replicates
+#            mean_N += usamp_N / num_replicates
+#
+#        self.assertTrue(torch.allclose(mean_Nxx, expected_Nxx, atol=0.5))
+#        self.assertTrue(torch.allclose(mean_Nx, expected_Nx, atol=1))
+#        self.assertTrue(torch.allclose(mean_Nxt, expected_Nxt, atol=1))
+#        self.assertTrue(torch.allclose(mean_N, expected_N, atol=2))
+#
+#        # Check that the original bigram has not been altered
+#        Nxx, Nx, Nxt, N = bigram
+#        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+#        self.assertTrue(torch.allclose(Nx, orig_Nx))
+#        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+#        self.assertTrue(torch.allclose(N, orig_N))
+#
+#
+#    def test_smooth_unigram(self):
+#        t = 0.1
+#        num_replicates = 100
+#        window = 2
+#        alpha = 0.75
+#        bigram = h.corpus_stats.get_test_bigram(window)
+#
+#        orig_Nxx, orig_Nx, orig_Nxt, orig_N = bigram
+#        # The Nxt and N values are altered to reflect a smoothed unigram dist.
+#        expected_Nxt = orig_Nxt ** 0.75
+#        expected_N = torch.sum(expected_Nxt)
+#        # ... however, we expect Nxx and Nx to be unchanged
+#        expected_Nxx = orig_Nxx
+#        expected_Nx = orig_Nx
+#
+#        smoothed = h.cooc_stats.smooth_unigram(
+#            bigram, alpha, verbose=False)
+#        smooth_Nxx, smooth_Nx, smooth_Nxt, smooth_N = smoothed
+#
+#        self.assertTrue(torch.allclose(smooth_Nxx, expected_Nxx))
+#
+#        self.assertTrue(torch.allclose(smooth_Nx, expected_Nx))
+#        self.assertTrue(torch.allclose(smooth_Nxt, expected_Nxt))
+#        self.assertTrue(torch.allclose(smooth_N, expected_N))
+#
+#        # Check that the original bigram has not been altered
+#        Nxx, Nx, Nxt, N = bigram
+#        self.assertTrue(torch.allclose(Nxx, orig_Nxx))
+#        self.assertTrue(torch.allclose(Nx, orig_Nx))
+#        self.assertTrue(torch.allclose(Nxt, orig_Nxt))
+#        self.assertTrue(torch.allclose(N, orig_N))
 
 
 

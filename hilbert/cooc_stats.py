@@ -61,6 +61,8 @@ class CoocStats(object):
         lazily when you access or call methods that rely on one representation.
         '''
 
+        print('Warning CoocStats is deprecated.')
+
         self.validate_args(dictionary, counts, Nxx)
         self._dictionary = dictionary or h.dictionary.Dictionary()
 

@@ -234,7 +234,7 @@ class Unigram(object):
         # momentarily convert into numpy, to take advantage of their easy 
         # sorting.
         top_indices = np.argsort([-n for n in self.Nx])
-        self.Nx = list(self.Nx[top_indices])
+        self.Nx = [self.Nx[i] for i in top_indices]
         self.dictionary = h.dictionary.Dictionary([
             self.dictionary.tokens[i] for i in top_indices])
 

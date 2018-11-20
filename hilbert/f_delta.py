@@ -10,24 +10,44 @@ except ImportError:
 import hilbert as h
 
 
+class FDelta:
 
-class DeltaMSE:
-
-    def __init__(self, bigram, M, device=None):
+    def __init__(self, bigram, M, update_density=1, device=None):
         self.bigram = bigram
         self.M = M
-        self.device=device
+        self.device = device or h.CONSTANTS.MATRIX_DEVICE
+        self.update_density = update_density
+        self.last_shard = None
 
-    def calc_shard(self, M_hat, shard=None):
+
+    def calc_shard(self, M_hat, shard):
+        if shard != self.last_shard:
+            self.load_shard(M_hat, shard)
+        bit_mask = torch.rand_like(M_hat) > (1 - self.update_density)
+        bit_mask = bit_mask.type(torch.float32)
+        return self._calc_shard(M_hat, shard) * bit_mask
+
+
+    def load_shard(self, M_hat, shard):
+        pass
+
+
+    def _calc_shard(self, M_hat, shard):
+        raise NotImplementedError('Subclasses must override `_calc_shard`.')
+
+
+
+class DeltaMSE(FDelta):
+    def _calc_shard(self, M_hat, shard):
         return self.M[shard] - M_hat
         
-
 
 class NewEpoch(Exception):
     """Marker for end of epoch"""
     def __init__(self, epoch_num, *args, **kwargs):
         self.epoch_num = epoch_num
         super().__init__('Epoch #{}'.format(epoch_num))
+
 
 class NoMoreSamples(Exception):
     """Signals that there are no more samples left."""
@@ -221,35 +241,24 @@ class DeltaW2VSamplesFullCorpus:
 
 
 
-class DeltaW2V:
+class DeltaW2V(FDelta):
 
-    def __init__(self, bigram, M, k, device=None):
-        self.bigram = bigram
-        self.M = M
-        self.device = device
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+    def __init__(self, bigram, M, k, update_density=1, device=None):
+        super().__init__(bigram, M, update_density, device)
         dtype = h.CONSTANTS.DEFAULT_DTYPE
-        self.k = torch.tensor(k, device=device, dtype=dtype)
-        self.last_shard = -1
-        self.multiplier = None
-        self.exp_M = None
+        self.k = torch.tensor(k, device=self.device, dtype=dtype)
 
 
-    def calc_shard(self, M_hat, shard=None):
-        if self.last_shard != shard:
-            self.last_shard = shard
-            device = self.device or h.CONSTANTS.MATRIX_DEVICE
-            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=device)
-            uNx, uNxt, uN = self.bigram.unigram.load_shard(shard, device=device)
-            N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, self.k)
-            self.multiplier = Nxx + N_neg
-            self.exp_M = sigmoid(self.M[shard])
-            return self.multiplier * (self.exp_M - sigmoid(M_hat))
+    def load_shard(self, M_hat, shard):
+        self.Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
+        self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
 
-        else:
-            return self.multiplier * (self.exp_M - sigmoid(M_hat))
+    def _calc_shard(self, M_hat, shard=None):
+        # This simplified form is equivalent to (but a bit cheaper than):
+        #      (Nxx + N_Neg) * (sigmoid(M) - sigmoid(M_hat))
+        return self.Nxx - (self.Nxx + self.N_neg) * sigmoid(M_hat)
 
-        return self.calculated_shard
 
 
 class DeltaGlove:
@@ -310,27 +319,32 @@ class DeltaMLE:
 
 class DeltaSwivel:
 
-
     def __init__(self, bigram, M, device=None):
         self.bigram = bigram
         self.M = M
-        self.device=device
-        self.sqrtNxx = np.sqrt(bigram.Nxx)
+        self.device = device
+        self.sqrtNxx = None
+        self.last_shard = None
+
 
     def calc_shard(self, M_hat, shard=None):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+
+        if shard != self.last_shard:
+            self.last_shard = shard
+            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+            self.sqrtNxx = torch.sqrt(Nxx)
 
         # Calculate case 1
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         difference = self.M[shard] - M_hat
-        sqrtNxx = h.utils.load_shard(self.sqrtNxx, shard, device=device)
-        case1 = sqrtNxx * difference
+        case1 = self.sqrtNxx * difference
 
         # Calculate case 2 (only applies where Nxx is zero).
-        exp_diff = np.e**difference[sqrtNxx==0]
+        exp_diff = np.e**difference[self.sqrtNxx==0]
         case2 = exp_diff / (1 + exp_diff)
 
         # Combine the cases
-        case1[sqrtNxx==0] = case2
+        case1[self.sqrtNxx==0] = case2
 
         return case1
 
