@@ -74,14 +74,9 @@ class TestGetEmbedder(TestCase):
 
         np.random.seed(0)
         torch.manual_seed(0)
-        M = h.M.M_logNxx(
-            bigram=bigram, 
-            neg_inf_val=neg_inf_val,
-        ).load_all()
         delta_str = 'glove'
         delta = h.f_delta.DeltaGlove(
             bigram=bigram,
-            M=M,
             X_max=X_max,
         )
         expected_embedder = h.embedder.HilbertEmbedder(
@@ -426,15 +421,11 @@ class TestFDeltas(TestCase):
         expected_multiplier = N_neg + Nxx
         expected = expected_multiplier * expected_difference
 
-        M = h.M.M_w2v(bigram, k=k)
-        M_ = M.load_all()
-        M_hat = M_ + 1
-
-        delta_w2v = h.f_delta.DeltaW2V(bigram, M, k)
+        delta_w2v = h.f_delta.DeltaW2V(bigram, k)
         found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
-            found[shard] = delta_w2v.calc_shard(M_hat[shard], shard)
+            found[shard] = delta_w2v.calc_shard(expected_M_hat[shard], shard)
 
         self.assertTrue(np.allclose(expected, found))
 
@@ -453,39 +444,37 @@ class TestFDeltas(TestCase):
         # by glove.  We still need to zero them out to avoid nans.
         expected_M[expected_M==-np.inf] = 0
         expected_M_hat = expected_M + 1
-        multiplier = torch.tensor([[
+        expected_multiplier = torch.tensor([[
                 2 * min(1, (bigram.Nxx[i,j] / 100.0)**0.75) 
                 for j in range(bigram.Nxx.shape[1])
             ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
-        difference = torch.tensor([[
+        expected_difference = torch.tensor([[
                 expected_M[i,j] - expected_M_hat[i,j]
                 if bigram.Nxx[i,j] > 0 else 0 
                 for j in range(bigram.Nxx.shape[1])
             ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
-        expected = multiplier * difference
+        expected = expected_multiplier * expected_difference
 
-        M = h.M.M_logNxx(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        M_hat = M_ + 1
-        delta_glove = h.f_delta.DeltaGlove(bigram, M)
+        delta_glove = h.f_delta.DeltaGlove(bigram)
         found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
-            found[shard] = delta_glove.calc_shard(M_hat[shard], shard)
+            found[shard] = delta_glove.calc_shard(expected_M_hat[shard], shard)
 
         self.assertTrue(np.allclose(expected, found))
 
         # Try varying the X_max and alpha settings.
         alpha = 0.8
         X_max = 10
-        delta_glove = h.f_delta.DeltaGlove(
-            bigram, M, X_max=X_max, alpha=alpha)
+        delta_glove = h.f_delta.DeltaGlove(bigram, X_max=X_max, alpha=alpha)
         found2 = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
-            found2[shard] = delta_glove.calc_shard(M_hat[shard], shard)
+            found2[shard] = delta_glove.calc_shard(
+                expected_M_hat[shard], shard)
+
         expected2 = torch.tensor([
             [
                 2 * min(1, (bigram.Nxx[i,j] / X_max)**alpha) 
@@ -508,21 +497,16 @@ class TestFDeltas(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        M_hat = M_ + 1
-        expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(bigram, M)
+        PPMI = h.corpus_stats.calc_PMI(bigram)
+        PPMI[PPMI<0] = 0
+        M_hat = PPMI + 1
+        expected = PPMI - M_hat
+        delta_mse = h.f_delta.DeltaMSE(bigram)
         found = delta_mse.calc_shard(M_hat, h.shards.whole)
         self.assertTrue(torch.allclose(expected, found))
 
-        shards = h.shards.Shards(5)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        M_hat = M_ + 1
-        expected = M_ - M_hat
-        delta_mse = h.f_delta.DeltaMSE(bigram, M)
         found = torch.zeros(bigram.Nxx.shape, device=device, dtype=dtype)
+        shards = h.shards.Shards(5)
         for shard in shards:
             found[shard] = delta_mse.calc_shard(M_hat[shard], shard)
         self.assertTrue(torch.allclose(expected, found))
@@ -531,22 +515,22 @@ class TestFDeltas(TestCase):
     def test_f_swivel(self):
         bigram = h.corpus_stats.get_test_bigram(2)
 
-        M = h.M.M_pmi_star(bigram)
-        M_ = M.load_all()
-        M_hat = M_ + 1
+        pmi_star = h.corpus_stats.calc_PMI_star(bigram)
+        pmi_star = pmi_star
+        M_hat = pmi_star + 1
 
         expected = np.array([
             [
-                np.sqrt(bigram.Nxx[i,j]) * (M_[i,j] - M_hat[i,j]) 
+                np.sqrt(bigram.Nxx[i,j]) * (pmi_star[i,j] - M_hat[i,j]) 
                 if bigram.Nxx[i,j] > 0 else
-                (np.e**(M_[i,j] - M_hat[i,j]) /
-                    (1 + np.e**(M_[i,j] - M_hat[i,j])))
-                for j in range(M_.shape[1])
+                (np.e**(pmi_star[i,j] - M_hat[i,j]) /
+                    (1 + np.e**(pmi_star[i,j] - M_hat[i,j])))
+                for j in range(pmi_star.shape[1])
             ]
-            for i in range(M_.shape[0])
+            for i in range(pmi_star.shape[0])
         ])
 
-        delta_swivel = h.f_delta.DeltaSwivel(bigram, M)
+        delta_swivel = h.f_delta.DeltaSwivel(bigram)
         found = torch.zeros(bigram.Nxx.shape)
         shards = h.shards.Shards(5)
         for shard in shards:
@@ -563,20 +547,21 @@ class TestFDeltas(TestCase):
 
         expected_M = h.corpus_stats.calc_PMI(bigram)
         expected_M_hat = expected_M + 1
+
         N_indep_xx = bigram.Nx * bigram.Nx.T
         N_indep_max = np.max(N_indep_xx)
         multiplier = N_indep_xx / N_indep_max
+
         difference = np.e**expected_M - np.e**expected_M_hat
         expected = multiplier * difference
 
-        M = h.M.M_pmi(bigram)
-        M_ = M.load_all()
-        M_hat = M_ + 1
-        delta_mle = h.f_delta.DeltaMLE(bigram, M)
+        delta_mle = h.f_delta.DeltaMLE(bigram)
+
         found = torch.zeros(Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
-            found[shard] = delta_mle.calc_shard(M_hat[shard], shard)
+            found[shard] = delta_mle.calc_shard(expected_M_hat[shard], shard)
+
         self.assertTrue(np.allclose(found, expected))
 
         # Now test with a different setting for temperature (t).
@@ -584,10 +569,11 @@ class TestFDeltas(TestCase):
         expected = (N_indep_xx / N_indep_max)**(1.0/t) * (
             np.e**expected_M - np.e**expected_M_hat)
 
+        delta_mle = h.f_delta.DeltaMLE(bigram, t=t)
         found = torch.zeros(Nxx.shape)
         shards = h.shards.Shards(2)
         for shard in shards:
-            found[shard] = delta_mle.calc_shard(M_hat[shard], shard, t=t)
+            found[shard] = delta_mle.calc_shard(expected_M_hat[shard], shard)
         self.assertTrue(np.allclose(found, expected))
 
 
@@ -614,9 +600,10 @@ class TestHilbertEmbedder(TestCase):
         shard_factor = 3
         device = h.CONSTANTS.MATRIX_DEVICE
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi==-np.inf] = 0
+
+        f_MSE = h.f_delta.DeltaMSE(bigram)
 
         # Now make an embedder.
         embedder = h.embedder.HilbertEmbedder(
@@ -636,7 +623,7 @@ class TestHilbertEmbedder(TestCase):
         shards = h.shards.Shards(shard_factor)
         for shard_num, shard in enumerate(shards):
             M_hat = torch.mm(W[shard[0]], V[shard[1]].t())
-            delta = M_[shard] - M_hat
+            delta = ppmi[shard] - M_hat
             badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
             nabla_V = torch.mm(delta.t(), W[shard[0]])
             nabla_W = torch.mm(delta, V[shard[1]])
@@ -647,8 +634,8 @@ class TestHilbertEmbedder(TestCase):
         embedder.cycle()
 
         # Check that the cycle produced the expected update.
-        self.assertTrue(torch.allclose(embedder.V, V))
-        self.assertTrue(torch.allclose(embedder.W, W))
+        self.assertTrue(torch.allclose(embedder.V, V, atol=0.001))
+        self.assertTrue(torch.allclose(embedder.W, W, atol=0.001))
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
@@ -662,11 +649,8 @@ class TestHilbertEmbedder(TestCase):
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-
         # First make a non-one-sided embedder.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, 
             shape=(bigram.vocab,bigram.vocab), shard_factor=1,
@@ -676,7 +660,6 @@ class TestHilbertEmbedder(TestCase):
         # Ensure that the relevant variables are tensors
         self.assertTrue(isinstance(embedder.V, torch.Tensor))
         self.assertTrue(isinstance(embedder.W, torch.Tensor))
-        self.assertTrue(isinstance(M_, torch.Tensor))
 
         # The covectors and vectors are not the same.
         self.assertFalse(torch.allclose(embedder.W, embedder.V))
@@ -703,7 +686,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Check that the update was performed.
         M_hat = torch.mm(old_V, old_V.t())
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         delta = f_MSE.calc_shard(M_hat, h.shards.whole)
         nabla_V = torch.mm(delta.t(), old_V)
         nabla_W = torch.mm(delta, old_V)
@@ -716,8 +699,11 @@ class TestHilbertEmbedder(TestCase):
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        delta = abs(M_ - M_hat)
-        badness = torch.sum(delta) / (vocab * vocab)
+        delta_old = delta
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
+        delta = ppmi - M_hat
+        badness = torch.sum(abs(delta)) / (vocab * vocab)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
 
@@ -729,9 +715,9 @@ class TestHilbertEmbedder(TestCase):
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
+        f_MSE = h.f_delta.DeltaMSE(bigram)
 
         # Make a one-sided embedder.
         embedder = h.embedder.HilbertEmbedder(
@@ -758,7 +744,7 @@ class TestHilbertEmbedder(TestCase):
         shards = h.shards.Shards(3)
         for shard in shards:
 
-            delta = M_[shard] - torch.mm(old_V[shard[0]], old_V[shard[1]].t())
+            delta = ppmi[shard] - torch.mm(old_V[shard[0]], old_V[shard[1]].t())
             nabla_V = torch.mm(delta.t(), old_V[shard[0]])
             nabla_W = torch.mm(delta, old_V[shard[1]])
             new_V[shard[1]] += learning_rate * nabla_V
@@ -793,11 +779,11 @@ class TestHilbertEmbedder(TestCase):
         bigram = h.corpus_stats.get_test_bigram(3)
         #bigram.truncate(10)
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         # Make the embedder, whose method we are testing.
-        delta_MSE = h.f_delta.DeltaMSE(bigram, M)
+        delta_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             delta_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab), verbose=False, 
@@ -814,7 +800,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Calculate the expected gradient.
         M_hat = torch.mm(W,V.t())
-        delta = M_ - M_hat
+        delta = ppmi - M_hat
 
         expected_nabla_W = torch.mm(delta, V)
         expected_nabla_V = torch.mm(delta.t(), W)
@@ -836,14 +822,14 @@ class TestHilbertEmbedder(TestCase):
         d = 3
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         offset_W = torch.rand(len(bigram.Nx),d, device=device, dtype=dtype)
         offset_V = torch.rand(len(bigram.Nx),d, device=device, dtype=dtype)
 
         # Create an embedder, whose get_gradient method we are testing.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, 
             shape=(bigram.vocab, bigram.vocab), shard_factor=3, verbose=False
@@ -854,7 +840,7 @@ class TestHilbertEmbedder(TestCase):
         original_W, original_V = embedder.W.clone(), embedder.V.clone()
         W, V =  original_W + offset_W,  original_V + offset_V
         M_hat = torch.mm(W,V.t())
-        delta = M_ - M_hat
+        delta = ppmi - M_hat
 
         expected_nabla_W = torch.mm(delta, V)
         expected_nabla_V = torch.mm(delta.t(), W)
@@ -878,10 +864,10 @@ class TestHilbertEmbedder(TestCase):
         d = 3
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
@@ -894,7 +880,7 @@ class TestHilbertEmbedder(TestCase):
         original_V = embedder.V.clone()
         V = original_V
         M_hat = torch.mm(V,V.t())
-        delta = M_ - M_hat
+        delta = ppmi - M_hat
         expected_nabla_V = torch.mm(delta.t(), V)
 
         # Get the gradient using the embedders method (which we are testing).
@@ -917,13 +903,14 @@ class TestHilbertEmbedder(TestCase):
         d = 3
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         offset_V = torch.rand(
             len(bigram.Nx), d, device=device, dtype=dtype)
 
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab,), one_sided=True, verbose=False
@@ -933,7 +920,7 @@ class TestHilbertEmbedder(TestCase):
         original_V = embedder.V.clone()
         V =  original_V + offset_V
         M_hat = torch.mm(V,V.t())
-        delta = M_ - M_hat
+        delta = ppmi - M_hat
         expected_nabla_V = torch.mm(delta.t(), V)
 
         # Calculate gradients using embedder's method (which we are testing).
@@ -958,8 +945,8 @@ class TestHilbertEmbedder(TestCase):
         vocab = len(bigram.Nx)
         pass_args = {'a':True, 'b':False}
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         # Make mock f_delta whose integration with an embedder is being tested.
         class DeltaMock:
@@ -967,22 +954,22 @@ class TestHilbertEmbedder(TestCase):
             def __init__(
                 self,
                 bigram,
-                M,
                 test_case,
                 device=None,
             ):
                 self.bigram = bigram
-                self.M = M
+                self.M = h.corpus_stats.calc_PMI(bigram)
+                self.M[self.M<0] = 0
                 self.test_case = test_case
                 self.device=device
 
             def calc_shard(self, M_hat, shard=None, **kwargs):
-                self.test_case.assertTrue(self.M is M)
+                self.test_case.assertTrue(torch.allclose(self.M, ppmi))
                 self.test_case.assertEqual(kwargs, {'a':True, 'b':False})
                 return self.M[shard] - M_hat
                 
 
-        f_delta = DeltaMock(bigram, M, self)
+        f_delta = DeltaMock(bigram, self)
 
         # Make embedder whose integration with mock f_delta is being tested.
         embedder = h.embedder.HilbertEmbedder(
@@ -995,7 +982,7 @@ class TestHilbertEmbedder(TestCase):
         # and that the M matrix has been converted to a torch.Tensor.
         self.assertEqual(embedder.learning_rate, learning_rate)
         self.assertEqual(embedder.d, d)
-        self.assertTrue(f_delta.M is M)
+        self.assertTrue(torch.allclose(f_delta.M, ppmi))
         self.assertEqual(embedder.delta, f_delta)
 
         # Clone current embeddings so we can manually calculate the expected
@@ -1008,7 +995,7 @@ class TestHilbertEmbedder(TestCase):
         # Calculate teh expected changes due to the update.
         #M = torch.tensor(M, dtype=torch.float32)
         M_hat = torch.mm(old_W, old_V.t())
-        delta = M_ - M_hat
+        delta = ppmi - M_hat
         new_V = old_V + learning_rate * torch.mm(delta.t(), old_W)
         new_W = old_W + learning_rate * torch.mm(delta, old_V)
 
@@ -1018,7 +1005,7 @@ class TestHilbertEmbedder(TestCase):
 
         # Check that the badness is correct 
         # (badness is based on the error before last update)
-        expected_badness = torch.sum(abs(M_ - M_hat)) / (vocab**2)
+        expected_badness = torch.sum(abs(ppmi - M_hat)) / (vocab**2)
         self.assertTrue(torch.allclose(expected_badness, embedder.badness))
 
 
@@ -1035,19 +1022,21 @@ class TestHilbertEmbedder(TestCase):
         delta_always = torch.zeros(
             bigram.Nxx.shape, device=device, dtype=dtype) + delta_amount
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         # Test integration between an embedder and the following f_delta:
         class DeltaMock:
-            def __init__(self, bigram, M):
-                self.M = M
+            def __init__(self, bigram):
+                self.M = h.corpus_stats.calc_PMI(bigram)
+                self.M[self.M<0] = 0
             def calc_shard(self, M_hat, shard=None, **kwargs):
                 return delta_always[shard]
                 
 
         # Make the embedder whose integration with f_delta we are testing.
-        f_delta = DeltaMock(bigram, M)
+        f_delta = DeltaMock(bigram)
         embedder = h.embedder.HilbertEmbedder(
             delta=f_delta, d=d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab), shard_factor=3,
@@ -1084,10 +1073,7 @@ class TestHilbertEmbedder(TestCase):
         learning_rate = 0.01
         bigram= h.corpus_stats.get_test_bigram(2)
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab), shard_factor=2,
@@ -1118,12 +1104,13 @@ class TestHilbertEmbedder(TestCase):
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
+
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
 
         # Make the ebedder whose integration with constrainer we are testing.
         # Note that we have included a constrainer.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab), shard_factor = 3,
@@ -1168,10 +1155,8 @@ class TestHilbertEmbedder(TestCase):
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=5,
             shape=(bigram.vocab, bigram.vocab),
@@ -1203,10 +1188,8 @@ class TestHilbertEmbedder(TestCase):
         learning_rate = 0.01
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1,
             verbose=False, 
@@ -1224,7 +1207,9 @@ class TestHilbertEmbedder(TestCase):
 
         # Calculate the expected update, with constraints applied.
         M_hat = torch.mm(old_W, old_V.t())
-        delta = M_ - M_hat
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
+        delta = ppmi - M_hat
 
         new_V = old_V + learning_rate * torch.mm(delta.t(), old_W)
         new_W = old_W + learning_rate * torch.mm(delta, old_V)
@@ -1258,10 +1243,8 @@ class TestHilbertEmbedder(TestCase):
         torch.random.manual_seed(0)
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
 
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
             shape=(bigram.vocab, bigram.vocab),
@@ -1298,9 +1281,9 @@ class TestHilbertEmbedder(TestCase):
         bigram = h.corpus_stats.get_test_bigram(2)
         vocab = len(bigram.Nx)
 
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
-        M_ = M.load_all()
-        f_delta = h.f_delta.DeltaMSE(bigram, M)
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
+        f_delta = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_delta, d, learning_rate=learning_rate, shard_factor=3, 
             shape=(bigram.vocab, bigram.vocab), verbose=False
@@ -1319,7 +1302,7 @@ class TestHilbertEmbedder(TestCase):
         shards = h.shards.Shards(3)
         for shard in shards:
 
-            delta = M_[shard] - torch.mm(old_W[shard[0]], old_V[shard[1]].t())
+            delta = ppmi[shard] - torch.mm(old_W[shard[0]],old_V[shard[1]].t())
             new_V[shard[1]] = old_V[shard[1]] + learning_rate * torch.mm(
                 delta.t(), old_W[shard[0]])
             new_W[shard[0]] = old_W[shard[0]] + learning_rate * torch.mm(
@@ -1972,11 +1955,10 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             shape=(bigram.vocab, bigram.vocab), verbose=False
@@ -1994,11 +1976,10 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             shape=(bigram.vocab, bigram.vocab), verbose=False,
@@ -2016,11 +1997,10 @@ class TestEmbedderSolverIntegration(TestCase):
         learning_rate = 0.01
         momentum_decay = 0.8
         bigram = h.corpus_stats.get_test_bigram(2)
-        M = h.M.M_pmi(bigram, neg_inf_val=0)
 
         # This test just makes sure that the solver and embedder interface
         # properly.  All is good as long as this doesn't throw errors.
-        f_MSE = h.f_delta.DeltaMSE(bigram, M)
+        f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=3,
             shape=(bigram.vocab, bigram.vocab), verbose=False,

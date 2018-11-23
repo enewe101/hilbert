@@ -52,7 +52,52 @@ def get_w2v_embedder(
     #M = h.M.M_w2v(bigram, k=k, device=device)
     M = None
     delta = h.f_delta.DeltaW2V(
-        bigram, M, k, update_density=update_density, device=device)
+        bigram, k=k, update_density=update_density, device=device)
+
+    embedder = h.embedder.HilbertEmbedder(
+        delta=delta, d=d, 
+        learning_rate=learning_rate,
+        init_vecs=init_vecs,
+        shape=(bigram.vocab, bigram.vocab),
+        shard_factor=shard_factor,
+        verbose=verbose, device=device
+    )
+
+    solver = h.solver.get_solver(solver, embedder, learning_rate=learning_rate)
+
+    return embedder, solver
+
+
+
+# Not Done
+def get_glv_embedder(
+    # Required
+    bigram, 
+
+    # Theory options
+    d=300,              # embedding dimension
+    init_vecs=None,
+
+    X_max=100.0,
+    alpha=0.75,
+
+    # Implementation options
+    update_density=1,
+    solver='sgd',
+    shard_factor=1,
+    learning_rate=1e-6,
+    momentum_decay=0.9,
+    verbose=True,
+    device=None
+):
+
+    # TODO: Test!
+    # Possibly apply clean common-word undersampling (in expectation).
+
+    # Note, DeltaW2V no longer needs M!
+    delta = h.f_delta.DeltaGlove(
+        bigram, X_max=100.0, alpha=0.75, 
+        update_density=1, device=None)
 
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, 
@@ -129,15 +174,8 @@ def get_embedder(
     # Smooth unigram distribution.
     bigram.unigram.apply_smoothing(smooth_unigram)
 
-    # Create the M instance.
-    M_args = {}
-    if base == 'w2v': M_args['k'] = k
-    M = h.M.get_M(
-        base, bigram=bigram, shift_by=shift_by, neg_inf_val=neg_inf_val, 
-        clip_thresh=clip_thresh, diag=diag, **M_args)
-
     # Create the delta instance.
-    delta_args = {'bigram':bigram, 'M':M, 'device':device}
+    delta_args = {'bigram':bigram, 'device':device}
     if delta == 'w2v': delta_args['k'] = k
     elif delta == 'glove': delta_args['X_max'] = X_max
     delta = h.f_delta.get_delta(delta, **delta_args)

@@ -150,6 +150,7 @@ class Embeddings:
         elements as self.dictionary.tokens, otherwise it's an error.
         """
         if len(set(tokens)) != len(self.dictionary):
+
             raise ValueError(
                 'Every token in the vocabulary must appear in the list of '
                 'tokens to sort by exactly once.'

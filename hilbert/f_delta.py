@@ -12,9 +12,8 @@ import hilbert as h
 
 class FDelta:
 
-    def __init__(self, bigram, M, update_density=1, device=None):
+    def __init__(self, bigram, update_density=1, device=None):
         self.bigram = bigram
-        self.M = M
         self.device = device or h.CONSTANTS.MATRIX_DEVICE
         self.update_density = update_density
         self.last_shard = None
@@ -22,6 +21,7 @@ class FDelta:
 
     def calc_shard(self, M_hat, shard):
         if shard != self.last_shard:
+            self.last_shard = shard
             self.load_shard(M_hat, shard)
         bit_mask = torch.rand_like(M_hat) > (1 - self.update_density)
         bit_mask = bit_mask.type(torch.float32)
@@ -38,9 +38,142 @@ class FDelta:
 
 
 class DeltaMSE(FDelta):
+
+    def load_shard(self, M_hat, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        self.PPMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+        self.PPMI[self.PPMI<0] = 0
+
     def _calc_shard(self, M_hat, shard):
-        return self.M[shard] - M_hat
+        return self.PPMI - M_hat
         
+
+
+class DeltaW2V(FDelta):
+
+    def __init__(self, bigram, k, update_density=1, device=None):
+        super().__init__(bigram, update_density, device)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.k = torch.tensor(k, device=self.device, dtype=dtype)
+
+
+    def load_shard(self, M_hat, shard):
+        self.Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
+        self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
+
+
+    def _calc_shard(self, M_hat, shard=None):
+        # This simplified form is equivalent to (but a bit cheaper than):
+        #      (Nxx + N_Neg) * (sigmoid(M) - sigmoid(M_hat))
+        return self.Nxx - (self.Nxx + self.N_neg) * sigmoid(M_hat)
+
+
+
+class DeltaGlove(FDelta):
+
+    def __init__(
+        self, bigram, X_max=100.0, alpha=0.75, 
+        update_density=1, device=None,
+    ):
+        super().__init__(bigram, update_density, device)
+        self.X_max = float(X_max)
+        self.alpha = alpha
+
+    def load_shard(self, M_hat, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        self.multiplier = (Nxx / self.X_max).pow(self.alpha)
+        self.multiplier[self.multiplier>1] = 1
+        self.multiplier *= 2
+        self.M = torch.log(Nxx)
+
+        # Zero-out cells that have Nxx==0, since GloVe ignores these
+        self.M[Nxx==0] = 0
+        self.multiplier[Nxx==0] = 0
+
+    def _calc_shard(self, M_hat, shard):
+        return self.multiplier * (self.M - M_hat)
+
+
+
+class DeltaMLE(FDelta):
+
+    def __init__(self, bigram, t=1, update_density=1, device=None):
+        super().__init__(bigram, update_density, device)
+        self.pow = (1.0 / t)
+        self.max_multiplier = torch.tensor(
+            np.max(self.bigram.Nx)**2, device=self.device)
+
+    def load_shard(self, M_hat, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        self.exp_PMI = np.e**h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+        self.multiplier = Nx * Nxt
+        self.multiplier = self.multiplier / self.max_multiplier
+
+    def _calc_shard(self, M_hat, shard=None, t=1):
+        return self.multiplier**self.pow * (self.exp_PMI - np.e**M_hat)
+
+
+
+class DeltaSwivel(FDelta):
+
+    def __init__(self, bigram, update_density=1, device=None):
+        super().__init__(bigram, update_density, device)
+        self.sqrtNxx = None
+        self.last_shard = None
+
+
+    def load_shard(self, M_hat, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
+        self.sqrtNxx = torch.sqrt(Nxx)
+        self.PMI_star = h.corpus_stats.calc_PMI_star((Nxx, Nx, Nxt, N))
+
+
+    def _calc_shard(self, M_hat, shard=None):
+
+        # Calculate case 1
+        difference = self.PMI_star - M_hat
+        case1 = self.sqrtNxx * difference
+
+        # Calculate case 2 (only applies where Nxx is zero).
+        exp_diff = np.e**difference[self.sqrtNxx==0]
+        case2 = exp_diff / (1 + exp_diff)
+
+        # Combine the cases
+        case1[self.sqrtNxx==0] = case2
+
+        return case1
+
+
+def get_delta(name, **kwargs):
+    """
+    Convenience function to be able to select and instantiate a Delta class by
+    name.
+    """
+    if name.lower() == 'mse':
+        return DeltaMSE(**kwargs)
+    elif name.lower() == 'mle':
+        return DeltaMLE(**kwargs)
+    elif name.lower() == 'w2v':
+        return DeltaW2V(**kwargs)
+    elif name.lower() == 'glove':
+        return DeltaGlove(**kwargs)
+    elif name.lower() == 'swivel':
+        return DeltaSwivel(**kwargs)
+    else:
+        raise ValueError(
+            "``name`` must be one of 'mse', 'mle', 'w2v', 'glove', or "
+            "'swivel'. Got {}.".format(repr(name))
+        )
+
+
+def sigmoid(M):
+    return 1 / (1 + np.e**(-M))
+
+
+
+
+### Sample-based ###
 
 class NewEpoch(Exception):
     """Marker for end of epoch"""
@@ -236,144 +369,6 @@ class DeltaW2VSamplesFullCorpus:
 
     def calc_shard(self, M_hat, shard=None):
         return self.Nxx - self.multiplier * sigmoid(M_hat)
-
-
-
-
-
-class DeltaW2V(FDelta):
-
-    def __init__(self, bigram, M, k, update_density=1, device=None):
-        super().__init__(bigram, M, update_density, device)
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        self.k = torch.tensor(k, device=self.device, dtype=dtype)
-
-
-    def load_shard(self, M_hat, shard):
-        self.Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
-        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
-        self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
-
-    def _calc_shard(self, M_hat, shard=None):
-        # This simplified form is equivalent to (but a bit cheaper than):
-        #      (Nxx + N_Neg) * (sigmoid(M) - sigmoid(M_hat))
-        return self.Nxx - (self.Nxx + self.N_neg) * sigmoid(M_hat)
-
-
-
-class DeltaGlove:
-
-    def __init__(
-        self,
-        bigram,
-        M,
-        X_max=100.0,
-        alpha=0.75,
-        device=None
-    ):
-        self.bigram = bigram
-        self.M = M
-        self.X_max = float(X_max)
-        self.alpha = alpha
-        self.device=device
-        self.precalculate_multiplier()
-
-    def precalculate_multiplier(self):
-        self.multiplier = (self.bigram.Nxx / self.X_max).power(self.alpha)
-        self.multiplier[self.multiplier>1] = 1
-        self.multiplier *= 2
-
-    def calc_shard(self, M_hat, shard=None):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
-        multiplier = h.utils.load_shard(
-            self.multiplier, shard, device=device)
-        return multiplier * (self.M[shard] - M_hat)
-
-
-
-class DeltaMLE:
-
-    def __init__(self, bigram, M, device=None):
-        self.bigram = bigram
-        self.M = M
-        self.device=device
-        self.precalculate_exp_M()
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
-        self.max_multiplier = torch.tensor(
-            np.max(bigram.Nx)**2, dtype=torch.float32, device=device)
-
-    def precalculate_exp_M(self):
-        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(self.bigram)
-        exp_M_data = np.e**pmi_data
-        self.exp_M = sparse.coo_matrix(
-            (exp_M_data, (I,J)), self.bigram.Nxx.shape).tocsr()
-
-    def calc_shard(self, M_hat, shard=None, t=1):
-        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
-        multiplier = Nx * Nxt / self.max_multiplier
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
-        exp_M = h.utils.load_shard(self.exp_M, shard, device=device)
-        return multiplier**(1.0/t) * (exp_M - np.e**M_hat)
-
-
-
-class DeltaSwivel:
-
-    def __init__(self, bigram, M, device=None):
-        self.bigram = bigram
-        self.M = M
-        self.device = device
-        self.sqrtNxx = None
-        self.last_shard = None
-
-
-    def calc_shard(self, M_hat, shard=None):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
-
-        if shard != self.last_shard:
-            self.last_shard = shard
-            Nxx, Nx, Nxt, N = self.bigram.load_shard(shard)
-            self.sqrtNxx = torch.sqrt(Nxx)
-
-        # Calculate case 1
-        difference = self.M[shard] - M_hat
-        case1 = self.sqrtNxx * difference
-
-        # Calculate case 2 (only applies where Nxx is zero).
-        exp_diff = np.e**difference[self.sqrtNxx==0]
-        case2 = exp_diff / (1 + exp_diff)
-
-        # Combine the cases
-        case1[self.sqrtNxx==0] = case2
-
-        return case1
-
-
-def get_delta(name, **kwargs):
-    """
-    Convenience function to be able to select and instantiate a Delta class by
-    name.
-    """
-    if name.lower() == 'mse':
-        return DeltaMSE(**kwargs)
-    elif name.lower() == 'mle':
-        return DeltaMLE(**kwargs)
-    elif name.lower() == 'w2v':
-        return DeltaW2V(**kwargs)
-    elif name.lower() == 'glove':
-        return DeltaGlove(**kwargs)
-    elif name.lower() == 'swivel':
-        return DeltaSwivel(**kwargs)
-    else:
-        raise ValueError(
-            "``name`` must be one of 'mse', 'mle', 'w2v', 'glove', or "
-            "'swivel'. Got {}.".format(repr(name))
-        )
-
-
-def sigmoid(M):
-    return 1 / (1 + np.e**(-M))
-
 
 
 

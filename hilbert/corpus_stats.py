@@ -12,12 +12,15 @@ except ImportError:
     np = None
     sparse = None
 
+
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
+
 
 def load_tokens(path):
     with open(path) as f:
         return f.read().split()
+
 
 def get_test_bigram(window_size):
     bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
