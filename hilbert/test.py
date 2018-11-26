@@ -2975,6 +2975,28 @@ def get_test_dictionary():
 
 class TestEmbeddings(TestCase):
 
+    def test_creating_embeddings(self):
+        d = 300
+        vocab = 5000
+        dictionary = get_test_dictionary()
+        shared = False
+        V = torch.rand(vocab, d)
+
+        # Try creating a embeddings that lack W
+        embeddings = h.embeddings.Embeddings(V, dictionary=dictionary)
+        self.assertTrue(embeddings.W is None)
+
+        # Try creating one-sided embeddings
+        embeddings = h.embeddings.Embeddings(
+            V, dictionary=dictionary, shared=True)
+        self.assertTrue(embeddings.W is embeddings.V)
+
+        # Try making embeddings using an incorrectly-lengthed dictionary.
+        V = V[:-5]
+        with self.assertRaises(ValueError):
+            embeddings = h.embeddings.Embeddings(V, dictionary=dictionary)
+
+
     def test_random(self):
         d = 300
         vocab = 5000
@@ -3110,8 +3132,6 @@ class TestEmbeddings(TestCase):
             embeddings.W.mean(0)
         ))
         
-
-
 
     def test_embedding_access(self):
 
@@ -3484,29 +3504,43 @@ class TestEmbeddings(TestCase):
         sort_tokens = embeddings_to_sort_by.dictionary.tokens
         random.shuffle(sort_tokens)
 
+        # Alter some of the embeddings so that we can test the handling of
+        # sorting against embeddings that don't have the same set of tokens.
+        extraneous_tokens = [
+            'archeaopteryx', 'Calabi-Yau', 'snails-pace-maker',
+            'xxxxxxx', 'yyyyyyy'
+        ]
+        ommited_tokens = sort_tokens[5:10]
+        sort_tokens[5:10] = extraneous_tokens
+
         # Sort the embeddings according to a new shuffled token order.
-        embeddings_to_be_sorted.sort_like(embeddings_to_sort_by)
+        with self.assertRaises(ValueError):
+            embeddings_to_be_sorted.sort_like(embeddings_to_sort_by)
 
-        # The pristine and sorted embeddings are no longer the same
-        self.assertFalse(torch.allclose(
-            embeddings_pristine.V, embeddings_to_be_sorted.V))
-        self.assertFalse(torch.allclose(
-            embeddings_pristine.W, embeddings_to_be_sorted.W))
+        embeddings_to_be_sorted.sort_like(
+            embeddings_to_sort_by, allow_mismatch=True
+        )
 
-        # The sorted embeddings' dictionary matches shuffled token order.
-        # And is different from the pristine embeddings' dictionary order.
+        # The number of embeddings is reduced, because we lost ommitted tokens
+        # and because extraneous tokens are ignored.
         self.assertEqual(
-            embeddings_to_be_sorted.dictionary.tokens,
-            sort_tokens
-        )
-        self.assertNotEqual(
-            embeddings_pristine.dictionary.tokens,
-            embeddings_to_be_sorted.dictionary.tokens
+            embeddings_to_be_sorted.V.shape[0], 
+            embeddings_pristine.V.shape[0] - 5
         )
 
-        # The embeddings themselves are reordered too, but they are still bound
-        # to the same tokens.
+        # The embeddings are reordered but still bound to the same tokens.
         for i, token in enumerate(sort_tokens):
+
+            # Extraneous tokens are left out though.
+            if i >= 5 and i < 10:
+                with self.assertRaises(KeyError):
+                    embeddings_to_be_sorted.get_vec(token)
+                continue
+
+            # Adjust indices after extraneous tokens, which were dropped
+            if i >= 10:
+                i = i - 5
+
             self.assertTrue(torch.allclose(
                 embeddings_to_be_sorted.V[i],
                 embeddings_to_be_sorted.get_vec(token)
@@ -3523,11 +3557,6 @@ class TestEmbeddings(TestCase):
                 embeddings_pristine.get_covec(token),
                 embeddings_to_be_sorted.get_covec(token)
             ))
-
-
-
-
-
 
 
 

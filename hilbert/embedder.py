@@ -517,5 +517,34 @@ class HilbertEmbedder(object):
             cycles_completed += 1
 
 
+def calc_svm_embeddings(
+    bigram, k=15, alpha=3/4., t_clean=None, clip_after_shift=False
+):
+
+    # Apply smoothing and undersampling
+    if t_clean is not None:
+        print("undersampling: t={}".format(t_clean))
+        bigram.apply_w2v_undersampling(t_clean)
+    print("smoothign: alpha={}".format(alpha))
+    bigram.unigram.apply_smoothing(alpha)
+
+    # Calculate shifted positive pointwise mutual information.
+    Nxx, Nx, Nxt, N = bigram
+    uNx, uNxt, uN = bigram.unigram
+    # Use k=1 so that shift is not yet applied.  This allows us to clip
+    # values before shifting, if desired.
+    N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k=1)
+    sppmi = torch.log(Nxx / N_neg)
+
+    if not clip_after_shift:
+        sppmi[sppmi<0] = 0
+
+    sppmi -= np.log(k)
+
+    if clip_after_shift:
+        sppmi[sppmi<0] = 0
+
+    return np.linalg.svd(sppmi.cpu().numpy())
+
 
 

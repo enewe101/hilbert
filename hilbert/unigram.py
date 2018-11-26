@@ -267,7 +267,7 @@ class Unigram(object):
 
 
     @staticmethod
-    def load(path, verbose=True):
+    def load(path, device=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
@@ -276,7 +276,8 @@ class Unigram(object):
             os.path.join(path, 'dictionary'))
         with open(os.path.join(path, 'Nx.txt')) as f_counts:
             Nx = [int(count) for count in f_counts]
-        return Unigram(dictionary=dictionary, Nx=Nx, verbose=verbose)
+        return Unigram(
+            dictionary=dictionary, Nx=Nx, device=device, verbose=verbose)
 
 
 
