@@ -1,3 +1,4 @@
+import scipy
 import hilbert as h
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
@@ -37,33 +38,96 @@ def calc_PMI(bigram):
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
-def histogram(M, predicate=None):
+def calc_exp_pmi_stats(bigram):
+    Nxx, Nx, Nxt, N = bigram
+    pmi = calc_PMI(bigram)
 
-    print('loading')
-    M_npy = M.load_all().cpu().numpy()
+    # Keep only pmis for i,j where Nxx[i,j]>0
+    pmi = pmi[Nxx>0]
+    exp_pmi = np.e**pmi
+    return torch.mean(exp_pmi), torch.std(exp_pmi)
 
-    if predicate is not None:
-        mask = predicate(M)
-        M_npy = np.ma.masked_array(M_npy, mask=mask)
 
-    print('accumulating')
-    #n, bins = np.histogram(M_npy, bins='auto')
+def get_prior_beta_params(Ni, Nj, N, exp_mean, exp_std):
+    factor = Ni * Nj / N**2
+    mean = exp_mean * factor
+    std = exp_std * factor**2
+    alpha = mean * ( mean*(1-mean)/std - 1)
+    beta = (1-mean) * alpha / mean 
+    return alpha.item(), beta.item(), factor.item()
 
-    # the histogram of the data
-    n, bins, patches = plt.hist(
-	x=M_npy.reshape(-1), bins='auto', density=True, facecolor='green',
-        alpha=0.75
-    )
 
-    plt.xlabel('Smarts')
-    plt.ylabel('Probability')
-    plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
-    #plt.axis([40, 160, 0, 0.03])
-    plt.grid(True)
+def get_posterior_beta_params(bigram, exp_mean, exp_std, i, j):
+    Nxx, Nx, Nxt, N = bigram
+    Ni, Nj = Nx[i,0], Nx[j,0]
+    alpha, beta, factor = get_prior_beta_params(Ni, Nj, N, exp_mean, exp_std)
+    post_alpha = Nxx[i,j] + alpha
+    post_beta = N - Nxx[i,j] + beta
+    return post_alpha, post_beta, factor
 
+
+def posterior_pmi_histogram(
+    post_alpha, post_beta, factor, a=-20, b=5, delta=0.01
+):
+    X = np.arange(a,b,delta)
+    pdf = [
+        (factor * np.e**x)**(post_alpha-1) * (1-factor*np.e**x)**(post_beta-1)
+        for x in X
+    ]
+    Y = pdf / np.sum(pdf)
+    plt.plot(X,Y)
     plt.show()
 
-    return n, bins
+
+
+def get_posterior_numerically(
+    pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
+    a=-20, b=20, delta=0.01,
+    plot=True
+):
+    X = np.arange(a, b, delta)
+    pmi_pdf = np.array([
+        scipy.stats.norm.pdf(x, pmi_mean, pmi_stdv)
+        for x in X
+    ])
+    factor = Ni * Nj / N**2
+    p = [factor * np.e**x for x in X]
+    bin_pdf = np.array([
+        scipy.stats.binom.pmf(Nij, N, p_)
+        for p_ in p
+    ])
+
+    post_pdf = bin_pdf * pmi_pdf
+    post_pdf = post_pdf / np.sum(post_pdf)
+
+    if plot:
+        plt.plot(X, post_pdf)
+        plt.show()
+    return X, post_pdf
+    
+
+
+
+def plot_beta(alpha, beta):
+    X = np.arange(0, 1, 0.01)
+    Y = scipy.stats.beta.pdf(X, alpha, beta)
+    plt.plot(X, Y)
+    plt.show()
+
+
+
+
+
+def histogram(values, plot=True):
+    values = values.reshape(-1)
+
+    n, bins = np.histogram(values, bins='auto')
+    bin_centers = [ 0.5*(bins[i]+bins[i+1]) for i in range(len(n))]
+
+    if plot:
+        plt.plot(bin_centers, n)
+        plt.show()
+    return bin_centers, n
 
 
 
