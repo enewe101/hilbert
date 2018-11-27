@@ -81,7 +81,6 @@ class Embeddings:
                 'sharing between vectors and covectors.'
             )
 
-        self.dictionary = dictionary
         self.shared = shared
         self.device = device
 
@@ -97,6 +96,9 @@ class Embeddings:
                 W, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
                 device=self.device or h.CONSTANTS.MATRIX_DEVICE
             ))
+
+        if dictionary is not None:
+            self.set_dictionary(dictionary)
 
         self._unkV = None
         self._unkW = None
@@ -138,28 +140,67 @@ class Embeddings:
         return self._unkW
 
 
-    def sort_like(self, other):
-        self.sort_by_tokens(other.dictionary.tokens)
+    def sort_like(self, other, allow_mismatch=False):
+        self.sort_by_tokens(other.dictionary.tokens, allow_mismatch)
 
 
-    def sort_by_tokens(self, tokens):
+    def sort_by_tokens(self, tokens_or_dictionary, allow_mismatch=False):
         """
         Re-orders vectors / covectors, by assigning new indices to 
         tokens according to their position in ``tokens``.  ``tokens`` should
         be an iterable of strings, and it should have exactly the same 
         elements as self.dictionary.tokens, otherwise it's an error.
         """
-        if len(set(tokens)) != len(self.dictionary):
 
+        # The input can a dictionary or a list of tokens.
+        if isinstance(tokens_or_dictionary, h.dictionary.Dictionary):
+            dictionary = tokens_or_dictionary
+            tokens = dictionary.tokens
+        else:
+            tokens = tokens_or_dictionary
+            dictionary = h.dictionary.Dictionary(tokens)
+
+        self_set = set(self.dictionary.tokens)
+        other_set = set(tokens)
+
+        # Check for extraneous tokens.
+        if len(other_set - self_set) > 0:
+
+            if allow_mismatch:
+                # Drop the extraneous tokens
+                tokens = [token for token in tokens if token in self.dictionary]
+
+            else:
+                raise ValueError(
+                    "The new dictionary has tokens that do not have a "
+                    "corresponding embedding."
+                )
+
+        # Check for missing tokens.
+        if not allow_mismatch and len(self_set - other_set):
             raise ValueError(
-                'Every token in the vocabulary must appear in the list of '
-                'tokens to sort by exactly once.'
+                "The new dictionary is missing entries for some embedded tokens"
             )
+        
         sort_ids = [self.dictionary.get_id(token) for token in tokens]
+
+        # This implicitly drops missing tokens
         self.V = self.V[sort_ids]
-        self.W = self.W[sort_ids]
+        if not self.shared and self.W is not None:
+            self.W = self.W[sort_ids]
+
         self.dictionary = h.dictionary.Dictionary(tokens)
 
+
+    def set_dictionary(self, dictionary):
+        if len(dictionary) != self.V.shape[0]:
+            raise ValueError(
+                "Dictionary provided does not have the correct number of "
+                "tokens.  Got {num_tokens}, expected {num_vecs}".format(
+                    num_tokens=len(dictionary.tokens), num_vecs=self.V.shape[0]
+                )
+            )
+        self.dictionary = dictionary
 
 
     def check_normalized(self):

@@ -290,18 +290,18 @@ class Bigram(object):
 
 
     @staticmethod
-    def load(path, verbose=True):
+    def load(path, device=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        unigram = h.unigram.Unigram.load(path)
+        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-        return Bigram(unigram, Nxx=Nxx, verbose=verbose)
+        return Bigram(unigram, Nxx=Nxx, device=device, verbose=verbose)
 
 
     @staticmethod
-    def load_unigram(path, verbose=True):
+    def load_unigram(path, device=None, verbose=True):
         unigram = h.unigram.Unigram.load(path)
-        return Bigram(unigram, verbose=verbose)
+        return Bigram(unigram, device=device, verbose=verbose)
 
