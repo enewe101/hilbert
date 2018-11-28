@@ -4,6 +4,7 @@ import shutil
 from unittest import main, TestCase
 from copy import copy, deepcopy
 from collections import Counter
+from matplotlib import pyplot as plt
 import hilbert as h
 import random
 
@@ -4082,28 +4083,51 @@ class TestW2VReplica(TestCase):
 
 class TestLearningRateScheduler(TestCase):
 
-
     def test_learning_rate_scheduler(self):
 
-        initial_learning_rate = 1
-        sprint_length = 50
-        num_sprints = 5
+        initial_rate = 10
+        final_rate = 0.1
+        sprint_length = 10
+        num_sprints = 4
 
         learning_rate_scheduler = h.embedder.LearningRateScheduler(
-            initial_learning_rate, sprint_length, num_sprints
+            initial_rate, sprint_length, num_sprints, final_rate
         )
 
         total_length = sum(
             sprint_length*(2**i) for i in range(num_sprints)
-        )
+        ) * 2
+
+        expected_rates = []
+        for sprint in range(num_sprints-1):
+            factor = 2**sprint
+            expected_rates.extend([
+                (initial_rate / factor) * (factor * sprint_length - i - 1)
+                / (factor * sprint_length)
+                for i in range(sprint_length*factor)
+            ])
+
+
+        len_exp_decay = total_length - len(expected_rates)
+
+        factor = 2**(num_sprints-1)
+        expected_rates.extend([
+            np.e**(-2 * (i+1) / (sprint_length * factor) )
+            * (initial_rate / factor) + final_rate
+            for i in range(len_exp_decay)
+        ])
+        
         rates = [
             learning_rate_scheduler.get_rate() 
             for i in range(total_length)
         ]
-        print(total_length)
-        print(50 + 50*2 + 50*2**2 + 50*2**3 + 50*2**4)
 
-        print(rates)
+        #plt.plot(rates)
+        #plt.plot(expected_rates)
+        #plt.plot([0 for i in range(total_length)])
+        #plt.show()
+
+        self.assertEqual(rates, expected_rates)
 
 
 

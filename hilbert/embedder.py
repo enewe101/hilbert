@@ -569,12 +569,19 @@ class HilbertEmbedder(object):
 
 class LearningRateScheduler:
 
-    def __init__(self, initial_rate, sprint_length, num_sprints):
+    def __init__(
+        self, initial_rate, sprint_length, num_sprints=5, final_rate=None
+    ):
         self.initial_rate = initial_rate
+        self.sprint_rate = initial_rate
         self.sprint_length = sprint_length
         self.num_sprints = num_sprints
         self.sprint = 1
         self.cycles = 0
+
+        self.final_rate = final_rate
+        if self.final_rate is None:
+            self.final_rate = 1e-3 * self.initial_rate
 
     def get_rate(self):
         self.cycles += 1
@@ -584,18 +591,16 @@ class LearningRateScheduler:
             if self.cycles == self.sprint_length:
                 self.sprint += 1
                 self.sprint_length *= 2
-                self.initial_rate /= 2
+                self.sprint_rate /= 2
                 self.cycles = 0
 
             if self.cycles == 1:
-                print(self.initial_rate * fraction)
+                print(self.sprint_rate * fraction)
 
-            return self.initial_rate * fraction
+            return self.sprint_rate * fraction
 
-        fraction = np.e**(-self.cycles/self.sprint_length)
-        if self.cycles == 1:
-            print(self.initial_rate * fraction)
-        return self.initial_rate * fraction
+        fraction = np.e**(-2*self.cycles/self.sprint_length)
+        return self.sprint_rate * fraction + self.final_rate
 
 
 
