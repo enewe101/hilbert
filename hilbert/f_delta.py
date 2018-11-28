@@ -69,6 +69,39 @@ class DeltaW2V(FDelta):
         return self.Nxx - (self.Nxx + self.N_neg) * sigmoid(M_hat)
 
 
+class DeltaMSEW2V(FDelta):
+
+    def __init__(
+        self, bigram, k, clip_after_shift=False, update_density=1, device=None
+    ):
+        super().__init__(bigram, update_density, device)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.k = torch.tensor(k, device=self.device, dtype=dtype)
+        self.clip_after_shift = clip_after_shift
+
+
+    def load_shard(self, M_hat, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
+
+        # Use k=1 initially so that cliping can be done before shift if desired
+        N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k=1)
+        self.SPPMI = torch.log(Nxx) - torch.log(N_neg)
+
+        if not self.clip_after_shift:
+            self.SPPMI[self.SPPMI<0] = 0
+        self.SPPMI -= torch.log(torch.tensor(
+            self.k, dtype=h.CONSTANTS.DEFAULT_DTYPE, device=self.device))
+        if self.clip_after_shift:
+            self.SPPMI[self.SPPMI<0] = 0
+        
+
+    def _calc_shard(self, M_hat, shard):
+        return self.SPPMI - M_hat
+        
+
+
+
 
 class DeltaGlove(FDelta):
 

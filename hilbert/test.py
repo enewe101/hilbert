@@ -493,7 +493,7 @@ class TestFDeltas(TestCase):
     def test_f_MSE(self):
 
         bigram = h.corpus_stats.get_test_bigram(2)
-        bigram.truncate(10)  # Need a compound number for sharding
+        bigram.truncate(10) 
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
 
@@ -509,6 +509,48 @@ class TestFDeltas(TestCase):
         shards = h.shards.Shards(5)
         for shard in shards:
             found[shard] = delta_mse.calc_shard(M_hat[shard], shard)
+        self.assertTrue(torch.allclose(expected, found))
+
+
+
+    def test_f_MSEW2V(self):
+
+        bigram = h.corpus_stats.get_test_bigram(2)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+
+        k = 15
+        Nxx, Nx, Nxt, N = bigram
+        uNx, uNxt, uN = bigram.unigram
+
+        N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k=1)
+        SPPMI = torch.log(Nxx / N_neg)
+        SPPMI[SPPMI<0] = 0
+        SPPMI -= torch.log(torch.tensor(k, device=device, dtype=dtype))
+        M_hat = SPPMI + 1
+        expected = SPPMI - M_hat
+
+        delta_msew2v = h.f_delta.DeltaMSEW2V(bigram, k=k)
+        found = delta_msew2v.calc_shard(M_hat, h.shards.whole)
+        self.assertTrue(torch.allclose(expected, found))
+
+        found = torch.zeros(bigram.Nxx.shape, device=device, dtype=dtype)
+        shards = h.shards.Shards(5)
+        for shard in shards:
+            found[shard] = delta_msew2v.calc_shard(M_hat[shard], shard)
+        self.assertTrue(torch.allclose(expected, found))
+
+        # Now try using the clip-after option
+        N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k=1)
+        SPPMI = torch.log(Nxx / N_neg)
+        SPPMI -= torch.log(torch.tensor(k, device=device, dtype=dtype))
+        SPPMI[SPPMI<0] = 0
+        M_hat = SPPMI + 1
+        expected = SPPMI - M_hat
+
+        delta_msew2v = h.f_delta.DeltaMSEW2V(
+            bigram, k=k, clip_after_shift=True)
+        found = delta_msew2v.calc_shard(M_hat, h.shards.whole)
         self.assertTrue(torch.allclose(expected, found))
 
 
@@ -4038,7 +4080,30 @@ class TestW2VReplica(TestCase):
         self.assertTrue(torch.allclose(w2v_replica.W, W))
 
 
+class TestLearningRateScheduler(TestCase):
 
+
+    def test_learning_rate_scheduler(self):
+
+        initial_learning_rate = 1
+        sprint_length = 50
+        num_sprints = 5
+
+        learning_rate_scheduler = h.embedder.LearningRateScheduler(
+            initial_learning_rate, sprint_length, num_sprints
+        )
+
+        total_length = sum(
+            sprint_length*(2**i) for i in range(num_sprints)
+        )
+        rates = [
+            learning_rate_scheduler.get_rate() 
+            for i in range(total_length)
+        ]
+        print(total_length)
+        print(50 + 50*2 + 50*2**2 + 50*2**3 + 50*2**4)
+
+        print(rates)
 
 
 

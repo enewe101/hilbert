@@ -97,8 +97,7 @@ class Embeddings:
                 device=self.device or h.CONSTANTS.MATRIX_DEVICE
             ))
 
-        if dictionary is not None:
-            self.set_dictionary(dictionary)
+        self.set_dictionary(dictionary)
 
         self._unkV = None
         self._unkW = None
@@ -193,14 +192,19 @@ class Embeddings:
 
 
     def set_dictionary(self, dictionary):
-        if len(dictionary) != self.V.shape[0]:
+        if dictionary is None:
+            self.dictionary = dictionary
+
+        elif len(dictionary) == self.V.shape[0]:
+            self.dictionary = dictionary
+
+        else:
             raise ValueError(
                 "Dictionary provided does not have the correct number of "
                 "tokens.  Got {num_tokens}, expected {num_vecs}".format(
                     num_tokens=len(dictionary.tokens), num_vecs=self.V.shape[0]
                 )
             )
-        self.dictionary = dictionary
 
 
     def check_normalized(self):

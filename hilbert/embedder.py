@@ -19,6 +19,54 @@ def sim(word, context, embedder, dictionary):
     return product / (word_norm * context_norm)
 
 
+def get_mse_w2v_embedder(
+    # Required
+    bigram, 
+
+    # Clipping Options
+    clip_after_shift=False,
+
+    # Theory options
+    k=15,               # negative sample weight
+    alpha=3./4,         # unigram smoothing exponent
+    t_clean=None,       # clean (post-sample) common-word undersampling
+    d=300,              # embedding dimension
+    init_vecs=None,
+
+    # Implementation options
+    update_density=1,
+    solver='sgd',
+    shard_factor=1,
+    learning_rate=1e-6,
+    momentum_decay=0.9,
+    verbose=True,
+    device=None
+):
+
+    # Apply common-word undersampling and unigram smoothing
+    if t_clean is not None:
+        bigram.apply_w2v_undersampling(t_clean)
+    bigram.unigram.apply_smoothing(alpha)
+
+    delta = h.f_delta.DeltaMSEW2V(
+        bigram, k=k, clip_after_shift=clip_after_shift, 
+        update_density=update_density, device=device
+    )
+
+    embedder = h.embedder.HilbertEmbedder(
+        delta=delta, d=d, 
+        learning_rate=learning_rate,
+        init_vecs=init_vecs,
+        shape=(bigram.vocab, bigram.vocab),
+        shard_factor=shard_factor,
+        verbose=verbose, device=device
+    )
+
+    solver = h.solver.get_solver(solver, embedder, learning_rate=learning_rate)
+
+    return embedder, solver
+
+
 def get_w2v_embedder(
     # Required
     bigram, 
@@ -291,6 +339,7 @@ class HilbertEmbedder(object):
         delta,
         d=300,
         learning_rate=1e-6,
+        learning_rate_scheduling=False,
         init_vecs = None,
         shape = None,
         one_sided=False,
@@ -506,6 +555,7 @@ class HilbertEmbedder(object):
     def cycle(self, times=1, shard_times=1, pass_args=None):
         cycles_completed = 0
         while times is None or cycles_completed < times:
+
             for shard in h.shards.Shards(self.shard_factor):
                 for shard_time in range(shard_times):
                     self.update_self(shard, pass_args)
@@ -515,6 +565,40 @@ class HilbertEmbedder(object):
                 print('badness\t{}'.format(self.badness.item()))
 
             cycles_completed += 1
+
+
+class LearningRateScheduler:
+
+    def __init__(self, initial_rate, sprint_length, num_sprints):
+        self.initial_rate = initial_rate
+        self.sprint_length = sprint_length
+        self.num_sprints = num_sprints
+        self.sprint = 1
+        self.cycles = 0
+
+    def get_rate(self):
+        self.cycles += 1
+
+        if self.sprint < self.num_sprints:
+            fraction = (self.sprint_length - self.cycles) / self.sprint_length
+            if self.cycles == self.sprint_length:
+                self.sprint += 1
+                self.sprint_length *= 2
+                self.initial_rate /= 2
+                self.cycles = 0
+
+            if self.cycles == 1:
+                print(self.initial_rate * fraction)
+
+            return self.initial_rate * fraction
+
+        fraction = np.e**(-self.cycles/self.sprint_length)
+        if self.cycles == 1:
+            print(self.initial_rate * fraction)
+        return self.initial_rate * fraction
+
+
+
 
 
 def calc_svm_embeddings(
