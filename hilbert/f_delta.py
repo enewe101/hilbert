@@ -61,6 +61,7 @@ class DeltaW2V(FDelta):
         self.Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
         uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
         self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
+        self.multiplier = self.Nxx + self.N_neg
 
 
     def _calc_shard(self, M_hat, shard=None):

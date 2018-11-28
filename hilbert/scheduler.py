@@ -14,29 +14,38 @@ class BaseScheduler:
     """
     Fulfills Scheduler interface, but provides a constant learning rate.
     """
-    def get_rate(self):
+    def get_rate(self, badness):
         raise NotImplementedError
 
 
 class ConstantScheduler(BaseScheduler):
     def __init__(self, learning_rate):
         self.learning_rate = learning_rate
-    def get_rate(self):
+    def get_rate(self, badness):
         return self.learning_rate
 
 
 class PlateauScheduler(BaseScheduler):
 
-    def __init__(self, initial_rate, plateau_threshold=0.01, maxlen=10):
+    def __init__(
+        self, initial_rate, plateau_threshold=0.00001, maxlen=50, wait_time=1000
+    ):
         self.initial_rate = initial_rate
         self.plateau_threshold = plateau_threshold
         self.current_rate = initial_rate
         self.maxlen = maxlen
         self.relative_changes = deque(maxlen=maxlen)
         self.last_badness = None
+        self.waiting_iters=0
+        self.wait_time = wait_time
 
 
     def get_rate(self, badness):
+
+        self.waiting_iters += 1
+
+        if badness is None:
+            return self.current_rate
 
         if self.last_badness is None:
             self.last_badness = badness
@@ -48,11 +57,18 @@ class PlateauScheduler(BaseScheduler):
         if len(self.relative_changes) < self.maxlen:
             return self.current_rate
 
+        if self.waiting_iters < self.wait_time:
+            return self.current_rate
+        if self.waiting_iters == self.wait_time:
+            print('Done waiting')
+
         average_relative_change = sum(self.relative_changes) / self.maxlen
-        print('average_relative_change',average_relative_change)
         if average_relative_change < self.plateau_threshold:
-            self.relative_changes.clear()
             self.current_rate = self.current_rate / 10
+            self.waiting_iters=0
+            self.relative_changes.clear()
+            print('average_relative_change', average_relative_change)
+            print('new rate', self.current_rate)
 
         return self.current_rate
         
@@ -83,7 +99,8 @@ class JostleScheduler(BaseScheduler):
         if self.final_rate is None:
             self.final_rate = 1e-3 * self.initial_rate
 
-    def get_rate(self):
+
+    def get_rate(self, badness):
         self.cycles += 1
 
         if self.sprint < self.num_sprints:

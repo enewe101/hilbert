@@ -83,7 +83,7 @@ def get_w2v_embedder(
     solver='sgd',
     shard_factor=1,
     learning_rate=1e-6,
-    scheduler=None,
+    scheduler='constant',
     momentum_decay=0.9,
     verbose=True,
     device=None
@@ -105,7 +105,9 @@ def get_w2v_embedder(
 
     if scheduler == 'plateau':
         learning_rate = h.scheduler.PlateauScheduler(learning_rate)
-    elif scheduler is not None:
+    elif scheduler == 'constant':
+        learning_rate = learning_rate
+    else:
         raise ValueError("Expected scheduler to be 'plateau' or None.")
 
     embedder = h.embedder.HilbertEmbedder(
@@ -381,6 +383,7 @@ class HilbertEmbedder(object):
         self.shape = None   #|
         self.initialize_vectors(shape, init_vecs)
 
+        self.badness = None
 
     def initialize_vectors(self, shape, init_vecs):
 
@@ -445,6 +448,7 @@ class HilbertEmbedder(object):
                 torch.rand((self.shape[1], self.d), device=device) - .5
             ) / self.d
 
+        self.badness = None
 
         ## Use initialized Vectors if provided...
         #if init_V is not None:
@@ -573,7 +577,7 @@ class HilbertEmbedder(object):
         cycles_completed = 0
         while times is None or cycles_completed < times:
 
-            self.learning_rate = self.scheduler.get_rate()
+            self.learning_rate = self.scheduler.get_rate(self.badness)
 
             for shard in h.shards.Shards(self.shard_factor):
                 for shard_time in range(shard_times):

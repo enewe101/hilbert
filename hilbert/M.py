@@ -50,7 +50,6 @@ class M:
         return self[h.shards.whole]
 
 
-# TODO: test
 class M_w2v(M):
 
     def __init__(self, *args, **kwargs):
