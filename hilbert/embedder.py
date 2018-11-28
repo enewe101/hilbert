@@ -83,6 +83,7 @@ def get_w2v_embedder(
     solver='sgd',
     shard_factor=1,
     learning_rate=1e-6,
+    scheduler=None,
     momentum_decay=0.9,
     verbose=True,
     device=None
@@ -101,6 +102,11 @@ def get_w2v_embedder(
     M = None
     delta = h.f_delta.DeltaW2V(
         bigram, k=k, update_density=update_density, device=device)
+
+    if scheduler == 'plateau':
+        learning_rate = h.scheduler.PlateauScheduler(learning_rate)
+    elif scheduler is not None:
+        raise ValueError("Expected scheduler to be 'plateau' or None.")
 
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, 
@@ -339,7 +345,6 @@ class HilbertEmbedder(object):
         delta,
         d=300,
         learning_rate=1e-6,
-        learning_rate_scheduling=False,
         init_vecs = None,
         shape = None,
         one_sided=False,
@@ -349,9 +354,21 @@ class HilbertEmbedder(object):
         device=None,
     ):
 
+        """
+        ``learning_rate`` can be either a float representing the constant
+        learning rate, or an instance of BaseScheduler, providing a scheduled,
+        variable leraning rate.
+        """
         self.delta = delta
         self.d = d
-        self.learning_rate = learning_rate
+
+        # Resolve overloading of learning rate: Scheduler or constant rate?
+        self.learning_rate = None
+        if isinstance(learning_rate, h.scheduler.BaseScheduler):
+            self.scheduler = learning_rate
+        else:
+            self.scheduler = h.scheduler.ConstantScheduler(learning_rate)
+
         self.constrainer = constrainer
         self.shard_factor = shard_factor
         self.verbose = verbose
@@ -556,6 +573,8 @@ class HilbertEmbedder(object):
         cycles_completed = 0
         while times is None or cycles_completed < times:
 
+            self.learning_rate = self.scheduler.get_rate()
+
             for shard in h.shards.Shards(self.shard_factor):
                 for shard_time in range(shard_times):
                     self.update_self(shard, pass_args)
@@ -565,42 +584,6 @@ class HilbertEmbedder(object):
                 print('badness\t{}'.format(self.badness.item()))
 
             cycles_completed += 1
-
-
-class LearningRateScheduler:
-
-    def __init__(
-        self, initial_rate, sprint_length, num_sprints=5, final_rate=None
-    ):
-        self.initial_rate = initial_rate
-        self.sprint_rate = initial_rate
-        self.sprint_length = sprint_length
-        self.num_sprints = num_sprints
-        self.sprint = 1
-        self.cycles = 0
-
-        self.final_rate = final_rate
-        if self.final_rate is None:
-            self.final_rate = 1e-3 * self.initial_rate
-
-    def get_rate(self):
-        self.cycles += 1
-
-        if self.sprint < self.num_sprints:
-            fraction = (self.sprint_length - self.cycles) / self.sprint_length
-            if self.cycles == self.sprint_length:
-                self.sprint += 1
-                self.sprint_length *= 2
-                self.sprint_rate /= 2
-                self.cycles = 0
-
-            if self.cycles == 1:
-                print(self.sprint_rate * fraction)
-
-            return self.sprint_rate * fraction
-
-        fraction = np.e**(-2*self.cycles/self.sprint_length)
-        return self.sprint_rate * fraction + self.final_rate
 
 
 

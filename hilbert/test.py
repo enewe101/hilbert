@@ -4083,17 +4083,170 @@ class TestW2VReplica(TestCase):
 
 class TestLearningRateScheduler(TestCase):
 
-    def test_learning_rate_scheduler(self):
+    def test_jostle_scheduler(self):
 
         initial_rate = 10
         final_rate = 0.1
         sprint_length = 10
         num_sprints = 4
 
-        learning_rate_scheduler = h.embedder.LearningRateScheduler(
-            initial_rate, sprint_length, num_sprints, final_rate
+        expected_rates = self.calc_expected_learning_rate_schedule(
+            initial_rate, final_rate, sprint_length, num_sprints
         )
 
+        scheduler = h.scheduler.JostleScheduler(
+            initial_rate, sprint_length, num_sprints, final_rate
+        )
+        rates = [
+            scheduler.get_rate() 
+            for i in range(len(expected_rates))
+        ]
+
+        plt.plot(rates)
+        plt.plot(expected_rates)
+        plt.plot([0 for i in range(len(rates))])
+        plt.show()
+
+        self.assertEqual(rates, expected_rates)
+
+
+    def test_constant_scheduler(self):
+
+        initial_rate = 1
+        initial_loss = 1
+
+        losses = [initial_loss]
+
+        scheduler = h.scheduler.PlateauScheduler(
+            initial_rate, plateau_threshold=0.001, maxlen=5
+        )
+
+        # Mock out a loss function
+        for i in range(100):
+            losses.append(losses[-1] * 0.90)
+        for i in range(8):
+            losses.append(losses[-1] * 0.9999)
+        for i in range(100):
+            losses.append(losses[-1] * 0.90)
+
+        # Watch the learning rate, initially it should stay constant
+        for i in range(100):
+            rate = scheduler.get_rate(losses[i])
+            self.assertEqual(rate, initial_rate)
+
+        # When the learning rate is too low, it should reduce.
+        rate_cut = False
+        for i in range(100, 108):
+            rate = scheduler.get_rate(losses[i])
+            print(rate)
+            print(scheduler.relative_changes)
+            if rate != initial_rate:
+                self.assertEqual(rate, initial_rate/10)
+                rate_cut = True
+        self.assertTrue(rate_cut)
+
+        # It should stay constant again once the rate is high enough
+        for i in range(108, 208):
+            rate = scheduler.get_rate(losses[i])
+            self.assertEqual(rate, initial_rate/10)
+
+
+
+
+    def test_scheduler_embedder_integration(self):
+
+        initial_rate = 0.5
+        final_rate = 0.05
+        sprint_length = 30
+        num_sprints = 4
+
+        torch.random.manual_seed(0)
+        torch.random.manual_seed(0)
+        tolerance = 0.002
+        d = 11
+        bigram = h.corpus_stats.get_test_bigram(2)
+        vocab = len(bigram.Nx)
+
+        expected_rates = self.calc_expected_learning_rate_schedule(
+            initial_rate, final_rate, sprint_length, num_sprints)
+
+        print(len(expected_rates))
+
+        #scheduler = h.scheduler.JostleScheduler(
+        #    initial_rate, sprint_length, num_sprints, final_rate
+        #)
+
+        scheduler = h.scheduler.ConstantScheduler(
+            0.1
+        )
+
+        f_MSE = h.f_delta.DeltaMSE(bigram)
+        embedder = h.embedder.HilbertEmbedder(
+            f_MSE, d, learning_rate=scheduler, shard_factor=1, 
+            shape=(bigram.vocab, bigram.vocab),
+            verbose=False
+        )
+
+        rates = []
+        badness = []
+        for i in range(len(expected_rates)):
+            embedder.cycle(1)
+            rates.append(embedder.learning_rate)
+            badness.append(embedder.badness)
+
+        plt.plot(rates)
+        plt.plot(badness)
+        #plt.plot([0 for i in range(total_length)])
+        plt.show()
+
+        #self.assertTrue(
+        #    np.allclose(np.array(rates), np.array(expected_rates)))
+
+        # Check that we have essentially reached convergence, based on the 
+        # fact that the delta value for the embedder is near zero.
+        M_hat = torch.mm(embedder.W, embedder.V.t())
+        delta = f_MSE.calc_shard(M_hat, h.shards.whole)
+        self.assertTrue(
+            torch.sum(delta).item() < tolerance
+        )
+
+
+
+
+    def test_scheduler_get_embedder_integration(self):
+
+        k = 15
+        t = 0.1
+        alpha = 0.75
+        t_clean = 1e-5
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        device = h.CONSTANTS.MATRIX_DEVICE
+        bigram = h.corpus_stats.get_test_bigram(3)
+
+        # Specifying a plateau scheduler yields an embedder with a plateau
+        # scheduler
+        found_embedder, found_solver = h.embedder.get_w2v_embedder(
+            bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False,
+            scheduler='plateau' 
+        )
+        self.assertTrue(
+            isinstance(found_embedder.scheduler, h.scheduler.PlateauScheduler))
+
+        # Not specifying a plateau scheduler yields an embedder with a 
+        # constant scheduler
+        found_embedder, found_solver = h.embedder.get_w2v_embedder(
+            bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False,
+        )
+        self.assertTrue(isinstance(
+            found_embedder.scheduler, h.scheduler.ConstantScheduler))
+
+
+
+
+
+    def calc_expected_learning_rate_schedule(
+        self, initial_rate, final_rate, sprint_length, num_sprints
+    ):
         total_length = sum(
             sprint_length*(2**i) for i in range(num_sprints)
         ) * 2
@@ -4107,7 +4260,6 @@ class TestLearningRateScheduler(TestCase):
                 for i in range(sprint_length*factor)
             ])
 
-
         len_exp_decay = total_length - len(expected_rates)
 
         factor = 2**(num_sprints-1)
@@ -4116,19 +4268,8 @@ class TestLearningRateScheduler(TestCase):
             * (initial_rate / factor) + final_rate
             for i in range(len_exp_decay)
         ])
-        
-        rates = [
-            learning_rate_scheduler.get_rate() 
-            for i in range(total_length)
-        ]
 
-        #plt.plot(rates)
-        #plt.plot(expected_rates)
-        #plt.plot([0 for i in range(total_length)])
-        #plt.show()
-
-        self.assertEqual(rates, expected_rates)
-
+        return expected_rates
 
 
 if __name__ == '__main__':
