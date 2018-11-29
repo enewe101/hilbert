@@ -1,8 +1,12 @@
+import time
 import scipy
 import hilbert as h
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
+
+MEAN_PMI = -0.812392711
+STD_PMI = 1.2475529909
 
 try:
     import torch
@@ -79,6 +83,31 @@ def posterior_pmi_histogram(
     plt.show()
 
 
+def calculate_all_kls(bigram):
+    KL = np.zeros((bigram.vocab, bigram.vocab))
+    iters = 0
+    start = time.time()
+    for i in range(bigram.vocab):
+        elapsed = time.time() - start
+        start = time.time()
+        print(elapsed)
+        print(elapsed * 20000 / 60, 'min')
+        print(elapsed * 20000 / 60 / 60, 'hrs')
+        print(elapsed * 20000 / 60 / 60 / 24, 'days')
+        print(100 * iters / 10000**2, '%')
+        print('iters', iters)
+        for j in range(bigram.vocab):
+            iters += 1
+
+            Nij = bigram.Nxx[i,j]
+            Ni = bigram.Nx[i,0]
+            Nj = bigram.Nx[j,0]
+            N = bigram.N
+            KL[i,j] = get_posterior_kl(
+                MEAN_PMI, STD_PMI, Nij, Ni, Nj, N
+            )
+
+
 
 def get_posterior_numerically(
     pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
@@ -115,11 +144,12 @@ def get_posterior_numerically(
     
 def get_posterior_kl(
     pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
-    a=-10, b=10, delta=0.1,
+    a=-10, b=10, delta=0.1, plot=False
 ):
     X, posterior, prior = get_posterior_numerically(
-        pmi_mean, pmi_stdv, Nij, Ni, Nj, N, a=a, b=b, delta=delta)
+        pmi_mean, pmi_stdv, Nij, Ni, Nj, N, a=a, b=b, delta=delta, plot=plot)
     return kl(posterior, prior)
+
 
 
 def kl(pdf1, pdf2):
