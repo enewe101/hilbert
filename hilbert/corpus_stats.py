@@ -82,7 +82,7 @@ def posterior_pmi_histogram(
 
 def get_posterior_numerically(
     pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
-    a=-20, b=20, delta=0.01,
+    a=-10, b=10, delta=0.1,
     plot=True
 ):
     X = np.arange(a, b, delta)
@@ -90,8 +90,11 @@ def get_posterior_numerically(
         scipy.stats.norm.pdf(x, pmi_mean, pmi_stdv)
         for x in X
     ])
+
+    pmi_pdf = pmi_pdf / np.sum(pmi_pdf)
     factor = Ni * Nj / N**2
     p = [factor * np.e**x for x in X]
+
     bin_pdf = np.array([
         scipy.stats.binom.pmf(Nij, N, p_)
         for p_ in p
@@ -101,22 +104,22 @@ def get_posterior_numerically(
     post_pdf = post_pdf / np.sum(post_pdf)
 
     if plot:
-        plt.plot(X, post_pdf)
+        plt.plot(X, pmi_pdf, label='prior')
+        plt.plot(X, post_pdf, label='posterior')
+        plt.legend()
         plt.show()
 
     return X, post_pdf, pmi_pdf
-    
 
+
+    
 def get_posterior_kl(
     pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
-    a=-20, b=20, delta=0.01,
+    a=-10, b=10, delta=0.1,
 ):
-
-    X, post_pdf, pmi_pdf = get_posterior_numerically(
-        pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
-        a=-20, b=20, delta=0.01,
-    )
-    return kl(post_pdf, pmi_pdf)
+    X, posterior, prior = get_posterior_numerically(
+        pmi_mean, pmi_stdv, Nij, Ni, Nj, N, a=a, b=b, delta=delta)
+    return kl(posterior, prior)
 
 
 def kl(pdf1, pdf2):
