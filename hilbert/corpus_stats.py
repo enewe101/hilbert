@@ -5,8 +5,8 @@ import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
 
-MEAN_PMI = -0.812392711
-STD_PMI = 1.2475529909
+PMI_MEAN = -0.812392711
+PMI_STD = 1.2475529909
 
 try:
     import torch
@@ -83,40 +83,57 @@ def posterior_pmi_histogram(
     plt.show()
 
 
-def calculate_all_kls(bigram):
-    KL = np.zeros((bigram.vocab, bigram.vocab))
-    iters = 0
-    start = time.time()
-    for i in range(bigram.vocab):
-        elapsed = time.time() - start
-        start = time.time()
-        print(elapsed)
-        print(elapsed * 20000 / 60, 'min')
-        print(elapsed * 20000 / 60 / 60, 'hrs')
-        print(elapsed * 20000 / 60 / 60 / 24, 'days')
-        print(100 * iters / 10000**2, '%')
-        print('iters', iters)
-        for j in range(bigram.vocab):
-            iters += 1
 
-            Nij = bigram.Nxx[i,j]
-            Ni = bigram.Nx[i,0]
-            Nj = bigram.Nx[j,0]
-            N = bigram.N
-            KL[i,j] = get_posterior_kl(
-                MEAN_PMI, STD_PMI, Nij, Ni, Nj, N
-            )
+def calculate_all_kls_fast_cpu(
+    bigram, 
+    pmi_mean=PMI_MEAN, pmi_std=PMI_STD,
+    a=-10, b=10, delta=0.1
+):
+    a = -3
+    b = 3
+    delta = .1
 
+    Nxx = bigram.Nxx.toarray()
+    Nx = bigram.Nx
+    Nxt = bigram.Nxt
+    N = bigram.N
+
+    KL = np.zeros_like(Nxx)
+    X = np.arange(a, b, delta).reshape(-1,1)
+
+    # PMI pdf in torch
+    #coeff = 1 / (np.sqrt(2*np.pi)*pmi_std)
+    #exponent = -(X - pmi_mean)**2 / (2*pmi_std**2)
+    #pmi_pdf = coeff * np.e**(exponent)
+
+    pmi_logpdf = scipy.stats.norm.logpdf(X, pmi_mean, pmi_std)
+
+    i = 5
+    factor = Nx[i] * Nxt / N**2
+    p = factor * np.e**X 
+
+    bin_logpdf_floored = scipy.stats.binom.logpmf(
+        np.floor(Nxx[i]).astype('int'), N, p
+    )
+
+    bin_logpdf_ceiled = scipy.stats.binom.logpmf(
+        np.ceil(Nxx[i]).astype('int'), N, p
+    )
+
+    postpdf = np.e**post_logpdf
+
+
+    import pdb; pdb.set_trace()
 
 
 def get_posterior_numerically(
-    pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
+    Nij, Ni, Nj, N, pmi_mean=PMI_MEAN, pmi_std=PMI_STD, 
     a=-10, b=10, delta=0.1,
     plot=True
 ):
     X = np.arange(a, b, delta)
     pmi_pdf = np.array([
-        scipy.stats.norm.pdf(x, pmi_mean, pmi_stdv)
+        scipy.stats.norm.pdf(x, pmi_mean, pmi_std)
         for x in X
     ])
 
@@ -141,13 +158,42 @@ def get_posterior_numerically(
     return X, post_pdf, pmi_pdf
 
 
+
+
+def calculate_all_kls(bigram):
+    KL = np.zeros((bigram.vocab, bigram.vocab))
+    iters = 0
+    start = time.time()
+    for i in range(bigram.vocab):
+        elapsed = time.time() - start
+        start = time.time()
+        print(elapsed)
+        print(elapsed * 20000 / 60, 'min')
+        print(elapsed * 20000 / 60 / 60, 'hrs')
+        print(elapsed * 20000 / 60 / 60 / 24, 'days')
+        print(100 * iters / 10000**2, '%')
+        print('iters', iters)
+        for j in range(bigram.vocab):
+            iters += 1
+
+            Nij = bigram.Nxx[i,j]
+            Ni = bigram.Nx[i,0]
+            Nj = bigram.Nx[j,0]
+            N = bigram.N
+            KL[i,j] = get_posterior_kl(
+                MEAN_PMI, PMI_STD, Nij, Ni, Nj, N
+            )
+
+
+
+
     
 def get_posterior_kl(
-    pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
+    pmi_mean, pmi_std, Nij, Ni, Nj, N,
     a=-10, b=10, delta=0.1, plot=False
 ):
     X, posterior, prior = get_posterior_numerically(
-        pmi_mean, pmi_stdv, Nij, Ni, Nj, N, a=a, b=b, delta=delta, plot=plot)
+        pmi_mean, pmi_std, Nij, Ni, Nj, N, a=a, b=b, delta=delta, plot=plot)
     return kl(posterior, prior)
 
 
