@@ -152,8 +152,8 @@ def get_glv_embedder(
 
     # Note, DeltaW2V no longer needs M!
     delta = h.f_delta.DeltaGlove(
-        bigram, X_max=100.0, alpha=0.75, 
-        update_density=1, device=None)
+        bigram, X_max=X_max, alpha=alpha, 
+        update_density=update_density, device=None)
 
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, 

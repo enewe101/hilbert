@@ -103,9 +103,28 @@ def get_posterior_numerically(
     if plot:
         plt.plot(X, post_pdf)
         plt.show()
-    return X, post_pdf
+
+    return X, post_pdf, pmi_pdf
     
 
+def get_posterior_kl(
+    pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
+    a=-20, b=20, delta=0.01,
+):
+
+    X, post_pdf, pmi_pdf = get_posterior_numerically(
+        pmi_mean, pmi_stdv, Nij, Ni, Nj, N,
+        a=-20, b=20, delta=0.01,
+    )
+    return kl(post_pdf, pmi_pdf)
+
+
+def kl(pdf1, pdf2):
+    # strip out cases where pdf1 is zero
+    pdf2 = pdf2[pdf1!=0]
+    pdf1 = pdf1[pdf1!=0]
+
+    return np.sum(pdf1 * np.log(pdf1 / pdf2))
 
 
 def plot_beta(alpha, beta):
