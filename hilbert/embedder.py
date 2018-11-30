@@ -83,7 +83,7 @@ def get_w2v_embedder(
     solver='sgd',
     shard_factor=1,
     learning_rate=1e-6,
-    scheduler='constant',
+    #scheduler='constant',
     momentum_decay=0.9,
     verbose=True,
     device=None
@@ -103,12 +103,12 @@ def get_w2v_embedder(
     delta = h.f_delta.DeltaW2V(
         bigram, k=k, update_density=update_density, device=device)
 
-    if scheduler == 'plateau':
-        learning_rate = h.scheduler.PlateauScheduler(learning_rate)
-    elif scheduler == 'constant':
-        learning_rate = learning_rate
-    else:
-        raise ValueError("Expected scheduler to be 'plateau' or None.")
+    #if scheduler == 'plateau':
+    #    learning_rate = h.scheduler.PlateauScheduler(learning_rate)
+    #elif scheduler == 'constant':
+    #    learning_rate = learning_rate
+    #else:
+    #    raise ValueError("Expected scheduler to be 'plateau' or None.")
 
     embedder = h.embedder.HilbertEmbedder(
         delta=delta, d=d, 
@@ -337,9 +337,6 @@ class W2VReplica:
             cycles_completed += 1
 
 
-
-
-
 class HilbertEmbedder(object):
 
     def __init__(
@@ -364,12 +361,17 @@ class HilbertEmbedder(object):
         self.delta = delta
         self.d = d
 
+        #
+        #   At one point I wanted to include a learning rate scheduler but not
+        #   any more
+        #
         # Resolve overloading of learning rate: Scheduler or constant rate?
-        self.learning_rate = None
-        if isinstance(learning_rate, h.scheduler.BaseScheduler):
-            self.scheduler = learning_rate
-        else:
-            self.scheduler = h.scheduler.ConstantScheduler(learning_rate)
+        #self.learning_rate = None
+        #if isinstance(learning_rate, h.scheduler.BaseScheduler):
+        #    self.scheduler = learning_rate
+        #else:
+        #    self.scheduler = h.scheduler.ConstantScheduler(learning_rate)
+        self.learning_rate = learning_rate
 
         self.constrainer = constrainer
         self.shard_factor = shard_factor
@@ -577,7 +579,8 @@ class HilbertEmbedder(object):
         cycles_completed = 0
         while times is None or cycles_completed < times:
 
-            self.learning_rate = self.scheduler.get_rate(self.badness)
+            #   Not doing learning rate scheduling any more
+            #self.learning_rate = self.scheduler.get_rate(self.badness)
 
             for shard in h.shards.Shards(self.shard_factor):
                 for shard_time in range(shard_times):

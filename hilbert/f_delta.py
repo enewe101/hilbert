@@ -25,7 +25,8 @@ class FDelta:
             self.load_shard(M_hat, shard)
         bit_mask = torch.rand_like(M_hat) > (1 - self.update_density)
         bit_mask = bit_mask.type(torch.float32)
-        return self._calc_shard(M_hat, shard) * bit_mask
+        return torch.nn.functional.dropout(
+            self._calc_shard(M_hat, shard), training=True)
 
 
     def load_shard(self, M_hat, shard):
