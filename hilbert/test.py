@@ -638,15 +638,22 @@ class TestFDeltas(TestCase):
 
         expected = multiplier * difference
 
-        delta_mle = h.f_delta.DeltaMLE(bigram, update_density=0.5)
+        dropout_amount = 0.5
 
+        delta_mle = h.f_delta.DeltaMLE(bigram, update_density=dropout_amount)
         found = delta_mle.calc_shard(expected_M_hat, h.shards.whole)
 
-        p = torch.sum(found==expected).item() / (bigram.vocab * bigram.vocab)
+        # Base the test only on the values that aren't zero to begin with
+        found = found[expected != 0]
+        expected = expected[expected != 0]
+
+        p = torch.sum(
+            found==(expected / dropout_amount)).item() / found.shape[0]
+        import pdb; pdb.set_trace()
 
         # If it breaks it's because the matrix isn't big enough for the
         # p value to converge towrad nominal update density
-        self.assertTrue(p > 0.2 and p < 0.8)
+        self.assertTrue(p > 0.4 and p < 0.6)
 
 
 
