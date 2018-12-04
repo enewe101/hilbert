@@ -24,14 +24,18 @@ class FDelta:
             self.last_shard = shard
             self.load_shard(M_hat, shard)
 
+        # Bit mask original, to be purged later.
         #bit_mask = torch.rand_like(M_hat) > (1 - self.update_density)
         #bit_mask = bit_mask.type(torch.float32)
         #return self._calc_shard(M_hat, shard) * bit_mask
-
+        
+        # add the 1.-p to "undo" the rescaling done by dropout
+        # note that if there isn't dropout we just don't do anything
+        rescale = 1 if self.update_density == 1 else 1-self.update_density
         return torch.nn.functional.dropout(
             self._calc_shard(M_hat, shard),
             p=(1-self.update_density), training=True
-        )
+        ) * rescale
 
 
     def load_shard(self, M_hat, shard):

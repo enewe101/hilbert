@@ -648,9 +648,7 @@ class TestFDeltas(TestCase):
         found = found[expected != 0]
         expected = expected[expected != 0]
 
-        p = torch.sum(
-            found==(expected / dropout_amount)).item() / found.shape[0]
-
+        p = torch.sum(found==expected).item() / found.shape[0]
         # If it breaks it's because the matrix isn't big enough for the
         # p value to converge towrad nominal update density
         self.assertTrue(p > 0.4 and p < 0.6)
