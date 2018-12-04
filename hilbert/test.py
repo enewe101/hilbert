@@ -1822,6 +1822,64 @@ class TestSolvers(TestCase):
             mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
 
 
+    def test_sgd_solver(self):
+        learning_rate = 0.01
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.SgdSolver(
+            mo, learning_rate, verbose=False)
+
+        solver.cycle(times=times, pass_args={'a':1})
+
+        np.random.seed(0)
+        params_expected = (
+            self.calculate_expected_sgd_params(times, learning_rate)
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that THIS solver
+        # will NOT call get_gradient once at the start to determine the shape
+        # of the parameters, and None will NOT have been passed as the pass_arg.
+        # This is because the SgdSolver does not need to allocate memory.
+        self.assertEqual(
+            mo.passed_args, [{'a':1}, {'a':1}, {'a':1}])
+
+
+    def test_adagrad_solver(self):
+        learning_rate = 0.01
+        times = 3
+
+        np.random.seed(0)
+        mo = MockObjective((1,), (3,3))
+        solver = h.solver.AdagradSolver(
+            mo, learning_rate, verbose=False)
+
+        solver.cycle(times=times, pass_args={'a':1})
+        
+        # TODO: finish this
+
+        np.random.seed(0)
+        params_expected = (
+            self.calculate_expected_adagrad_params(times, learning_rate)
+        )
+
+        # Verify that the solver visited to the expected parameter values
+        for i in range(len(params_expected)):
+            for param, param_expected in zip(mo.params[i], params_expected[i]):
+                self.assertTrue(np.allclose(param, param_expected))
+
+        # Test that all the pass_args were received.  Note that THIS solver
+        # will call get_gradient once at the start to determine the shape
+        # of the parameters, and None will have been passed as the pass_arg.
+        self.assertEqual(
+            mo.passed_args, [None, {'a':1}, {'a':1}, {'a':1}])
+
 
     def compare_nesterov_momentum_solver_to_optimized(self):
 
@@ -1849,6 +1907,57 @@ class TestSolvers(TestCase):
                 self.assertTrue(np.allclose(param_1, param_2))
 
 
+    def calculate_expected_sgd_params(
+        self, times, learning_rate
+    ):
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        params_expected = [[]]
+        params_expected[0].append(np.random.random((1,)))
+        params_expected[0].append(np.random.random((3,3)))
+
+        # Compute successive updates
+        for i in range(times):
+
+            # In this test, the gradient is always equal to `params + 0.1`
+            gs1 = learning_rate * (params_expected[-1][0] + 0.1)
+            gs2 = learning_rate * (params_expected[-1][1] + 0.1)
+
+            # Do the accellerated update
+            params_expected.append((
+                params_expected[-1][0] + gs1,
+                params_expected[-1][1] + gs2,
+            ))
+
+        return params_expected
+
+
+    def calculate_expected_adagrad_params(
+        self, times, learning_rate
+    ):
+        # TODO: finish this
+
+        # Initialize the parameters using the same random initialization as
+        # used by the mock objective.
+        params_expected = [[]]
+        params_expected[0].append(np.random.random((1,)))
+        params_expected[0].append(np.random.random((3,3)))
+
+        # Compute successive updates
+        for i in range(times):
+
+            # In this test, the gradient is always equal to `params + 0.1`
+            gs1 = m * learning_rate * (params_expected[-1][0] + 0.1)
+            gs2 = m * learning_rate * (params_expected[-1][1] + 0.1)
+
+            # Do the accellerated update
+            params_expected.append((
+                params_expected[-1][0] + gs1,
+                params_expected[-1][1] + gs2,
+            ))
+
+        return params_expected
+ 
 
     def calculate_expected_nesterov_params(
         self, times, learning_rate, momentum_decay
