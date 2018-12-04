@@ -23,6 +23,11 @@ class FDelta:
         if shard != self.last_shard:
             self.last_shard = shard
             self.load_shard(M_hat, shard)
+
+        #bit_mask = torch.rand_like(M_hat) > (1 - self.update_density)
+        #bit_mask = bit_mask.type(torch.float32)
+        #return self._calc_shard(M_hat, shard) * bit_mask
+
         return torch.nn.functional.dropout(
             self._calc_shard(M_hat, shard),
             p=(1-self.update_density), training=True
