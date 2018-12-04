@@ -112,4 +112,3 @@ def sample_sphere(num_vecs, d, device=None):
     sample = torch.rand((num_vecs, d), device=device).mul_(2).sub_(1)
     return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
 
-

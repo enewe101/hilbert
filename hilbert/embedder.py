@@ -337,6 +337,10 @@ class W2VReplica:
             cycles_completed += 1
 
 
+class DivergenceError(Exception):
+    pass
+
+
 class HilbertEmbedder(object):
 
     def __init__(
@@ -541,6 +545,9 @@ class HilbertEmbedder(object):
         self.badness = torch.sum(abs(delta)) / (delta.shape[0] * delta.shape[1])
         nabla_V = torch.mm(delta.t(), use_W)
         nabla_W = torch.mm(delta, use_V)
+
+        if torch.isnan(nabla_V[0,0]) or torch.isnan(nabla_W[0,0]):
+            raise DivergenceError('NaNs found in gradient.')
 
         return nabla_V, nabla_W
 
