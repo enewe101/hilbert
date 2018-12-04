@@ -52,6 +52,7 @@ def calc_exp_pmi_stats(bigram):
     return torch.mean(exp_pmi), torch.std(exp_pmi)
 
 
+
 def get_prior_beta_params(Ni, Nj, N, exp_mean, exp_std):
     factor = Ni * Nj / N**2
     mean = exp_mean * factor

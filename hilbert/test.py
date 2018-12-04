@@ -124,6 +124,7 @@ class TestGetEmbedder(TestCase):
             verbose=False,
         )
 
+        import pdb; pdb.set_trace()
         expected_embedder.cycle(times=10)
         found_embedder.cycle(times=10)
 
@@ -649,15 +650,10 @@ class TestFDeltas(TestCase):
 
         p = torch.sum(
             found==(expected / dropout_amount)).item() / found.shape[0]
-        import pdb; pdb.set_trace()
 
         # If it breaks it's because the matrix isn't big enough for the
         # p value to converge towrad nominal update density
         self.assertTrue(p > 0.4 and p < 0.6)
-
-
-
-        
 
 
 
@@ -851,6 +847,29 @@ class TestHilbertEmbedder(TestCase):
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
+
+
+    def test_nans_raise_exception(self):
+
+        # Set up conditions for the test.
+        torch.random.manual_seed(0)
+        d = 3
+        learning_rate = 1.
+        bigram = h.corpus_stats.get_test_bigram(3)
+
+        ppmi = h.corpus_stats.calc_PMI(bigram)
+        ppmi[ppmi<0] = 0
+
+        # Make the embedder, whose method we are testing.
+        delta_MSE = h.f_delta.DeltaMSE(bigram)
+        embedder = h.embedder.HilbertEmbedder(
+            delta_MSE, d, learning_rate=learning_rate,
+            shape=(bigram.vocab, bigram.vocab), verbose=False, 
+            shard_factor=2
+        )
+
+        with self.assertRaises(h.embedder.DivergenceError):
+            embedder.cycle(times=10)
 
 
     def test_get_gradient(self):
@@ -1202,7 +1221,7 @@ class TestHilbertEmbedder(TestCase):
         )
 
         # Clone the current embeddings, and apply a random update to them,
-        # using the embedders update method.  Internally, the embedder should
+        # using the embedders' update method.  Internally, the embedder should
         # apply the constraints after the update
         old_W, old_V = embedder.W.clone(), embedder.V.clone()
         delta_V = torch.rand(vocab, d, dtype=dtype, device=device)
