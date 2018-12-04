@@ -18,7 +18,7 @@ def get_solver(solver_type, objective, **solver_args):
     elif solver_type == 'nesterov_cautious':
         return NesterovSolverCautious(objective, **solver_args)
     elif solver_type == 'adagrad':
-        return AdaGrad(objective, **solver_args)
+        return AdagradSolver(objective, **solver_args)
     else:
         raise ValueError('Unexpected solver type: {}'.format(solver_type))
 
