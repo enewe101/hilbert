@@ -1935,7 +1935,6 @@ class TestSolvers(TestCase):
     def calculate_expected_adagrad_params(
         self, times, learning_rate
     ):
-        # TODO: finish this
 
         # Initialize the parameters using the same random initialization as
         # used by the mock objective.
@@ -1943,17 +1942,27 @@ class TestSolvers(TestCase):
         params_expected[0].append(np.random.random((1,)))
         params_expected[0].append(np.random.random((3,3)))
 
+        adagrad_expected = [np.zeros((1,)), np.zeros((3,3))]
+
         # Compute successive updates
         for i in range(times):
 
             # In this test, the gradient is always equal to `params + 0.1`
-            gs1 = m * learning_rate * (params_expected[-1][0] + 0.1)
-            gs2 = m * learning_rate * (params_expected[-1][1] + 0.1)
+            grad1 = params_expected[-1][0] + 0.1
+            grad2 = params_expected[-1][1] + 0.1
 
+            # set the adagrad holder
+            adagrad_expected[0] += grad1 ** 2
+            adagrad_expected[1] += grad2 ** 2
+
+            # multiplier for adagrad
+            m1 = 1. / (np.sqrt(adagrad_expected[0]) + 1e-10)
+            m2 = 1. / (np.sqrt(adagrad_expected[1]) + 1e-10)
+            
             # Do the accellerated update
             params_expected.append((
-                params_expected[-1][0] + gs1,
-                params_expected[-1][1] + gs2,
+                params_expected[-1][0] + (learning_rate * m1 * grad1),
+                params_expected[-1][1] + (learning_rate * m2 * grad2),
             ))
 
         return params_expected
