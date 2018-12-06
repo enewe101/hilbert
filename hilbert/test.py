@@ -639,20 +639,22 @@ class TestFDeltas(TestCase):
 
         expected = multiplier * difference
 
-        dropout_amount = 0.5
+        update_density = 0.1
 
-        delta_mle = h.f_delta.DeltaMLE(bigram, update_density=dropout_amount)
+        delta_mle = h.f_delta.DeltaMLE(bigram, update_density=update_density)
         found = delta_mle.calc_shard(expected_M_hat, h.shards.whole)
 
-        # Base the test only on the values that aren't zero to begin with
-        found = found[expected != 0]
-        expected = expected[expected != 0]
+        # first, let's test that the nonzero ones are nonzero
+        nonzero_expected = expected[found != 0]
+        nonzero_found = found[found != 0]
+        self.assertTrue(np.allclose(nonzero_expected, nonzero_found))
 
-        p = torch.sum(found==expected).item() / found.shape[0]
-        # If it breaks it's because the matrix isn't big enough for the
-        # p value to converge towrad nominal update density
-        self.assertTrue(p > 0.4 and p < 0.6)
-
+        # now let's make sure the right proportion are zero
+        n_zeros = np.sum(found.numpy() == 0)
+        total = np.prod(found.numpy().shape)
+        prop = 1 - (n_zeros / total)
+        e = 0.09 # gotta have leeway here since this is an 11x11 matrix
+        self.assertTrue( update_density - e < prop < update_density + e)
 
 
 class TestConstrainer(TestCase):
@@ -1466,6 +1468,40 @@ class MockObjective(object):
 
 
 class TestSolvers(TestCase):
+
+
+    def test_all_solvers_basic(self):
+        solvers = ['sgd', 'momentum', 'nesterov', 'nesterov_cautious','adagrad']
+        for string in solvers:
+            mock_obj = MockObjective((1,), (3,3))
+            solver = h.solver.get_solver(string, mock_obj, verbose=False)
+
+            # solver already called allocate in init, so shouldn't be allowed
+            with self.assertRaises(MemoryError):
+                solver.allocate()
+
+            # should be allowed to reset, though
+            solver.reset()
+            for attr_name in solver.attr_names:
+                tensor_list = getattr(solver, attr_name)
+                for tensor in tensor_list:
+                    self.assertTrue(0. == tensor.sum().item())
+
+            # should be allowed to cycle
+            times = 3
+            solver.cycle(times=times, pass_args={1: 1})
+            expected_args = [{1:1}] * 3
+            if string != 'sgd':
+                expected_args = [None] + expected_args
+            self.assertEqual(mock_obj.passed_args, expected_args)
+            
+            # should be allowed to reset, though
+            solver.reset()
+            for attr_name in solver.attr_names:
+                tensor_list = getattr(solver, attr_name)
+                for tensor in tensor_list:
+                    self.assertTrue(0. == tensor.sum().item())
+
 
     def test_momentum_solver(self):
         learning_rate = 0.1

@@ -67,7 +67,7 @@ class HilbertSolver(object):
             offsets=offsets, pass_args=self.crt_pass_args)
 
 
-    def _default_allocate(self, attr_names):
+    def _default_allocate(self, attr_names, overwrite=False):
         """
         A default allocation function for a solver that stores parameter-
         level gradient data. Stored as a list of torch zero tensors: self.gdata
@@ -75,10 +75,18 @@ class HilbertSolver(object):
         :param: attr_names: list of strings for the variable names
             of the each gradient storage attribute in the inheriting class
         """
+        # shouldn't ever call this more than once
+        try:
+            if self.attr_names and not overwrite:
+                raise MemoryError('Error, calling allocate more than once.')
+        except AttributeError:
+            pass
+
         # easy check for if someone made a mistake
         if type(attr_names) == str:
             attr_names = [attr_names]
-
+        self.attr_names = attr_names
+    
         # set an attribute for each string in the list of names with a list
         for name in attr_names:
             setattr(self, name, [])
@@ -90,6 +98,17 @@ class HilbertSolver(object):
             for name in attr_names:
                 getattr(self, name).append(torch.zeros(
                     param.shape, dtype=torch.float32, device=device))
+
+    
+    def reset(self):
+        try:
+            for attr in self.attr_names:
+                tensor_list = getattr(self, attr)
+                for i in range(len(tensor_list)):
+                    tensor_list[i][...] = 0. 
+
+        except AttributeError:
+            raise AttributeError('Error, no attributes!')
 
 
     def cycle(self, times=1, pass_args=None):
@@ -130,9 +149,16 @@ class SgdSolver(HilbertSolver):
             learning_rate=learning_rate, device=device, verbose=verbose)
 
 
-    def allocate(self):
+    def allocate(self, overwrite=False):
+        # to integrate with the rest of the solver design pattern
+        try:
+            getattr(self, 'attr_names')
+            raise MemoryError('Allocation has already occurred!')
+        except AttributeError:
+            pass
+
         # nothing to allocate for sgd!
-        return
+        self.attr_names = []
 
 
     def get_gradient_update(self):
@@ -253,8 +279,7 @@ class NesterovSolver(HilbertSolver):
 
     def clear_momenta(self):
         self.last_norm = None
-        for j in range(len(self.momenta)):
-            self.momenta[j][...] = 0
+        self.reset()
 
 
     def get_gradient_update(self):
@@ -338,10 +363,7 @@ class NesterovSolverCautious(HilbertSolver):
 
     def clear_momenta(self):
         self.last_norm = None
-        for j in range(len(self.momenta)):
-            self.momenta[j][...] = 0
-            self.last_gradient[j][...] = 0
-            self.updates[j][...] = 0
+        self.reset()
 
 
     def get_gradient_update(self):
