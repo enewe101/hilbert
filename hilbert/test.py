@@ -37,7 +37,7 @@ class TestGetEmbedder(TestCase):
         # Manually apply unigram_smoothing to the cooccurrence statistics.
         bigram.unigram.apply_smoothing(alpha)
         uNx, uNxt, uN = bigram.unigram
-        
+
         # Calculate the expected_M
         N_neg = k * (Nx-Nxx) * (uNxt / uN)
         expected_M = torch.log(Nxx) - torch.log(N_neg)
@@ -87,7 +87,7 @@ class TestGetEmbedder(TestCase):
             learning_rate=learning_rate,
             one_sided=one_sided,
             constrainer=constrainer,
-            verbose=False, 
+            verbose=False,
         )
 
         np.random.seed(0)
@@ -152,7 +152,7 @@ class TestCorpusStats(TestCase):
         [12.,  0.,  8.,  0.,  0.,  4.,  0.,  4.,  0.,  0.,  4.],
         [ 4.,  4.,  0.,  0.,  0.,  0.,  1.,  4.,  0.,  0.,  3.],
         [ 4.,  0.,  4.,  0.,  0.,  0.,  0.,  0.,  4.,  3.,  0.]
-    ]) 
+    ])
     N_XX_3 = np.array([
         [ 0., 11.,  4., 15.,  0.,  4., 11.,  0.,  0.,  0.,  0.],
         [11.,  0.,  4., 23.,  8.,  0., 12.,  5.,  4.,  0.,  3.],
@@ -208,7 +208,7 @@ class TestCorpusStats(TestCase):
 
         Nxx, Nx, Nxt, N = bigram
         self.assertTrue(torch.allclose(
-            Nxx, 
+            Nxx,
             torch.tensor(self.N_XX_2, dtype=dtype, device=device)
         ))
 
@@ -238,7 +238,7 @@ class TestM(TestCase):
         self.assertTrue(np.allclose(found_M, expected_M))
 
         shift_by = -torch.log(torch.tensor(
-            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE,
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
@@ -269,7 +269,7 @@ class TestM(TestCase):
 
         # Test shift option.
         shift_by = -torch.log(torch.tensor(
-            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE,
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = torch.log(Nxx) + shift_by
@@ -303,7 +303,7 @@ class TestM(TestCase):
 
         # Test shift option.
         shift_by = -torch.log(torch.tensor(
-            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE,
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = h.corpus_stats.calc_PMI_star(bigram) + shift_by
@@ -343,7 +343,7 @@ class TestM(TestCase):
         self.assertTrue(np.allclose(found_M, expected_M))
 
         shift_by = -torch.log(torch.tensor(
-            15, dtype=h.CONSTANTS.DEFAULT_DTYPE, 
+            15, dtype=h.CONSTANTS.DEFAULT_DTYPE,
             device=h.CONSTANTS.MATRIX_DEVICE
         ))
         expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N)) + shift_by
@@ -415,7 +415,7 @@ class TestFDeltas(TestCase):
         bigram = h.corpus_stats.get_test_bigram(2)
         Nxx, Nx, Nxt, N = bigram
         uNx, uNxt, uN = bigram.unigram
-        N_neg = k * (Nx - Nxx) * (uNxt / uN ) 
+        N_neg = k * (Nx - Nxx) * (uNxt / uN )
         expected_M = torch.log(Nxx) - torch.log(N_neg)
         expected_M_hat = expected_M + 1
         expected_difference = (
@@ -447,13 +447,13 @@ class TestFDeltas(TestCase):
         expected_M[expected_M==-np.inf] = 0
         expected_M_hat = expected_M + 1
         expected_multiplier = torch.tensor([[
-                2 * min(1, (bigram.Nxx[i,j] / 100.0)**0.75) 
+                2 * min(1, (bigram.Nxx[i,j] / 100.0)**0.75)
                 for j in range(bigram.Nxx.shape[1])
             ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
         expected_difference = torch.tensor([[
                 expected_M[i,j] - expected_M_hat[i,j]
-                if bigram.Nxx[i,j] > 0 else 0 
+                if bigram.Nxx[i,j] > 0 else 0
                 for j in range(bigram.Nxx.shape[1])
             ] for i in range(bigram.Nxx.shape[0])
         ], device=device, dtype=dtype)
@@ -479,9 +479,9 @@ class TestFDeltas(TestCase):
 
         expected2 = torch.tensor([
             [
-                2 * min(1, (bigram.Nxx[i,j] / X_max)**alpha) 
+                2 * min(1, (bigram.Nxx[i,j] / X_max)**alpha)
                     * (expected_M[i,j] - expected_M_hat[i,j])
-                if bigram.Nxx[i,j] > 0 else 0 
+                if bigram.Nxx[i,j] > 0 else 0
                 for j in range(bigram.Nxx.shape[1])
             ]
             for i in range(bigram.Nxx.shape[0])
@@ -495,7 +495,7 @@ class TestFDeltas(TestCase):
     def test_f_MSE(self):
 
         bigram = h.corpus_stats.get_test_bigram(2)
-        bigram.truncate(10) 
+        bigram.truncate(10)
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = h.CONSTANTS.MATRIX_DEVICE
 
@@ -565,7 +565,7 @@ class TestFDeltas(TestCase):
 
         expected = np.array([
             [
-                np.sqrt(bigram.Nxx[i,j]) * (pmi_star[i,j] - M_hat[i,j]) 
+                np.sqrt(bigram.Nxx[i,j]) * (pmi_star[i,j] - M_hat[i,j])
                 if bigram.Nxx[i,j] > 0 else
                 (np.e**(pmi_star[i,j] - M_hat[i,j]) /
                     (1 + np.e**(pmi_star[i,j] - M_hat[i,j])))
@@ -688,7 +688,7 @@ class TestHilbertEmbedder(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab),
-            verbose=False, 
+            verbose=False,
             shard_factor=shard_factor
         )
 
@@ -716,7 +716,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V, V, atol=0.001))
         self.assertTrue(torch.allclose(embedder.W, W, atol=0.001))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
@@ -731,7 +731,7 @@ class TestHilbertEmbedder(TestCase):
         # First make a non-one-sided embedder.
         f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, 
+            f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab,bigram.vocab), shard_factor=1,
             verbose=False
         )
@@ -747,7 +747,7 @@ class TestHilbertEmbedder(TestCase):
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab,), one_sided=True,
-            verbose=False, 
+            verbose=False,
             shard_factor=1
         )
 
@@ -776,7 +776,7 @@ class TestHilbertEmbedder(TestCase):
         # update.
         self.assertTrue(torch.allclose(embedder.W, embedder.V))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         delta_old = delta
         ppmi = h.corpus_stats.calc_PMI(bigram)
@@ -835,7 +835,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
         self.assertTrue(torch.allclose(embedder.W, new_V, atol=0.0001))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
@@ -843,7 +843,7 @@ class TestHilbertEmbedder(TestCase):
         # update.
         self.assertTrue(torch.allclose(embedder.W, embedder.V))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
@@ -864,7 +864,7 @@ class TestHilbertEmbedder(TestCase):
         delta_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             delta_MSE, d, learning_rate=learning_rate,
-            shape=(bigram.vocab, bigram.vocab), verbose=False, 
+            shape=(bigram.vocab, bigram.vocab), verbose=False,
             shard_factor=2
         )
 
@@ -888,7 +888,7 @@ class TestHilbertEmbedder(TestCase):
         delta_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             delta_MSE, d, learning_rate=learning_rate,
-            shape=(bigram.vocab, bigram.vocab), verbose=False, 
+            shape=(bigram.vocab, bigram.vocab), verbose=False,
             shard_factor=2
         )
 
@@ -933,7 +933,7 @@ class TestHilbertEmbedder(TestCase):
         # Create an embedder, whose get_gradient method we are testing.
         f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, 
+            f_MSE, d, learning_rate=learning_rate,
             shape=(bigram.vocab, bigram.vocab), shard_factor=3, verbose=False
         )
 
@@ -973,7 +973,7 @@ class TestHilbertEmbedder(TestCase):
         # Make an embedder, whose get_gradient method we are testing.
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate,
-            shape=(bigram.vocab,), 
+            shape=(bigram.vocab,),
             one_sided=True,
             verbose=False
         )
@@ -1069,7 +1069,7 @@ class TestHilbertEmbedder(TestCase):
                 self.test_case.assertTrue(torch.allclose(self.M, ppmi))
                 self.test_case.assertEqual(kwargs, {'a':True, 'b':False})
                 return self.M[shard] - M_hat
-                
+
 
         f_delta = DeltaMock(bigram, self)
 
@@ -1105,7 +1105,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V, new_V))
         self.assertTrue(torch.allclose(embedder.W, new_W))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         expected_badness = torch.sum(abs(ppmi - M_hat)) / (vocab**2)
         self.assertTrue(torch.allclose(expected_badness, embedder.badness))
@@ -1135,7 +1135,7 @@ class TestHilbertEmbedder(TestCase):
                 self.M[self.M<0] = 0
             def calc_shard(self, M_hat, shard=None, **kwargs):
                 return delta_always[shard]
-                
+
 
         # Make the embedder whose integration with f_delta we are testing.
         f_delta = DeltaMock(bigram)
@@ -1159,7 +1159,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
         self.assertTrue(torch.allclose(embedder.W, new_W, atol=0.0001))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         expected_badness = torch.sum(delta_always) / (vocab**2)
         self.assertTrue(torch.allclose(expected_badness, embedder.badness))
@@ -1294,7 +1294,7 @@ class TestHilbertEmbedder(TestCase):
         f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
             f_MSE, d, learning_rate=learning_rate, shard_factor=1,
-            verbose=False, 
+            verbose=False,
             shape=(bigram.vocab, bigram.vocab),
             constrainer=h.constrainer.glove_constrainer
         )
@@ -1329,7 +1329,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(
             embedder.V[:,0], torch.ones(vocab, dtype=dtype, device=device)))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         expected_badness = torch.sum(abs(delta)) / (vocab*vocab)
         self.assertTrue(torch.allclose(expected_badness, embedder.badness))
@@ -1348,7 +1348,7 @@ class TestHilbertEmbedder(TestCase):
 
         f_MSE = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
-            f_MSE, d, learning_rate=learning_rate, shard_factor=1, 
+            f_MSE, d, learning_rate=learning_rate, shard_factor=1,
             shape=(bigram.vocab, bigram.vocab),
             verbose=False
         )
@@ -1360,7 +1360,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertEqual(embedder.V.shape, (vocab,d))
         self.assertEqual(embedder.W.shape, (vocab,d))
 
-        # Check that we have essentially reached convergence, based on the 
+        # Check that we have essentially reached convergence, based on the
         # fact that the delta value for the embedder is near zero.
         M_hat = torch.mm(embedder.W, embedder.V.t())
         delta = f_MSE.calc_shard(M_hat, h.shards.whole)
@@ -1368,7 +1368,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(
             torch.sum(delta).item() < tolerance
         )
-        
+
 
     def test_sharding_equivalence(self):
 
@@ -1387,7 +1387,7 @@ class TestHilbertEmbedder(TestCase):
         ppmi[ppmi<0] = 0
         f_delta = h.f_delta.DeltaMSE(bigram)
         embedder = h.embedder.HilbertEmbedder(
-            f_delta, d, learning_rate=learning_rate, shard_factor=3, 
+            f_delta, d, learning_rate=learning_rate, shard_factor=3,
             shape=(bigram.vocab, bigram.vocab), verbose=False
         )
 
@@ -1416,7 +1416,7 @@ class TestHilbertEmbedder(TestCase):
         self.assertTrue(torch.allclose(embedder.V, new_V, atol=0.0001))
         self.assertTrue(torch.allclose(embedder.W, new_W, atol=0.0001))
 
-        # Check that the badness is correct 
+        # Check that the badness is correct
         # (badness is based on the error before last update)
         self.assertTrue(torch.allclose(badness, embedder.badness))
 
@@ -1438,7 +1438,7 @@ class MockObjective(object):
         initial_params = []
         for shape in self.param_shapes:
             initial_params.append(torch.tensor(
-                np.random.random(shape), 
+                np.random.random(shape),
                 dtype=h.CONSTANTS.DEFAULT_DTYPE,
                 device=h.CONSTANTS.MATRIX_DEVICE
             ))
@@ -1450,7 +1450,7 @@ class MockObjective(object):
         curr_gradient = []
         for i in range(len(self.param_shapes)):
             curr_gradient.append(
-                self.params[-1][i] + 0.1 
+                self.params[-1][i] + 0.1
                 + (offsets[i] if offsets is not None else 0)
             )
         return curr_gradient
@@ -1495,7 +1495,7 @@ class TestSolvers(TestCase):
             if string != 'sgd':
                 expected_args = [None] + expected_args
             self.assertEqual(mock_obj.passed_args, expected_args)
-            
+
             # should be allowed to reset, though
             solver.reset()
             for attr_name in solver.attr_names:
@@ -1510,46 +1510,47 @@ class TestSolvers(TestCase):
         args = {'learning_rate': learning_rate, 'gamma': gamma,
                 'verbose': False}
 
+        np.random.seed(0)
         obj = MockObjective((1,), (3,3))
         solver = h.solver.get_solver('rmsprop', obj, **args)
         solver.cycle(times=3)
 
         np.random.seed(0)
-        expected_updates = [
-                (np.random.random((1,)), np.random.random((3,3)))
-            ]
-        expected_adagrad = [
-                (np.zeros((1,)), np.zeros((3,3)))
-            ]
+        expected_updates = [[]]
+        expected_updates[0].append(np.random.random((1,)))
+        expected_updates[0].append(np.random.random((3,3)))
+        expected_adagrad = [np.zeros((1,)), np.zeros((3,3))]
 
         # iterate over the time steps
         for i in range(3):
 
-            exp_ada, exp_up = [], []
-            for k in range(2): # 0, 1:
-                
-                # gradient is always equal to `params + 0.1`
-                gradient = expected_updates[-1][k] + 0.1
-                exp_ada.append(
-                        (gamma * expected_adagrad[-1][k]) + 
-                        (1. - gamma) * (gradient**2)
-                    )
+            # gradient is always equal to `params + 0.1`
+            gradient1 = expected_updates[i][0] + 0.1
+            gradient2 = expected_updates[i][1] + 0.1
+            # import pdb; pdb.set_trace()
 
-                # compare to what the solver got
-                mult = 1./ np.sqrt(exp_ada[k] + 1e-10)
-                exp_up.append(gradient * mult * learning_rate)
+            # set up the decayed adagrad holder
+            expected_adagrad[0] = ((gamma * expected_adagrad[0]) +
+                                   (1. - gamma) * (gradient1**2))
+            expected_adagrad[1] = ((gamma * expected_adagrad[1]) +
+                                   (1. - gamma) * (gradient2**2))
 
-            expected_adagrad.append(tuple(exp_ada))
-            expected_updates.append(tuple(exp_up))
+            # compare to what the solver got
+            m1 = 1./ np.sqrt(expected_adagrad[0] + 1e-10)
+            m2 = 1./ np.sqrt(expected_adagrad[1] + 1e-10)
+
+            # set the Updates
+            expected_updates.append((
+                expected_updates[i][0] + (learning_rate * m1 * gradient1),
+                expected_updates[i][1] + (learning_rate * m2 * gradient2),
+            ))
 
         # Updates should be the successive momenta (excluding the first zero
-        # value)
-        for expected,found in zip(expected_updates[1:], obj.updates):
-            for e, f in zip(expected, found):
-                import pdb; pdb.set_trace()
-                self.assertTrue(np.allclose(e, f))
-        
-        
+        # value
+        for i in range(len(expected_updates)):
+            for p, exp in zip(obj.params[i], expected_updates[i]):
+                self.assertTrue(np.allclose(p, exp))
+
 
     def test_momentum_solver(self):
         learning_rate = 0.1
@@ -1637,7 +1638,7 @@ class TestSolvers(TestCase):
 
         # Initialize the momentum at zero
         expected_momenta = [(
-            torch.zeros((1,), device=device, dtype=dtype), 
+            torch.zeros((1,), device=device, dtype=dtype),
             torch.zeros((3,3), device=device, dtype=dtype)
         )]
 
@@ -1694,7 +1695,7 @@ class TestSolvers(TestCase):
     #    numpy_mock_objective = MockObjective(
     #        (1,), (3,3))
     #    numpy_solver = h.solver.MomentumSolver(
-    #        numpy_mock_objective, learning_rate, momentum_decay, 
+    #        numpy_mock_objective, learning_rate, momentum_decay,
     #        implementation='numpy'
     #    )
     #    numpy_solver.cycle(times=times, pass_args={'a':1})
@@ -1962,7 +1963,7 @@ class TestSolvers(TestCase):
             mo, learning_rate, verbose=False)
 
         solver.cycle(times=times, pass_args={'a':1})
-        
+
         np.random.seed(0)
         params_expected = (
             self.calculate_expected_adagrad_params(times, learning_rate)
@@ -2057,7 +2058,7 @@ class TestSolvers(TestCase):
             # multiplier for adagrad
             m1 = 1. / (np.sqrt(adagrad_expected[0]) + 1e-10)
             m2 = 1. / (np.sqrt(adagrad_expected[1]) + 1e-10)
-            
+
             # Do the accellerated update
             params_expected.append((
                 params_expected[-1][0] + (learning_rate * m1 * grad1),
@@ -2065,7 +2066,7 @@ class TestSolvers(TestCase):
             ))
 
         return params_expected
- 
+
 
     def calculate_expected_nesterov_params(
         self, times, learning_rate, momentum_decay
@@ -2096,7 +2097,7 @@ class TestSolvers(TestCase):
             ))
 
             momentum_expected.append((
-                momentum_decay * momentum_expected[-1][0] 
+                momentum_decay * momentum_expected[-1][0]
                     + gradient_steps[-1][0],
                 momentum_decay * momentum_expected[-1][1]
                     + gradient_steps[-1][1]
@@ -2109,7 +2110,7 @@ class TestSolvers(TestCase):
             ))
 
         return params_expected
-            
+
 
     def calculate_expected_nesterov_optimized_params(
         self, times, learning_rate, momentum_decay
@@ -2135,7 +2136,7 @@ class TestSolvers(TestCase):
             ))
 
             momentum_expected.append((
-                momentum_decay * momentum_expected[-1][0] 
+                momentum_decay * momentum_expected[-1][0]
                     + gradient_steps[-1][0],
                 momentum_decay * momentum_expected[-1][1]
                     + gradient_steps[-1][1]
@@ -2143,9 +2144,9 @@ class TestSolvers(TestCase):
 
             # Do the accellerated update
             params_expected.append((
-                params_expected[-1][0] + gradient_steps[-1][0] 
+                params_expected[-1][0] + gradient_steps[-1][0]
                     + momentum_decay * momentum_expected[-1][0],
-                params_expected[-1][1] + gradient_steps[-1][1] 
+                params_expected[-1][1] + gradient_steps[-1][1]
                     + momentum_decay * momentum_expected[-1][1]
             ))
 
@@ -2169,7 +2170,7 @@ class TestSolvers(TestCase):
             np.random.random((3,3)), dtype=dtype, device=device))
         momentum_expected = [[
             torch.tensor(
-                np.zeros((1,)), dtype=dtype, device=device), 
+                np.zeros((1,)), dtype=dtype, device=device),
             torch.tensor(
                 np.zeros((3,3)), dtype=dtype, device=device)
         ]]
@@ -2217,11 +2218,11 @@ class TestSolvers(TestCase):
                 (params_expected[-1][0] + 0.1) * learning_rate,
                 (params_expected[-1][1] + 0.1) * learning_rate
             ))
-            
+
 
             # Calculate the current momentum
             momentum_expected.append((
-                use_decay * momentum_expected[-1][0] 
+                use_decay * momentum_expected[-1][0]
                     + gradient[0] * learning_rate,
                 use_decay * momentum_expected[-1][1]
                     + gradient[1] * learning_rate
@@ -2229,7 +2230,7 @@ class TestSolvers(TestCase):
 
             # Do the accellerated update
             params_update = (
-                gradient_steps[-1][0] 
+                gradient_steps[-1][0]
                     + use_decay * momentum_expected[-1][0],
                 gradient_steps[-1][1]
                     + use_decay * momentum_expected[-1][1]
@@ -2242,7 +2243,7 @@ class TestSolvers(TestCase):
             params_expected.append(new_params)
 
         return params_expected
-            
+
 
 
 #TODO: add tests for torch embedder.
@@ -2501,7 +2502,7 @@ class TestUnigram(TestCase):
                 self.assertTrue(torch.allclose(Nx, expected_Nxs[0].view(-1,1)))
             elif i // 3 == 1:
                 self.assertTrue(torch.allclose(Nx, expected_Nxs[1].view(-1,1)))
-            elif i // 3 == 2:                                            
+            elif i // 3 == 2:
                 self.assertTrue(torch.allclose(Nx, expected_Nxs[2].view(-1,1)))
 
             if i % 3 == 0:
@@ -2667,7 +2668,7 @@ class TestUnigram(TestCase):
 
 
     def test_truncate(self):
-        
+
         # Make a unigram and fill it with tokens and counts.
         unigram = h.unigram.Unigram()
         for token in h.corpus_stats.load_test_tokens():
@@ -2910,7 +2911,7 @@ class TestBigram(TestCase):
         Nxx2, Nx2, Nxt2, N2 = bigram2
 
         self.assertEqual(
-            bigram2.dictionary.tokens, 
+            bigram2.dictionary.tokens,
             bigram.dictionary.tokens
         )
         self.assertTrue(np.allclose(Nxx2, Nxx))
@@ -3095,7 +3096,7 @@ class TestBigram(TestCase):
         self.assertEqual(
             bigram2.dictionary.token_ids, dictionary2.token_ids)
         self.assertEqual(bigram2.verbose, False)
-        
+
 
         # Ensure that bigram_sum is as desired.  Sort to make comparison
         # easier.  Double check that sort flag is False to begin with.
@@ -3168,7 +3169,7 @@ def get_test_dictionary():
 #        survival_probability = torch.clamp(
 #            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
 #        pxx = survival_probability * survival_probability.t()
-#        expected_Nxx = orig_Nxx * pxx 
+#        expected_Nxx = orig_Nxx * pxx
 #        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
 #        expected_Nxt = orig_Nxt.clone()
 #        expected_N = orig_N.clone()
@@ -3206,7 +3207,7 @@ def get_test_dictionary():
 #        survival_probability = torch.clamp(
 #            torch.sqrt(t / (orig_Nx / orig_N)), 0, 1)
 #        pxx = survival_probability * survival_probability.t()
-#        expected_Nxx = orig_Nxx * pxx 
+#        expected_Nxx = orig_Nxx * pxx
 #        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
 #        expected_Nxt = orig_Nxt.clone()
 #        expected_N = orig_N.clone()
@@ -3431,7 +3432,7 @@ class TestEmbeddings(TestCase):
             embeddings.get_covec('archaeopteryx', 'unk'),
             embeddings.W.mean(0)
         ))
-        
+
 
     def test_embedding_access(self):
 
@@ -3468,7 +3469,7 @@ class TestEmbeddings(TestCase):
 
         with self.assertRaises(KeyError):
             embeddings.get_covec('archaeopteryx')
-            
+
         with self.assertRaises(KeyError):
             embeddings['archaeopteryx']
 
@@ -3533,7 +3534,7 @@ class TestEmbeddings(TestCase):
             shutil.rmtree(out_path)
 
 
-        # Create vectors using the numpy implementation, save them, then 
+        # Create vectors using the numpy implementation, save them, then
         # reload them alternately using either numpy or torch implementation.
         embeddings1 = h.embeddings.Embeddings(V, W, dictionary)
         embeddings1.save(out_path)
@@ -3556,7 +3557,7 @@ class TestEmbeddings(TestCase):
 
         shutil.rmtree(out_path)
 
-        # We can do the same save and load cycle, this time starting from 
+        # We can do the same save and load cycle, this time starting from
         # torch embeddings.
         if os.path.exists(out_path):
             shutil.rmtree(out_path)
@@ -3677,7 +3678,7 @@ class TestEmbeddings(TestCase):
         ranks = sorted(
             [(p, idx) for idx, p in enumerate(products)], reverse=True)
         expected_ranked_tokens = [
-            dictionary.get_token(idx) for p, idx in ranks 
+            dictionary.get_token(idx) for p, idx in ranks
             if dictionary.get_token(idx) != 'dog'
         ]
         expected_ranked_ids = [
@@ -3721,19 +3722,19 @@ class TestEmbeddings(TestCase):
         # Given a query vector, verify that we can find the other vector having
         # the greatest dot product.  We want to test cosine similarity, so we
         # should take the dot product of normalized vectors.
-        
+
         normed_query = h.utils.normalize(embeddings['dog'], axis=0)
         normed_V = h.utils.normalize(embeddings.V, axis=1)
         products = normed_V @ normed_query
         ranks = sorted(
             [(p, idx) for idx, p in enumerate(products)], reverse=True)
         expected_ranked_tokens = [
-            dictionary.get_token(idx) for p, idx in ranks 
+            dictionary.get_token(idx) for p, idx in ranks
             if dictionary.get_token(idx) != 'dog'
         ]
         expected_ranked_ids = [
             idx for p, idx in ranks if dictionary.get_token(idx) != 'dog']
-        
+
 
         found_ranked_tokens = embeddings.greatest_cosine('dog')
 
@@ -3776,7 +3777,7 @@ class TestEmbeddings(TestCase):
         self.assertTrue(torch.allclose(
             embeddings.get_vec((slice(0,5000,1),slice(0,300,1))), V))
         self.assertTrue(torch.allclose(
-            embeddings.get_covec((slice(0,5000,1),slice(0,300,1))), 
+            embeddings.get_covec((slice(0,5000,1),slice(0,300,1))),
             W
         ))
 
@@ -3824,7 +3825,7 @@ class TestEmbeddings(TestCase):
         # The number of embeddings is reduced, because we lost ommitted tokens
         # and because extraneous tokens are ignored.
         self.assertEqual(
-            embeddings_to_be_sorted.V.shape[0], 
+            embeddings_to_be_sorted.V.shape[0],
             embeddings_pristine.V.shape[0] - 5
         )
 
@@ -3897,7 +3898,7 @@ class TestUtils(TestCase):
         self.assertTrue(torch.allclose(found, expected))
         self.assertTrue(V_torch.shape, found.shape)
         self.assertTrue(torch.allclose(
-            torch.norm(found, p=2, dim=1), 
+            torch.norm(found, p=2, dim=1),
             torch.ones(vocab, device=device, dtype=dtype)
         ))
 
@@ -3986,7 +3987,7 @@ class TestShards(TestCase):
                 self.assertTrue(torch.allclose(M[shard], expected))
             else:
                 expected_shard = torch.Tensor([
-                    j for j in range(64) 
+                    j for j in range(64)
                     # If the row is among allowed rows
                     if (j // 8) % shard_factor == i // shard_factor
                     # If the column is among alowed columns
@@ -4009,7 +4010,7 @@ class TestDeltaW2VSampleFullCorpus(TestCase):
             h.CONSTANTS.TEST_DIR, 'delta-w2v-sample-full-corpus', 'Nxx.npy'
         )), device=device, dtype=dtype)
         Nxx_neg = torch.tensor(np.load(os.path.join(
-            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample-full-corpus', 
+            h.CONSTANTS.TEST_DIR, 'delta-w2v-sample-full-corpus',
             'Nxx_neg.npy'
         )), device=device, dtype=dtype)
 
@@ -4021,7 +4022,7 @@ class TestDeltaW2VSampleFullCorpus(TestCase):
 
         # Calculate expected delta.
         expected_M  = torch.log(Nxx) - torch.log(Nxx_neg)
-        # Force nans to be zero. 
+        # Force nans to be zero.
         expected_M[expected_M != expected_M] = 0
         expected_delta = (Nxx + Nxx_neg) * (
             h.f_delta.sigmoid(expected_M) - h.f_delta.sigmoid(M_hat)
@@ -4111,7 +4112,7 @@ class TestDeltaW2VSample(TestCase):
                 line_num += 1
 
         sample_reader.sample_file.close()
-        
+
 
     def test_f_delta_w2v_sample(self):
 
@@ -4136,7 +4137,7 @@ class TestDeltaW2VSample(TestCase):
             sample_path, dictionary, signal_epochs=False, verbose=False)
         f_delta = h.f_delta.DeltaW2VSamples(sample_reader)
 
-        # Make a sample reader, separate from the one used to make the 
+        # Make a sample reader, separate from the one used to make the
         # DeltaW2V Samples instance, for generating the expected deltas.
         sample_reader = h.f_delta.SampleReader(
             sample_path, dictionary, signal_epochs=False, verbose=False)
@@ -4160,7 +4161,7 @@ class TestDeltaW2VSample(TestCase):
                 )
             )
             # Set nans in expected_delta to zero.  They represent places where
-            # both Nxx and Nxx_neg are zero, and so should be zero.  Use the 
+            # both Nxx and Nxx_neg are zero, and so should be zero.  Use the
             # trick that nan != nan.
             expected_delta[expected_delta != expected_delta] = 0
             found_delta = f_delta.calc_shard(M_hat)
@@ -4199,7 +4200,7 @@ class TestDeltaW2VSample(TestCase):
 
     #    M_hat = torch.mm(W,V.t())
 
-    #    # Make a sample reader, separate from the one used to make the 
+    #    # Make a sample reader, separate from the one used to make the
     #    # DeltaW2V Samples instance, for generating the expected deltas.
     #    sample_reader = h.f_delta.SampleReader(
     #        sample_path, dictionary, verbose=False)
@@ -4223,7 +4224,7 @@ class TestDeltaW2VSample(TestCase):
     #            )
     #        )
     #        # Set nans in expected_delta to zero.  They represent places where
-    #        # both Nxx and Nxx_neg are zero, and so should be zero.  Use the 
+    #        # both Nxx and Nxx_neg are zero, and so should be zero.  Use the
     #        # trick that nan != nan.
     #        expected_delta[expected_delta != expected_delta] = 0
     #        found_delta = f_delta.calc_shard(M_hat)
@@ -4364,7 +4365,7 @@ class TestDeltaW2VSample(TestCase):
 #        )
 #        mock_badness = None
 #        rates = [
-#            scheduler.get_rate(mock_badness) 
+#            scheduler.get_rate(mock_badness)
 #            for i in range(len(expected_rates))
 #        ]
 #
@@ -4448,7 +4449,7 @@ class TestDeltaW2VSample(TestCase):
 #
 #        f_MSE = h.f_delta.DeltaMSE(bigram)
 #        embedder = h.embedder.HilbertEmbedder(
-#            f_MSE, d, learning_rate=scheduler, shard_factor=1, 
+#            f_MSE, d, learning_rate=scheduler, shard_factor=1,
 #            shape=(bigram.vocab, bigram.vocab),
 #            verbose=False
 #        )
@@ -4468,7 +4469,7 @@ class TestDeltaW2VSample(TestCase):
 #        #self.assertTrue(
 #        #    np.allclose(np.array(rates), np.array(expected_rates)))
 #
-#        # Check that we have essentially reached convergence, based on the 
+#        # Check that we have essentially reached convergence, based on the
 #        # fact that the delta value for the embedder is near zero.
 #        M_hat = torch.mm(embedder.W, embedder.V.t())
 #        delta = f_MSE.calc_shard(M_hat, h.shards.whole)
@@ -4493,12 +4494,12 @@ class TestDeltaW2VSample(TestCase):
 #        # scheduler
 #        found_embedder, found_solver = h.embedder.get_w2v_embedder(
 #            bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False,
-#            scheduler='plateau' 
+#            scheduler='plateau'
 #        )
 #        self.assertTrue(
 #            isinstance(found_embedder.scheduler, h.scheduler.PlateauScheduler))
 #
-#        # Not specifying a plateau scheduler yields an embedder with a 
+#        # Not specifying a plateau scheduler yields an embedder with a
 #        # constant scheduler
 #        found_embedder, found_solver = h.embedder.get_w2v_embedder(
 #            bigram, k=k, alpha=alpha, t_clean=t_clean, verbose=False,
@@ -4548,4 +4549,3 @@ if __name__ == '__main__':
         print('\nTESTING DEVICE: CUDA.  Use --cpu to test on cpu.\n')
 
     main()
-

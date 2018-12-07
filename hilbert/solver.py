@@ -19,11 +19,11 @@ def get_solver(solver_type, objective, **solver_args):
             'adadelta': AdadeltaSolver,
         }
 
-    try: 
+    try:
         return s[solver_type](objective, **solver_args)
     except KeyError:
         raise ValueError('Unexpected solver type: {}'.format(solver_type))
-        
+
 
 
 class HilbertSolver(object):
@@ -89,7 +89,7 @@ class HilbertSolver(object):
         if type(attr_names) == str:
             attr_names = [attr_names]
         self.attr_names = attr_names
-    
+
         # set an attribute for each string in the list of names with a list
         for name in attr_names:
             setattr(self, name, [])
@@ -102,13 +102,13 @@ class HilbertSolver(object):
                 getattr(self, name).append(torch.zeros(
                     param.shape, dtype=torch.float32, device=device))
 
-    
+
     def reset(self):
         try:
             for attr in self.attr_names:
                 tensor_list = getattr(self, attr)
                 for i in range(len(tensor_list)):
-                    tensor_list[i][...] = 0. 
+                    tensor_list[i][...] = 0.
 
         except AttributeError:
             raise AttributeError('Error, no attributes!')
@@ -247,7 +247,7 @@ class AdagradSolver(HilbertSolver):
 
             # note that the multiplier is a vector and that we are doing a
             # component-wise multiplication
-            rootinvdiag = 1. / (self.adagrad[j] + self.epsilon).sqrt() 
+            rootinvdiag = 1. / (self.adagrad[j] + self.epsilon).sqrt()
             updates.append(gradients[j] * rootinvdiag * self.learning_rate)
         return updates
 
@@ -279,13 +279,13 @@ class RmspropSolver(HilbertSolver):
         updates = []
         for j in range(len(gradients)):
             self.adadecay[j] = (
-                    (self.gamma * self.adadecay[j] ) + 
-                    ((1. - self.gamma) * (gradients[j] ** 2) )
+                    (self.gamma * self.adadecay[j]) +
+                    ((1. - self.gamma) * (gradients[j] ** 2))
                 )
 
             # note that the multiplier is a vector and that we are doing a
             # component-wise multiplication
-            rootinvdiag = 1. / (self.adadecay[j] + self.epsilon).sqrt()
+            rootinvdiag = 1. / ((self.adadecay[j] + self.epsilon).sqrt())
             updates.append(gradients[j] * rootinvdiag * self.learning_rate)
         return updates
 
@@ -316,22 +316,22 @@ class AdadeltaSolver(HilbertSolver):
         gradients = self.request_gradient()
         updates = []
         for j in range(len(gradients)):
-            
+
             # first get adadecay, like in RMS prop
             self.adadecay[j] = (
-                    (self.gamma * self.adadecay[j] ) + 
+                    (self.gamma * self.adadecay[j] ) +
                     ((1. - self.gamma) * (gradients[j] ** 2) )
                 )
             rootinv_ada = 1. / (self.adadecay[j] + self.epsilon).sqrt()
-            
+
             # now we build up the update vector
             prev_update = self.updatedecay[j]
             crt_update = (
-                    (prev_update + self.epsilon).sqrt() 
+                    (prev_update + self.epsilon).sqrt()
                     * rootinv_ada * gradients[j]
                 )
             updates.append(crt_update)
-             
+
             # nowwww update the updatedecay!
             self.updatedecay[j] = (
                     (self.gamma * prev_update) +
