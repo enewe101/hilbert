@@ -1515,7 +1515,7 @@ class TestSolvers(TestCase):
         solver.cycle(times=3)
 
         np.random.seed(0)
-        expected_params = [
+        expected_updates = [
                 (np.random.random((1,)), np.random.random((3,3)))
             ]
         expected_adagrad = [
@@ -1525,22 +1525,28 @@ class TestSolvers(TestCase):
         # iterate over the time steps
         for i in range(3):
 
-            exp_ada = []
+            exp_ada, exp_up = [], []
             for k in range(2): # 0, 1:
                 
                 # gradient is always equal to `params + 0.1`
-                gradient = expected_params[-1][k]
-                prv_ada = gamma * expected_adagrad[-1][k]
-                crt_ada = (1-gamma) * (gradient**2)
-                exp_ada.append(prv_ada + crt_ada)
+                gradient = expected_updates[-1][k] + 0.1
+                exp_ada.append(
+                        (gamma * expected_adagrad[-1][k]) + 
+                        (1. - gamma) * (gradient**2)
+                    )
 
                 # compare to what the solver got
+                mult = 1./ np.sqrt(exp_ada[k] + 1e-10)
+                exp_up.append(gradient * mult * learning_rate)
+
             expected_adagrad.append(tuple(exp_ada))
-                
+            expected_updates.append(tuple(exp_up))
+
         # Updates should be the successive momenta (excluding the first zero
         # value)
-        for expected,found in zip(expected_momenta[1:], mock_objective.updates):
+        for expected,found in zip(expected_updates[1:], obj.updates):
             for e, f in zip(expected, found):
+                import pdb; pdb.set_trace()
                 self.assertTrue(np.allclose(e, f))
         
         
