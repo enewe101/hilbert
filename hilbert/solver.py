@@ -285,7 +285,7 @@ class RmspropSolver(HilbertSolver):
 
             # note that the multiplier is a vector and that we are doing a
             # component-wise multiplication
-            rootinvdiag = 1. / ((self.adadecay[j] + self.epsilon).sqrt())
+            rootinvdiag = 1. / (self.adadecay[j] + self.epsilon).sqrt()
             updates.append(gradients[j] * rootinvdiag * self.learning_rate)
         return updates
 

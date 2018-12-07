@@ -1552,6 +1552,62 @@ class TestSolvers(TestCase):
                 self.assertTrue(np.allclose(p, exp))
 
 
+
+    def test_adadelta_solver(self):
+        gamma = 0.99
+        args = {'gamma': gamma, 'verbose': False}
+
+        np.random.seed(0)
+        obj = MockObjective((1,), (3,3))
+        solver = h.solver.get_solver('adadelta', obj, **args)
+        solver.cycle(times=3)
+
+        np.random.seed(0)
+        expected_updates = [[]]
+        expected_updates[0].append(np.random.random((1,)))
+        expected_updates[0].append(np.random.random((3,3)))
+        expected_adagrad = [np.zeros((1,)), np.zeros((3,3))]
+        expected_updecay = [np.zeros((1,)), np.zeros((3,3))]
+
+        # iterate over the time steps
+        for i in range(3):
+
+            # gradient is always equal to `params + 0.1`
+            gradient1 = expected_updates[i][0] + 0.1
+            gradient2 = expected_updates[i][1] + 0.1
+
+            # set up the decayed adagrad holder
+            expected_adagrad[0] = ((gamma * expected_adagrad[0]) +
+                                   (1. - gamma) * (gradient1**2))
+            expected_adagrad[1] = ((gamma * expected_adagrad[1]) +
+                                   (1. - gamma) * (gradient2**2))
+
+            # compare to what the solver got
+            m1 = 1./ np.sqrt(expected_adagrad[0] + 1e-10)
+            m2 = 1./ np.sqrt(expected_adagrad[1] + 1e-10)
+
+            # set the Updates
+            crtupdate1 = np.sqrt(expected_updecay[0] + 1e-10) * m1 * gradient1
+            crtupdate2 = np.sqrt(expected_updecay[1] + 1e-10) * m2 * gradient2
+
+            expected_updates.append((
+                expected_updates[i][0] + crtupdate1,
+                expected_updates[i][1] + crtupdate2,
+            ))
+
+            # set up the update decay holder
+            expected_updecay[0] = ((gamma * expected_updecay[0]) +
+                                   (1. - gamma) * (crtupdate1**2))
+            expected_updecay[1] = ((gamma * expected_updecay[1]) +
+                                   (1. - gamma) * (crtupdate2**2))
+
+        # Updates should be the successive momenta (excluding the first zero
+        # value
+        for i in range(len(expected_updates)):
+            for p, exp in zip(obj.params[i], expected_updates[i]):
+                self.assertTrue(np.allclose(p, exp))
+
+
     def test_momentum_solver(self):
         learning_rate = 0.1
         momentum_decay = 0.8
