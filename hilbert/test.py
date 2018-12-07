@@ -1471,7 +1471,8 @@ class TestSolvers(TestCase):
 
 
     def test_all_solvers_basic(self):
-        solvers = ['sgd', 'momentum', 'nesterov', 'nesterov_cautious','adagrad']
+        solvers = ['sgd', 'momentum', 'nesterov', 'nesterov_cautious',
+                   'adagrad', 'rmsprop', 'adadelta']
         for string in solvers:
             mock_obj = MockObjective((1,), (3,3))
             solver = h.solver.get_solver(string, mock_obj, verbose=False)
@@ -1502,6 +1503,47 @@ class TestSolvers(TestCase):
                 for tensor in tensor_list:
                     self.assertTrue(0. == tensor.sum().item())
 
+
+    def test_rmsprop_solver(self):
+        learning_rate = 0.1
+        gamma = 0.9
+        args = {'learning_rate': learning_rate, 'gamma': gamma,
+                'verbose': False}
+
+        obj = MockObjective((1,), (3,3))
+        solver = h.solver.get_solver('rmsprop', obj, **args)
+        solver.cycle(times=3)
+
+        np.random.seed(0)
+        expected_params = [
+                (np.random.random((1,)), np.random.random((3,3)))
+            ]
+        expected_adagrad = [
+                (np.zeros((1,)), np.zeros((3,3)))
+            ]
+
+        # iterate over the time steps
+        for i in range(3):
+
+            exp_ada = []
+            for k in range(2): # 0, 1:
+                
+                # gradient is always equal to `params + 0.1`
+                gradient = expected_params[-1][k]
+                prv_ada = gamma * expected_adagrad[-1][k]
+                crt_ada = (1-gamma) * (gradient**2)
+                exp_ada.append(prv_ada + crt_ada)
+
+                # compare to what the solver got
+            expected_adagrad.append(tuple(exp_ada))
+                
+        # Updates should be the successive momenta (excluding the first zero
+        # value)
+        for expected,found in zip(expected_momenta[1:], mock_objective.updates):
+            for e, f in zip(expected, found):
+                self.assertTrue(np.allclose(e, f))
+        
+        
 
     def test_momentum_solver(self):
         learning_rate = 0.1
@@ -1915,8 +1957,6 @@ class TestSolvers(TestCase):
 
         solver.cycle(times=times, pass_args={'a':1})
         
-        # TODO: finish this
-
         np.random.seed(0)
         params_expected = (
             self.calculate_expected_adagrad_params(times, learning_rate)

@@ -9,18 +9,21 @@ import hilbert as h
 
 
 def get_solver(solver_type, objective, **solver_args):
-    if solver_type == 'sgd':
-        return SgdSolver(objective, **solver_args)
-    elif solver_type == 'momentum':
-        return MomentumSolver(objective, **solver_args)
-    elif solver_type == 'nesterov':
-        return NesterovSolver(objective, **solver_args)
-    elif solver_type == 'nesterov_cautious':
-        return NesterovSolverCautious(objective, **solver_args)
-    elif solver_type == 'adagrad':
-        return AdagradSolver(objective, **solver_args)
-    else:
+    s = {
+            'sgd': SgdSolver,
+            'momentum': MomentumSolver,
+            'nesterov': NesterovSolver,
+            'nesterov_cautious': NesterovSolverCautious,
+            'adagrad': AdagradSolver,
+            'rmsprop': RmspropSolver,
+            'adadelta': AdadeltaSolver,
+        }
+
+    try: 
+        return s[solver_type](objective, **solver_args)
+    except KeyError:
         raise ValueError('Unexpected solver type: {}'.format(solver_type))
+        
 
 
 class HilbertSolver(object):
@@ -221,14 +224,13 @@ class AdagradSolver(HilbertSolver):
     def __init__(
         self,
         objective,
-        learning_rate=0.001,
-        epsilon=1e-10,
+        learning_rate=0.01,
         device=None,
         verbose=True
     ):
         super(AdagradSolver, self).__init__(objective,
             learning_rate=learning_rate, device=device, verbose=verbose)
-        self.epsilon = epsilon
+        self.epsilon = 1e-10
 
 
     def allocate(self):
@@ -245,9 +247,100 @@ class AdagradSolver(HilbertSolver):
 
             # note that the multiplier is a vector and that we are doing a
             # component-wise multiplication
-            rootinvdiag = 1. / (self.adagrad[j].sqrt() + self.epsilon)
+            rootinvdiag = 1. / (self.adagrad[j] + self.epsilon).sqrt() 
             updates.append(gradients[j] * rootinvdiag * self.learning_rate)
         return updates
+
+
+
+class RmspropSolver(HilbertSolver):
+    def __init__(
+        self,
+        objective,
+        learning_rate=0.01,
+        gamma=0.9,
+        device=None,
+        verbose=True
+    ):
+        super(RmspropSolver, self).__init__(objective,
+            learning_rate=learning_rate, device=device, verbose=verbose)
+        self.gamma = gamma
+        self.epsilon = 1e-10
+
+
+    def allocate(self):
+        self._default_allocate(['adadecay'])
+
+
+    def get_gradient_update(self):
+        # Update the normed gradient holder vector, adag.
+        # It is the diagonal of the outer product gradient matrix.
+        gradients = self.request_gradient()
+        updates = []
+        for j in range(len(gradients)):
+            self.adadecay[j] = (
+                    (self.gamma * self.adadecay[j] ) + 
+                    ((1. - self.gamma) * (gradients[j] ** 2) )
+                )
+
+            # note that the multiplier is a vector and that we are doing a
+            # component-wise multiplication
+            rootinvdiag = 1. / (self.adadecay[j] + self.epsilon).sqrt()
+            updates.append(gradients[j] * rootinvdiag * self.learning_rate)
+        return updates
+
+
+
+class AdadeltaSolver(HilbertSolver):
+    def __init__(
+        self,
+        objective,
+        learning_rate=1,
+        gamma=0.9,
+        device=None,
+        verbose=True
+    ):
+        super(AdadeltaSolver, self).__init__(objective,
+            learning_rate=learning_rate, device=device, verbose=verbose)
+        self.gamma = gamma
+        self.epsilon = 1e-10
+
+
+    def allocate(self):
+        self._default_allocate(['adadecay', 'updatedecay'])
+
+
+    def get_gradient_update(self):
+        # Update the normed gradient holder vector, adag.
+        # It is the diagonal of the outer product gradient matrix.
+        gradients = self.request_gradient()
+        updates = []
+        for j in range(len(gradients)):
+            
+            # first get adadecay, like in RMS prop
+            self.adadecay[j] = (
+                    (self.gamma * self.adadecay[j] ) + 
+                    ((1. - self.gamma) * (gradients[j] ** 2) )
+                )
+            rootinv_ada = 1. / (self.adadecay[j] + self.epsilon).sqrt()
+            
+            # now we build up the update vector
+            prev_update = self.updatedecay[j]
+            crt_update = (
+                    (prev_update + self.epsilon).sqrt() 
+                    * rootinv_ada * gradients[j]
+                )
+            updates.append(crt_update)
+             
+            # nowwww update the updatedecay!
+            self.updatedecay[j] = (
+                    (self.gamma * prev_update) +
+                    ((1. - self.gamma) * (crt_update ** 2))
+                )
+
+        return updates
+
+
 
 
 
