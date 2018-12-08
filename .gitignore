@@ -10,3 +10,4 @@ test-data
 .nfs*
 _build
 pdf
+.idea
