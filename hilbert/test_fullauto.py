@@ -43,7 +43,7 @@ class TestSharder(TestCase):
         self.assertTrue(torch.allclose(M, sharder.M))
 
 
-    def test_minibatching_loss(self):
+    def test_mse_minibatching_loss(self):
         bigram = h.corpus_stats.get_test_bigram(2)
 
         for keep in [0.1, 1]:
@@ -109,13 +109,14 @@ class TestAutoEmbedder(TestCase):
         bigram = h.corpus_stats.get_test_bigram(2)
         glv_sharder = h.msharder.GloveSharder(bigram)
         ppmi_sharder = h.msharder.PPMISharder(bigram)
+        w2v_sharder = h.msharder.Word2vecSharder(bigram, 15)
         opt = torch.optim.Adam
         shape = bigram.Nxx.shape
 
         # TODO: right now this doesn't work for sharding > 1.
         # Perhaps this is because the bigram matrix is 11x11, which
         # is too small?
-        sharders = [glv_sharder, ppmi_sharder]
+        sharders = [glv_sharder, ppmi_sharder, w2v_sharder][-1:]
         shard_fs = [1]
         oss = [True, False]
         lbs = [True, False]
@@ -169,6 +170,22 @@ class TestAutoEmbedder(TestCase):
             solver.cycle(epochs=1000, shard_times=1, hold_loss=True)
 
 
+    def test_w2v_solver(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        shape = bigram.Nxx.shape
+        w2v_sharder = h.msharder.Word2vecSharder(bigram, 15, update_density=1)
+        opt = torch.optim.Adam
+        solver = h.autoembedder.HilbertEmbedderSolver(
+            w2v_sharder, opt, d=10,
+            shape=shape,
+            learning_rate=0.01,
+            shard_factor=1,
+            one_sided=False,
+            learn_bias=False,
+            device=h.CONSTANTS.MATRIX_DEVICE,
+            verbose=True,
+        )
+        solver.cycle(100, True)
 
 
 if __name__ == '__main__':

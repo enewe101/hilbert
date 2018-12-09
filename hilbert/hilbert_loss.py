@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.nn.functional import dropout
+from torch.nn.functional import dropout, sigmoid
 
 
 # function for applying the minibatching dropout and then
@@ -16,3 +16,16 @@ class MSELoss(nn.Module):
         mse = weights * ((M_hat - M) ** 2)
         mse = keep(mse, keep_prob)
         return 0.5 * torch.sum(mse)
+
+
+# TODO: verify correctness!
+class W2VLoss(nn.Module):
+
+    def forward(self, M_hat, Nxx, N_neg, keep_prob):
+        smhat = sigmoid(M_hat)
+        total = (
+            (Nxx * torch.log(smhat)) +
+            (N_neg * torch.log(1 - smhat))
+        )
+        return -torch.sum(keep(total, keep_prob))
+

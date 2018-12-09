@@ -82,25 +82,17 @@ class GloveSharder(MSharder):
 class Word2vecSharder(MSharder):
 
     def __init__(self, bigram, k, update_density=1, device=None):
-        super(Word2vecSharder, self).__init__(
-            bigram, update_density, device)
+        super(Word2vecSharder, self).__init__(bigram, update_density, device)
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         self.k = torch.tensor(k, device=self.device, dtype=dtype)
+        self.criterion = h.hilbert_loss.W2VLoss()
 
 
-    def load_shard(self, shard):
-        self.Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
-        uNx, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
+    def _load_shard(self, shard):
+        self.Nxx, Nx, _, _ = self.bigram.load_shard(shard, device=self.device)
+        _, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
         self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
-        self.multiplier = self.Nxx + self.N_neg
 
 
     def _get_loss(self, M_hat, keep_prob=1):
-        raise NotImplementedError('need to do this!')
-
-        # This simplified form is equivalent to (but a bit cheaper than):
-        #      (Nxx + N_Neg) * (sigmoid(M) - sigmoid(M_hat))
-        # return self.Nxx - (self.Nxx + self.N_neg) * M_hat.sigmoid()
-
-
-
+        return self.criterion(M_hat, self.Nxx, self.N_neg, keep_prob)
