@@ -93,7 +93,7 @@ class HilbertEmbedderSolver(object):
         # this sets in motion the torch API big boy
         self.optimizer = None
         self.learner = None
-        self.restart()
+        self.restart(resample_vectors=init_vecs is None)
 
 
     def validate_shape(self):
@@ -110,7 +110,7 @@ class HilbertEmbedderSolver(object):
             )
 
 
-    def restart(self):
+    def restart(self, resample_vectors=True):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         torch.random.manual_seed(self.seed)
 
@@ -119,8 +119,9 @@ class HilbertEmbedderSolver(object):
         if not self.one_sided:
             wshape = (self.shape[1], self.d)
 
-        self.V = xavier(vshape, device)
-        self.W = None if self.one_sided else xavier(wshape, device)
+        if resample_vectors:
+            self.V = xavier(vshape, device)
+            self.W = None if self.one_sided else xavier(wshape, device)
 
         # initialize the bias vectors, if desired.
         if self.learn_bias:
@@ -195,7 +196,11 @@ class AutoEmbedder(nn.Module):
 
     def forward(self, shard):
         V = self.V[shard[1]].squeeze()
-        W = self.W[shard[0]].squeeze() if self.learn_w else V
+
+        if self.learn_w:
+            W = self.W[shard[0]].squeeze()
+        else:
+            W = self.V[shard[0]].squeeze()
 
         # W is of shape C x d, V is of shape T x d
         # so M_hat is of shape C x T
@@ -209,7 +214,7 @@ class AutoEmbedder(nn.Module):
             if self.learn_w:
                 M_hat += self.w_bias[shard[0]].reshape(-1, 1)
             else:
-                M_hat += self.v_bias[shard[1]].reshape(-1, 1)
+                M_hat += self.v_bias[shard[0]].reshape(-1, 1)
 
         # andddd that's all folks!
         return M_hat

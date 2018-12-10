@@ -117,7 +117,7 @@ class TestAutoEmbedder(TestCase):
         # Perhaps this is because the bigram matrix is 11x11, which
         # is too small?
         sharders = [glv_sharder, ppmi_sharder, w2v_sharder]
-        shard_fs = [1]
+        shard_fs = [1, 2, 5]
         oss = [True, False]
         lbs = [True, False]
         options = product(sharders, shard_fs, oss, lbs)
