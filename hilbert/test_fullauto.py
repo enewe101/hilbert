@@ -116,7 +116,7 @@ class TestAutoEmbedder(TestCase):
         # TODO: right now this doesn't work for sharding > 1.
         # Perhaps this is because the bigram matrix is 11x11, which
         # is too small?
-        sharders = [glv_sharder, ppmi_sharder, w2v_sharder][-1:]
+        sharders = [glv_sharder, ppmi_sharder, w2v_sharder]
         shard_fs = [1]
         oss = [True, False]
         lbs = [True, False]
@@ -146,6 +146,23 @@ class TestAutoEmbedder(TestCase):
             l3 += solver.cycle(epochs=5, shard_times=1, hold_loss=True)
             self.assertTrue(np.allclose(l1, l2))
             self.assertTrue(np.allclose(l1, l3))
+            solver.restart()
+
+            # here we're ensuring that the equality between the solver parameters
+            # and the torch module parameters are always the same, before and
+            # after learning
+            for _ in range(3):
+                V, W, vb, wb = solver.get_params()
+                aV, aW, avb, awb = (
+                    solver.learner.V, solver.learner.W,
+                    solver.learner.v_bias, solver.learner.w_bias
+                )
+                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+                    if t1 is None and t2 is None:
+                        continue
+                    self.assertTrue(torch.allclose(t1, t2))
+
+                solver.cycle(1)
 
 
     def test_solver_nan(self):
@@ -175,6 +192,7 @@ class TestAutoEmbedder(TestCase):
         shape = bigram.Nxx.shape
         w2v_sharder = h.msharder.Word2vecSharder(bigram, 15, update_density=1)
         opt = torch.optim.Adam
+
         solver = h.autoembedder.HilbertEmbedderSolver(
             w2v_sharder, opt, d=10,
             shape=shape,
@@ -183,9 +201,27 @@ class TestAutoEmbedder(TestCase):
             one_sided=False,
             learn_bias=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
-            verbose=True,
+            verbose=VERBOSE,
         )
-        solver.cycle(100, True)
+        w2v_sharder._load_shard(None)
+
+        for _ in range(3):
+            V, W, _, _ = solver.get_params()
+            mhat = W @ V.t()
+
+            loss_value = w2v_sharder._get_loss(mhat).item()
+
+            # get expected
+            smhat = mhat.sigmoid()
+            total = -torch.sum(
+                (w2v_sharder.Nxx * torch.log(smhat)) +
+                (w2v_sharder.N_neg * torch.log(1 - smhat))
+            )
+            expected_loss = total.item()
+
+            self.assertEqual(loss_value, expected_loss)
+            solver.cycle(5, True)
+
 
 
 if __name__ == '__main__':

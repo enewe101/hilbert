@@ -72,8 +72,10 @@ class HilbertEmbedderSolver(object):
         self.opt_kwargs = {**{'lr': learning_rate}, **opt_kwargs}
 
         # code for initializing the vectors & covectors
+        self.V, self.W = None, None
+        self.vb, self.wb = None, None
+
         if init_vecs is not None:
-            # Unpack the vectors
             if isinstance(init_vecs, h.embeddings.Embeddings):
                 self.V, self.W = (init_vecs.V, None) if one_sided else (
                                  (init_vecs.V, init_vecs.W))
@@ -121,7 +123,6 @@ class HilbertEmbedderSolver(object):
         self.W = None if self.one_sided else xavier(wshape, device)
 
         # initialize the bias vectors, if desired.
-        self.vb, self.wb = None, None
         if self.learn_bias:
             self.vb = xavier((1, vshape[0]), device).squeeze()
             if not self.one_sided:
@@ -134,6 +135,10 @@ class HilbertEmbedderSolver(object):
             self.learner.parameters(),
             **self.opt_kwargs,
         )
+
+
+    def get_params(self):
+        return self.V, self.W, self.vb, self.wb
 
 
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):
@@ -179,18 +184,13 @@ class AutoEmbedder(nn.Module):
         super(AutoEmbedder, self).__init__()
         self.learn_w = W is not None
         self.learn_bias = v_bias is not None
+        wb = self.learn_w and self.learn_bias
 
         # annoying initialization
         self.V = nn.Parameter(V)
-
-        if self.learn_w:
-            self.W = nn.Parameter(W)
-
-        if self.learn_bias:
-            self.v_bias = nn.Parameter(v_bias)
-
-            if self.learn_w:
-                self.w_bias = nn.Parameter(w_bias)
+        self.W = nn.Parameter(W) if self.learn_w else None
+        self.v_bias = nn.Parameter(v_bias) if self.learn_bias else None
+        self.w_bias = nn.Parameter(w_bias) if wb else None
 
 
     def forward(self, shard):
