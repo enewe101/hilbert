@@ -46,10 +46,15 @@ class TestSharder(TestCase):
     def test_mse_minibatching_loss(self):
         bigram = h.corpus_stats.get_test_bigram(2)
 
-        for keep in [0.1, 1]:
+        for keep in [0.1, 0.5, 1]:
             for scale, constructor in [(1, h.msharder.PPMISharder),
                                        (2, h.msharder.GloveSharder)]:
+
                 sharder = constructor(bigram, update_density=keep)
+
+                expected_scaler = float(np.prod(bigram.Nxx.shape) * keep)
+                self.assertEqual(expected_scaler, sharder.criterion.rescale)
+
                 sharder._load_shard(None)
                 mhat = torch.ones(sharder.M.shape)
                 try:
@@ -59,18 +64,12 @@ class TestSharder(TestCase):
 
                 torch.manual_seed(1)
                 loss = sharder.calc_shard_loss(mhat, None)
+                mse = scale * 0.5 * weights * ((mhat - sharder.M) ** 2)
+
                 torch.manual_seed(1)
-                mse = weights * ((mhat - sharder.M) ** 2)
-                exloss = torch.nn.functional.dropout(
-                    mse, p=1-keep, training=True)
-                exloss = 0.5 * torch.sum(exloss) * scale
+                exloss = torch.nn.functional.dropout(mse, p=1-keep, training=True)
+                exloss = keep * torch.sum(exloss) / expected_scaler
 
-                if keep != 1:
-                    self.assertNotEqual(loss, exloss)
-                else:
-                    self.assertEqual(loss, exloss)
-
-                exloss *= keep
                 self.assertEqual(loss, exloss)
 
 
@@ -174,7 +173,7 @@ class TestAutoEmbedder(TestCase):
         solver = h.autoembedder.HilbertEmbedderSolver(
             ppmi_sharder, opt, d=300,
             shape=shape,
-            learning_rate=10,
+            learning_rate=1000,
             shard_factor=1,
             one_sided=False,
             learn_bias=False,
@@ -213,13 +212,13 @@ class TestAutoEmbedder(TestCase):
 
             # get expected
             smhat = mhat.sigmoid()
-            total = -torch.sum(
+            total = -torch.mean(
                 (w2v_sharder.Nxx * torch.log(smhat)) +
                 (w2v_sharder.N_neg * torch.log(1 - smhat))
             )
             expected_loss = total.item()
-
-            self.assertEqual(loss_value, expected_loss)
+            eps = 0.05
+            self.assertTrue(expected_loss - eps < loss_value < expected_loss + eps)
             solver.cycle(5, True)
 
 

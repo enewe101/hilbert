@@ -2,7 +2,6 @@ import hilbert.CONSTANTS
 import hilbert.corpus_stats
 import hilbert.unigram
 import hilbert.bigram
-import hilbert.cooc_stats
 import hilbert.dictionary
 import hilbert.M
 import hilbert.utils
@@ -11,3 +10,5 @@ import hilbert.shards
 import hilbert.hilbert_loss
 import hilbert.msharder
 import hilbert.autoembedder
+import hilbert.factories
+import hilbert.run_base

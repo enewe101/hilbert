@@ -11,20 +11,29 @@ def keep(tensor, keep_p):
 
 class MSELoss(nn.Module):
 
-    def forward(self, M_hat, M, keep_prob, weights=None):
+    def __init__(self, keep_prob, ncomponents):
+        super(MSELoss, self).__init__()
+        self.keep_prob = keep_prob
+        self.rescale = float(keep_prob * ncomponents)
+
+    def forward(self, M_hat, M, weights=None):
         weights = 1 if weights is None else weights
         mse = weights * ((M_hat - M) ** 2)
-        mse = keep(mse, keep_prob)
-        return 0.5 * torch.sum(mse)
+        mse = keep(mse, self.keep_prob)
+        return 0.5 * torch.sum(mse) / self.rescale
 
 
 class W2VLoss(nn.Module):
 
-    def forward(self, M_hat, Nxx, N_neg, keep_prob):
-        smhat = torch.sigmoid(M_hat)
-        total = (
-            (Nxx * torch.log(smhat)) +
-            (N_neg * torch.log(1 - smhat))
-        )
-        return -torch.sum(keep(total, keep_prob))
+    def __init__(self, keep_prob, ncomponents):
+        super(W2VLoss, self).__init__()
+        self.keep_prob = keep_prob
+        self.rescale = float(keep_prob * ncomponents)
+
+    def forward(self, M_hat, Nxx, N_neg):
+        logfactor = torch.log(torch.exp(M_hat) + 1)
+        term1 = N_neg * logfactor
+        term2 = Nxx * (logfactor - M_hat)
+        result = keep(term1 + term2, self.keep_prob)
+        return torch.sum(result) / self.rescale
 

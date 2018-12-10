@@ -39,7 +39,7 @@ class HilbertEmbedderSolver(object):
             (3) the dimensionality (an integer for the size of the embeddings)
 
         :param sharder: an MSharder object that stores the loss
-        :param optimizer: a constructor from torch.optim that we will build later
+        :param optimizer_constructor: a constructor from torch.optim that we will build later
         :param d: the desired dimensionality
         :param learning_rate: learning rate
         :param opt_kwargs: dictionary of keyword arguments for optimizer constructor
@@ -72,6 +72,7 @@ class HilbertEmbedderSolver(object):
         self.opt_kwargs = {**{'lr': learning_rate}, **opt_kwargs}
 
         # code for initializing the vectors & covectors
+        self.epoch_loss = None
         self.V, self.W = None, None
         self.vb, self.wb = None, None
 
@@ -94,6 +95,19 @@ class HilbertEmbedderSolver(object):
         self.optimizer = None
         self.learner = None
         self.restart(resample_vectors=init_vecs is None)
+
+
+    def describe(self):
+        s = 'Sharder: {}\n--'.format(self.sharder.describe())
+        sfun = lambda strr, value: '\t{} = {}\n'.format(strr, value)
+        s += sfun('optimizer', self.optimizer_constructor)
+        s += sfun('d', self.d)
+        s += sfun('learning_rate', self.learning_rate)
+        s += sfun('one_sided', self.one_sided)
+        s += sfun('learn_bias', self.learn_bias)
+        s += sfun('shard_factor', self.shard_factor)
+        s += sfun('seed', self.seed)
+        return s
 
 
     def validate_shape(self):
@@ -140,6 +154,10 @@ class HilbertEmbedderSolver(object):
 
     def get_params(self):
         return self.V, self.W, self.vb, self.wb
+
+
+    def get_dictionary(self):
+        return self.sharder.bigram.dictionary
 
 
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):

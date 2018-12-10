@@ -19,15 +19,19 @@ class MSharder(object):
             self.last_shard = shard
             self._load_shard(shard)
 
-        return self._get_loss(M_hat, self.update_density)
+        return self._get_loss(M_hat)
+
+
+    def describe(self):
+        raise NotImplementedError('Subclasses must override `describe`.')
 
 
     def _load_shard(self,  shard):
-        raise NotImplementedError('Subclasses must override `load_shard`.')
+        raise NotImplementedError('Subclasses must override `_load_shard`.')
 
 
-    def _get_loss(self, M_hat, keep_prob=1):
-        raise NotImplementedError('Subclasses must override `get_loss`.')
+    def _get_loss(self, M_hat):
+        raise NotImplementedError('Subclasses must override `_get_loss`.')
 
 
 
@@ -35,7 +39,15 @@ class PPMISharder(MSharder):
 
     def __init__(self, *args, **kwargs):
         super(PPMISharder, self).__init__(*args, **kwargs)
-        self.criterion = h.hilbert_loss.MSELoss()
+        self.criterion = h.hilbert_loss.MSELoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def describe(self):
+        s = 'PPMI Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        return s
 
 
     def _load_shard(self, shard):
@@ -44,8 +56,8 @@ class PPMISharder(MSharder):
         self.M = torch.clamp(self.M, min=0)
 
 
-    def _get_loss(self, M_hat, keep_prob=1):
-        return self.criterion(M_hat, self.M, keep_prob)
+    def _get_loss(self, M_hat):
+        return self.criterion(M_hat, self.M)
 
 
 
@@ -58,7 +70,17 @@ class GloveSharder(MSharder):
         super(GloveSharder, self).__init__(bigram, update_density, device)
         self.X_max = float(X_max)
         self.alpha = alpha
-        self.criterion = h.hilbert_loss.MSELoss()
+        self.criterion = h.hilbert_loss.MSELoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def describe(self):
+        s = 'GloVe Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\tX_max = {}\n'.format(self.X_max)
+        s += '\talpha = {}\n'.format(self.alpha)
+        return s
 
 
     def _load_shard(self, shard):
@@ -72,8 +94,8 @@ class GloveSharder(MSharder):
         self.multiplier[Nxx==0] = 0
 
 
-    def _get_loss(self, M_hat, keep_prob=1):
-        return 2 * self.criterion(M_hat, self.M, keep_prob, self.multiplier)
+    def _get_loss(self, M_hat):
+        return 2 * self.criterion(M_hat, self.M, weights=self.multiplier)
 
 
 
@@ -85,7 +107,16 @@ class Word2vecSharder(MSharder):
         super(Word2vecSharder, self).__init__(bigram, update_density, device)
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         self.k = torch.tensor(k, device=self.device, dtype=dtype)
-        self.criterion = h.hilbert_loss.W2VLoss()
+        self.criterion = h.hilbert_loss.W2VLoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def describe(self):
+        s = 'Word2Vec Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\tk = {}\n'.format(self.k)
+        return s
 
 
     def _load_shard(self, shard):
@@ -94,5 +125,5 @@ class Word2vecSharder(MSharder):
         self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
 
 
-    def _get_loss(self, M_hat, keep_prob=1):
-        return self.criterion(M_hat, self.Nxx, self.N_neg, keep_prob)
+    def _get_loss(self, M_hat):
+        return self.criterion(M_hat, self.Nxx, self.N_neg)
