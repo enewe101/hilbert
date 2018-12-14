@@ -154,7 +154,7 @@ class HilbertEmbedderSolver(object):
         self.optimizer = ReduceLROnPlateau(self.optimizer,
             mode='min',
             factor=0.5,
-            patients=250,
+            patience=250,
             verbose=True,
             min_lr=1e-8,
         )
