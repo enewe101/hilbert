@@ -150,6 +150,13 @@ class HilbertEmbedderSolver(object):
             self.learner.parameters(),
             **self.opt_kwargs,
         )
+        self.optimizer = ReduceLROnPlateau(self.optimizer,
+            mode='min',
+            factor=0.5,
+            patients=250,
+            verbose=True,
+            min_lr=1e-8,
+        )
 
 
     def get_params(self):
@@ -181,7 +188,7 @@ class HilbertEmbedderSolver(object):
                         raise DivergenceError('Model has completely diverged!')
 
                     loss.backward()
-                    self.optimizer.step()
+                    self.optimizer.step(loss.item())
 
                     # statistics
                     self.epoch_loss += loss.item()
