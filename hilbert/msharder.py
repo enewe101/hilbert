@@ -127,3 +127,113 @@ class Word2vecSharder(MSharder):
 
     def _get_loss(self, M_hat):
         return self.criterion(M_hat, self.Nxx, self.N_neg)
+
+
+class MaxLikelihoodSharder(MSharder):
+
+    def __init__(self, bigram, k, update_density=1, device=None):
+        super(MaximumLikelihoodSharder, self).__init__(
+            bigram, update_density, device)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.criterion = h.hilbert_loss.MaximumLikelihoodLoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def _load_shard(self, shard):
+        Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
+        self.Pxx_likelihood = Nxx / N
+        self.Pxx_independent = (Nx / N) * (Nxt / N)
+
+
+    def _get_loss(self, M_hat):
+        return self.criterion(M_hat, self.Pxx_likelihood, self.Pxx_independent)
+
+
+
+class MaxPosteriorSharder(MSharder):
+
+    def __init__(self, bigram, k, update_density=1, device=None):
+        super(MaximumLikelihoodSharder, self).__init__(
+            bigram, update_density, device)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.criterion = h.hilbert_loss.MaxPosteriorLoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def _load_shard(self, shard):
+
+        self.bigram_shard = self.bigram.load_shard(shard, device=self.device)
+        Nxx, Nx, Nxt, self.N = self.bigram_shard
+        self.Pxx_independent = (Nx / self.N) * (Nxt / self.N)
+        exp_mean, exp_std =  calc_exp_pmi_stats(self.bigram_shard)
+        alpha, beta = calc_prior_beta_params(
+            self.bigram_shard, exp_mean, exp_std, self.Pxx_independent)
+        self.N_posterior = self.N + alpha + beta - 1
+        self.Pxx_posterior = (Nxx + alpha) / self.N_posterior
+
+
+    def _get_loss(self, M_hat):
+        return self.criterion(
+            M_hat, self.N, self.N_posterior, 
+            self.Pxx_posterior, self.Pxx_independent
+        )
+
+
+
+class KLSharder(MSharder):
+
+    def __init__(self, bigram, k, update_density=1, device=None):
+        super(MaximumLikelihoodSharder, self).__init__(
+            bigram, update_density, device)
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.criterion = h.hilbert_loss.MaxPosteriorLoss(
+            self.update_density, np.prod(self.bigram.Nxx.shape)
+        )
+
+
+    def _load_shard(self, shard):
+
+        self.bigram_shard = self.bigram.load_shard(shard, device=self.device)
+        Nxx, Nx, Nxt, self.N = self.bigram_shard
+        self.Pxx_independent = (Nx / self.N) * (Nxt / self.N)
+
+        exp_mean, exp_std =  calc_exp_pmi_stats(self.bigram_shard)
+        alpha, beta = calc_prior_beta_params(
+            self.bigram_shard, exp_mean, exp_std, self.Pxx_independent)
+
+        self.N_posterior = self.N + alpha + beta - 1
+
+        a = Nxx + alpha
+        b = N - Nxx + beta
+        self.digamma_a = torch.digamma(a) - torch.digamma(a+b)
+        self.digamma_b = torch.digamma(b) - torch.digamma(a+b)
+
+
+    def _get_loss(self, M_hat):
+        return self.criterion(
+            M_hat, self.N, self.N_posterior, 
+            self.Pxx_independent, self.digamma_a, self.digamma_b
+        )
+
+
+
+def calc_prior_beta_params(bigram, exp_mean, exp_std, Pxx_independent):
+    _, Nx, Nxt, N = bigram
+    mean = exp_mean * Pxx_independent
+    std = exp_std * Pxx_independent
+    alpha = mean * (mean*(1-mean)/std - 1)
+    beta = (1-mean) * alpha / mean 
+    return alpha, beta
+
+
+def calc_exp_pmi_stats(bigram):
+    Nxx, _, _, _ = bigram
+    pmi = h.corpus_stats.calc_PMI(bigram)
+    # Keep only pmis for i,j where Nxx[i,j]>0
+    pmi = pmi[Nxx>0]
+    exp_pmi = np.e**pmi
+    return torch.mean(exp_pmi), torch.std(exp_pmi)
+
+

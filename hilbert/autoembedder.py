@@ -92,7 +92,7 @@ class HilbertEmbedderSolver(object):
             self.shape = shape
             self.validate_shape()
 
-        # this sets in motion the torch API big boy
+        # this sets in motion the torch API big boi
         self.optimizer = None
         self.learner = None
         self.restart(resample_vectors=init_vecs is None)
