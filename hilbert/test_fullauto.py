@@ -161,7 +161,8 @@ class TestAutoEmbedder(TestCase):
 
         for sharder, shard_factor, one_sided, learn_bias in options:
             vprint('\n', sharder.__class__)
-            vprint('one_sided =', one_sided, 'learn_bias =', learn_bias)
+            vprint('one_sided =', one_sided, 'learn_bias =', learn_bias, 
+                    'shard_factor =', shard_factor)
 
             solver = h.autoembedder.HilbertEmbedderSolver(
                 sharder, opt, d=300,
@@ -221,7 +222,7 @@ class TestAutoEmbedder(TestCase):
 
         # check to make sure we get the same loss after resetting
         with self.assertRaises(h.autoembedder.DivergenceError):
-            solver.cycle(epochs=1000, shard_times=1, hold_loss=True)
+            solver.cycle(epochs=100, shard_times=1, hold_loss=True)
 
 
     def test_w2v_solver(self):
