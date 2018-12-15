@@ -56,7 +56,9 @@ class TestSharder(TestCase):
                 self.assertEqual(expected_scaler, sharder.criterion.rescale)
 
                 sharder._load_shard(None)
-                mhat = torch.ones(sharder.M.shape)
+                mhat = torch.ones(
+                    sharder.M.shape, device=h.CONSTANTS.MATRIX_DEVICE)
+
                 try:
                     weights = sharder.multiplier
                 except AttributeError:
@@ -110,6 +112,31 @@ class TestSharder(TestCase):
         self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
 
 
+    def test_KL_sharder(self):
+
+        bigram = h.corpus_stats.get_test_bigram(2)
+        sharder = h.msharder.KLSharder(bigram)
+        sharder._load_shard(None)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Pxx_independent = (Nx / N) * (Nxt / N)
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            (Nxx, Nx, Nxt, N))
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
+            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+        N_posterior = N + alpha + beta - 1
+
+        a = Nxx + alpha
+        b = N - Nxx + beta
+        digamma_a = torch.digamma(a) - torch.digamma(a+b)
+        digamma_b = torch.digamma(b) - torch.digamma(a+b)
+
+        self.assertTrue(torch.allclose(N_posterior, sharder.N_posterior))
+        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
+        self.assertTrue(torch.allclose(digamma_a, sharder.digamma_a))
+        self.assertTrue(torch.allclose(digamma_b, sharder.digamma_b))
+
+
 
 class TestLoss(TestCase):
 
@@ -161,6 +188,43 @@ class TestLoss(TestCase):
         found_loss = loss_class(
             M_hat, N, N_posterior, Pxx_posterior, Pxx_independent 
         )
+
+        self.assertTrue(torch.allclose(found_loss, expected_loss))
+
+
+    def test_KL_loss(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        ncomponents = np.prod(Nxx.shape)
+        keep_prob = 1
+
+        loss_obj = h.hilbert_loss.KLLoss(keep_prob, ncomponents)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Pxx_independent = (Nx / N) * (Nxt / N)
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            (Nxx, Nx, Nxt, N))
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
+            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+        N_posterior = N + alpha + beta - 1
+
+        a = Nxx + alpha
+        b = N - Nxx + beta
+        digamma_a = torch.digamma(a) - torch.digamma(a+b)
+        digamma_b = torch.digamma(b) - torch.digamma(a+b)
+
+        M_hat = torch.ones_like(Nxx)
+
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+        a_hat = N_posterior * Pxx_model
+        b_hat = N_posterior * (1 - Pxx_model) + 1
+        lbeta = torch.lgamma(a_hat) + torch.lgamma(b_hat) - torch.lgamma(
+            a_hat + b_hat)
+        KL = (lbeta - a_hat * digamma_a - b_hat * digamma_b) / N
+        expected_loss = torch.sum(KL) / float(ncomponents)
+
+        found_loss = loss_obj(
+            M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b)
 
         self.assertTrue(torch.allclose(found_loss, expected_loss))
 

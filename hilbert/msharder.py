@@ -183,7 +183,7 @@ class MaxPosteriorSharder(MSharder):
 
 class KLSharder(MSharder):
 
-    def __init__(self, bigram, k, update_density=1, device=None):
+    def __init__(self, bigram, update_density=1, device=None):
         super(KLSharder, self).__init__(
             bigram, update_density, device)
         self.criterion = h.hilbert_loss.KLLoss(
@@ -205,7 +205,7 @@ class KLSharder(MSharder):
         self.N_posterior = self.N + alpha + beta - 1
 
         a = Nxx + alpha
-        b = N - Nxx + beta
+        b = self.N - Nxx + beta
         self.digamma_a = torch.digamma(a) - torch.digamma(a+b)
         self.digamma_b = torch.digamma(b) - torch.digamma(a+b)
 

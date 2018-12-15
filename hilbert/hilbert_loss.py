@@ -81,22 +81,20 @@ class KLLoss(nn.Module):
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
-    def forward(M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b):
+    def forward(
+        self, M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b
+    ):
 
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         a_hat = N_posterior * Pxx_model
         b_hat = N_posterior * (1 - Pxx_model) + 1
-        ln_beta = ln_beta(a_hat, b_hat)
 
-        result = (ln_beta - a_hat * digamma_a - b_hat * digamma_b) / N
+        result = (lbeta(a_hat,b_hat) - a_hat*digamma_a - b_hat*digamma_b) / N
         keep_result = keep(result, self.keep_prob)
 
-        # Should this return the negative?
         return torch.sum(keep_result) / self.rescale
 
 
-def ln_beta(a,b):
-    return (
-        torch.lgamma(a_hat) + torch.lgamma(b_hat) 
-        - torch.lgamma(a_hat + b_hat)
-    )
+def lbeta(a,b):
+    return torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a+b)
+
