@@ -131,9 +131,10 @@ class Word2vecSharder(MSharder):
 
 class MaxLikelihoodSharder(MSharder):
 
-    def __init__(self, bigram, update_density=1, device=None):
+    def __init__(self, bigram, temperature=1, update_density=1, device=None):
         super(MaxLikelihoodSharder, self).__init__(
             bigram, update_density, device)
+        self.temperature = temperature
         self.criterion = h.hilbert_loss.MaxLikelihoodLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
@@ -146,15 +147,17 @@ class MaxLikelihoodSharder(MSharder):
 
 
     def _get_loss(self, M_hat):
-        return self.criterion(M_hat, self.Pxx_data, self.Pxx_independent)
+        return self.criterion(
+            M_hat, self.Pxx_data, self.Pxx_independent, self.temperature)
 
 
 
 class MaxPosteriorSharder(MSharder):
 
-    def __init__(self, bigram, update_density=1, device=None):
+    def __init__(self, bigram, temperature=1, update_density=1, device=None):
         super(MaxPosteriorSharder, self).__init__(
             bigram, update_density, device)
+        self.temperature = temperature
         self.criterion = h.hilbert_loss.MaxPosteriorLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
@@ -176,16 +179,17 @@ class MaxPosteriorSharder(MSharder):
     def _get_loss(self, M_hat):
         return self.criterion(
             M_hat, self.N, self.N_posterior, 
-            self.Pxx_posterior, self.Pxx_independent
+            self.Pxx_posterior, self.Pxx_independent, self.temperature
         )
 
 
 
 class KLSharder(MSharder):
 
-    def __init__(self, bigram, update_density=1, device=None):
+    def __init__(self, bigram, temperature=1, update_density=1, device=None):
         super(KLSharder, self).__init__(
             bigram, update_density, device)
+        self.temperature = temperature
         self.criterion = h.hilbert_loss.KLLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
@@ -212,8 +216,8 @@ class KLSharder(MSharder):
 
     def _get_loss(self, M_hat):
         return self.criterion(
-            M_hat, self.N, self.N_posterior, 
-            self.Pxx_independent, self.digamma_a, self.digamma_b
+            M_hat, self.N, self.N_posterior, self.Pxx_independent,
+            self.digamma_a, self.digamma_b, self.temperature
         )
 
 

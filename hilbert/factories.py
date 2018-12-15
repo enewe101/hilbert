@@ -65,7 +65,7 @@ def construct_w2v_solver(
         init_vecs=init_vecs, shape=None, one_sided=False, learn_bias=False,
         shard_factor=shard_factor, seed=seed, device=device,
     )
-    print('finished loading w2v bad boy!')
+    print('finished loading w2v bad boi!')
     return embsolver
 
 

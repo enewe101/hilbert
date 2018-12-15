@@ -78,7 +78,8 @@ class TestSharder(TestCase):
 
     def test_max_likelihood_sharder(self):
         bigram = h.corpus_stats.get_test_bigram(2)
-        sharder = h.msharder.MaxLikelihoodSharder(bigram)
+        temperature = 10
+        sharder = h.msharder.MaxLikelihoodSharder(bigram, temperature)
         sharder._load_shard(None)
 
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
@@ -87,11 +88,13 @@ class TestSharder(TestCase):
 
         self.assertTrue(torch.allclose(Pxx_data, sharder.Pxx_data))
         self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
+        self.assertEqual(temperature, sharder.temperature)
 
 
     def test_max_posterior_sharder(self):
         bigram = h.corpus_stats.get_test_bigram(2)
-        sharder = h.msharder.MaxPosteriorSharder(bigram)
+        temperature = 10
+        sharder = h.msharder.MaxPosteriorSharder(bigram, temperature)
         sharder._load_shard(None)
 
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
@@ -110,12 +113,14 @@ class TestSharder(TestCase):
         self.assertTrue(torch.allclose(Pxx_posterior, sharder.Pxx_posterior))
         self.assertTrue(torch.allclose(N_posterior, sharder.N_posterior))
         self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
+        self.assertEqual(temperature, sharder.temperature)
 
 
     def test_KL_sharder(self):
 
         bigram = h.corpus_stats.get_test_bigram(2)
-        sharder = h.msharder.KLSharder(bigram)
+        temperature = 10
+        sharder = h.msharder.KLSharder(bigram, temperature)
         sharder._load_shard(None)
 
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
@@ -135,6 +140,7 @@ class TestSharder(TestCase):
         self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
         self.assertTrue(torch.allclose(digamma_a, sharder.digamma_a))
         self.assertTrue(torch.allclose(digamma_b, sharder.digamma_b))
+        self.assertEqual(temperature, sharder.temperature)
 
 
 
@@ -155,11 +161,14 @@ class TestLoss(TestCase):
 
         loss_term1 = Pxx_data * torch.log(Pxx_model)
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
-        expected_loss = -torch.sum(loss_term1 + loss_term2) / float(ncomponents)
-        found_loss = loss_class(M_hat, Pxx_data, Pxx_independent)
+        loss_array = loss_term1 + loss_term2
 
-        self.assertTrue(torch.allclose(found_loss, expected_loss))
-
+        for temperature in [1,10]:
+            tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
+            expected_loss = -torch.sum(loss_array) / float(ncomponents)
+            found_loss = loss_class(
+                M_hat, Pxx_data, Pxx_independent, temperature)
+            self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
     def test_max_posterior_loss(self):
@@ -184,12 +193,15 @@ class TestLoss(TestCase):
         loss_term1 = Pxx_posterior * torch.log(Pxx_model)
         loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
         scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
-        expected_loss = - torch.sum(scaled_loss) / float(ncomponents)
-        found_loss = loss_class(
-            M_hat, N, N_posterior, Pxx_posterior, Pxx_independent 
-        )
 
-        self.assertTrue(torch.allclose(found_loss, expected_loss))
+        for temperature in [1, 10]:
+            tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
+            expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
+            found_loss = loss_class(
+                M_hat, N, N_posterior, Pxx_posterior, Pxx_independent, 
+                temperature
+            )
+            self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
     def test_KL_loss(self):
@@ -221,12 +233,15 @@ class TestLoss(TestCase):
         lbeta = torch.lgamma(a_hat) + torch.lgamma(b_hat) - torch.lgamma(
             a_hat + b_hat)
         KL = (lbeta - a_hat * digamma_a - b_hat * digamma_b) / N
-        expected_loss = torch.sum(KL) / float(ncomponents)
 
-        found_loss = loss_obj(
-            M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b)
-
-        self.assertTrue(torch.allclose(found_loss, expected_loss))
+        for temperature in [1, 10]:
+            tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
+            expected_loss = torch.sum(tempered_KL) / float(ncomponents)
+            found_loss = loss_obj(
+                M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b,
+                temperature
+            )
+            self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
 class TestAutoEmbedder(TestCase):

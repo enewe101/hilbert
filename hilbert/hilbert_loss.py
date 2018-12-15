@@ -45,11 +45,17 @@ class MaxLikelihoodLoss(nn.Module):
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
-    def forward(self, M_hat, Pxx_data, Pxx_independent):
+    def forward(self, M_hat, Pxx_data, Pxx_independent, temperature):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         term1 = Pxx_data * torch.log(Pxx_model) 
         term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
-        result = keep(term1 + term2, self.keep_prob)
+        result = term1 + term2
+
+        # High temperatures help equalize the gradient for different vectors
+        if temperature != 1:
+            result *= Pxx_independent**(1/temperature - 1)
+
+        result = keep(result, self.keep_prob)
 
         # We want to maximize log likelihood, so minimize it's negative
         return - torch.sum(result) / self.rescale
@@ -62,11 +68,18 @@ class MaxPosteriorLoss(nn.Module):
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
-    def forward(self, M_hat, N, N_posterior, Pxx_posterior, Pxx_independent):
+    def forward(
+        self, M_hat, N, N_posterior, Pxx_posterior, Pxx_independent, temperature
+    ):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         term1 = Pxx_posterior * torch.log(Pxx_model) 
         term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
         result = (N_posterior / N) * (term1 + term2)
+
+        # High temperatures help equalize the gradient for different vectors
+        if temperature != 1:
+            result *= Pxx_independent**(1/temperature - 1)
+
         keep_result = keep(result, self.keep_prob)
 
         # Want to maximize posterior log probability, so minimize its negative
@@ -82,7 +95,8 @@ class KLLoss(nn.Module):
         self.rescale = float(keep_prob * ncomponents)
 
     def forward(
-        self, M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b
+        self, M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b, 
+        temperature
     ):
 
         Pxx_model = Pxx_independent * torch.exp(M_hat)
@@ -90,6 +104,11 @@ class KLLoss(nn.Module):
         b_hat = N_posterior * (1 - Pxx_model) + 1
 
         result = (lbeta(a_hat,b_hat) - a_hat*digamma_a - b_hat*digamma_b) / N
+
+        # High temperatures help equalize the gradient for different vectors
+        if temperature != 1:
+            result *= Pxx_independent**(1/temperature - 1)
+
         keep_result = keep(result, self.keep_prob)
 
         return torch.sum(keep_result) / self.rescale
