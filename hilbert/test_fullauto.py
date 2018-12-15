@@ -67,10 +67,48 @@ class TestSharder(TestCase):
                 mse = scale * 0.5 * weights * ((mhat - sharder.M) ** 2)
 
                 torch.manual_seed(1)
-                exloss = torch.nn.functional.dropout(mse, p=1-keep, training=True)
+                exloss = torch.nn.functional.dropout(
+                    mse, p=1-keep, training=True)
                 exloss = keep * torch.sum(exloss) / expected_scaler
 
                 self.assertEqual(loss, exloss)
+
+
+    def test_max_likelihood_sharder(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        sharder = h.msharder.MaxLikelihoodSharder(bigram)
+        sharder._load_shard(None)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Pxx_data = Nxx / N
+        Pxx_independent = (Nx / N) * (Nxt / N)
+
+        self.assertTrue(torch.allclose(Pxx_data, sharder.Pxx_data))
+        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
+
+
+
+class TestLoss(TestCase):
+
+    def test_max_likelihood_loss(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        ncomponents = np.prod(Nxx.shape)
+        keep_prob = 1
+
+        loss_class = h.hilbert_loss.MaxLikelihoodLoss(keep_prob, ncomponents)
+
+        M_hat = torch.ones_like(Nxx)
+        Pxx_data = Nxx / N
+        Pxx_independent = (Nx / N) * (Nxt / N)
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+
+        loss_term1 = Pxx_data * torch.log(Pxx_model)
+        loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
+        expected_loss = torch.sum(loss_term1 + loss_term2) / float(ncomponents)
+        found_loss = loss_class(M_hat, Pxx_data, Pxx_independent)
+
+        self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
 
@@ -218,7 +256,8 @@ class TestAutoEmbedder(TestCase):
             )
             expected_loss = total.item()
             eps = 0.05
-            self.assertTrue(expected_loss - eps < loss_value < expected_loss + eps)
+            self.assertTrue(
+                expected_loss - eps < loss_value < expected_loss + eps)
             solver.cycle(5, True)
 
 

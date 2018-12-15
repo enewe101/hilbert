@@ -131,23 +131,22 @@ class Word2vecSharder(MSharder):
 
 class MaxLikelihoodSharder(MSharder):
 
-    def __init__(self, bigram, k, update_density=1, device=None):
-        super(MaximumLikelihoodSharder, self).__init__(
+    def __init__(self, bigram, update_density=1, device=None):
+        super(MaxLikelihoodSharder, self).__init__(
             bigram, update_density, device)
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        self.criterion = h.hilbert_loss.MaximumLikelihoodLoss(
+        self.criterion = h.hilbert_loss.MaxLikelihoodLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
 
 
     def _load_shard(self, shard):
         Nxx, Nx, Nxt, N = self.bigram.load_shard(shard, device=self.device)
-        self.Pxx_likelihood = Nxx / N
+        self.Pxx_data = Nxx / N
         self.Pxx_independent = (Nx / N) * (Nxt / N)
 
 
     def _get_loss(self, M_hat):
-        return self.criterion(M_hat, self.Pxx_likelihood, self.Pxx_independent)
+        return self.criterion(M_hat, self.Pxx_data, self.Pxx_independent)
 
 
 
@@ -156,7 +155,6 @@ class MaxPosteriorSharder(MSharder):
     def __init__(self, bigram, k, update_density=1, device=None):
         super(MaximumLikelihoodSharder, self).__init__(
             bigram, update_density, device)
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
         self.criterion = h.hilbert_loss.MaxPosteriorLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
@@ -187,8 +185,7 @@ class KLSharder(MSharder):
     def __init__(self, bigram, k, update_density=1, device=None):
         super(MaximumLikelihoodSharder, self).__init__(
             bigram, update_density, device)
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        self.criterion = h.hilbert_loss.MaxPosteriorLoss(
+        self.criterion = h.hilbert_loss.KLLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
         )
 

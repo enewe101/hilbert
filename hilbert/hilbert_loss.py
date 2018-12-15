@@ -41,7 +41,7 @@ class W2VLoss(nn.Module):
 class MaxLikelihoodLoss(nn.Module):
 
     def __init__(self, keep_prob, ncomponents):
-        super(W2VLoss, self).__init__()
+        super(MaxLikelihoodLoss, self).__init__()
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
@@ -51,14 +51,14 @@ class MaxLikelihoodLoss(nn.Module):
         term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
         result = keep(term1 + term2, self.keep_prob)
 
-        # Should this return the negative?
-        return torch.sum(result) / self.rescale
+        # We want to maximize log likelihood, so minimize it's negative
+        return - torch.sum(result) / self.rescale
 
 
 class MaxPosteriorLoss(nn.Module):
 
     def __init__(self, keep_prob, ncomponents):
-        super(W2VLoss, self).__init__()
+        super(MaxPosteriorLoss, self).__init__()
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
@@ -74,10 +74,10 @@ class MaxPosteriorLoss(nn.Module):
 
 
 
-class MaxPosteriorLoss(nn.Module):
+class KLLoss(nn.Module):
 
     def __init__(self, keep_prob, ncomponents):
-        super(W2VLoss, self).__init__()
+        super(KLLoss, self).__init__()
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
