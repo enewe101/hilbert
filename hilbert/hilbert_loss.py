@@ -37,3 +37,66 @@ class W2VLoss(nn.Module):
         result = keep(term1 + term2, self.keep_prob)
         return torch.sum(result) / self.rescale
 
+
+class MaxLikelihoodLoss(nn.Module):
+
+    def __init__(self, keep_prob, ncomponents):
+        super(W2VLoss, self).__init__()
+        self.keep_prob = keep_prob
+        self.rescale = float(keep_prob * ncomponents)
+
+    def forward(self, M_hat, Pxx_data, Pxx_independent):
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+        term1 = Pxx_data * torch.log(Pxx_model) 
+        term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
+        result = keep(term1 + term2, self.keep_prob)
+
+        # Should this return the negative?
+        return torch.sum(result) / self.rescale
+
+
+class MaxPosteriorLoss(nn.Module):
+
+    def __init__(self, keep_prob, ncomponents):
+        super(W2VLoss, self).__init__()
+        self.keep_prob = keep_prob
+        self.rescale = float(keep_prob * ncomponents)
+
+    def forward(self, M_hat, N, N_posterior, Pxx_posterior, Pxx_independent):
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+        term1 = Pxx_posterior * torch.log(Pxx_model) 
+        term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
+        result = (N_posterior / N) * (term1 + term2)
+        keep_result = keep(result, self.keep_prob)
+
+        # Should this return the negative?
+        return torch.sum(keep_result) / self.rescale
+
+
+
+class MaxPosteriorLoss(nn.Module):
+
+    def __init__(self, keep_prob, ncomponents):
+        super(W2VLoss, self).__init__()
+        self.keep_prob = keep_prob
+        self.rescale = float(keep_prob * ncomponents)
+
+    def forward(M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b):
+
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+        a_hat = N_posterior * Pxx_model
+        b_hat = N_posterior * (1 - Pxx_model) + 1
+        ln_beta = ln_beta(a_hat, b_hat)
+
+        result = (ln_beta - a_hat * digamma_a - b_hat * digamma_b) / N
+        keep_result = keep(result, self.keep_prob)
+
+        # Should this return the negative?
+        return torch.sum(keep_result) / self.rescale
+
+
+def ln_beta(a,b):
+    return (
+        torch.lgamma(a_hat) + torch.lgamma(b_hat) 
+        - torch.lgamma(a_hat + b_hat)
+    )

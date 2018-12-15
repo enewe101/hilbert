@@ -42,34 +42,6 @@ def calc_PMI(bigram):
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
-def calc_exp_pmi_stats(bigram):
-    Nxx, Nx, Nxt, N = bigram
-    pmi = calc_PMI(bigram)
-
-    # Keep only pmis for i,j where Nxx[i,j]>0
-    pmi = pmi[Nxx>0]
-    exp_pmi = np.e**pmi
-    return torch.mean(exp_pmi), torch.std(exp_pmi)
-
-
-
-def get_prior_beta_params(Ni, Nj, N, exp_mean, exp_std):
-    factor = Ni * Nj / N**2
-    mean = exp_mean * factor
-    std = exp_std * factor**2
-    alpha = mean * ( mean*(1-mean)/std - 1)
-    beta = (1-mean) * alpha / mean 
-    return alpha.item(), beta.item(), factor.item()
-
-
-def get_posterior_beta_params(bigram, exp_mean, exp_std, i, j):
-    Nxx, Nx, Nxt, N = bigram
-    Ni, Nj = Nx[i,0], Nx[j,0]
-    alpha, beta, factor = get_prior_beta_params(Ni, Nj, N, exp_mean, exp_std)
-    post_alpha = Nxx[i,j] + alpha
-    post_beta = N - Nxx[i,j] + beta
-    return post_alpha, post_beta, factor
-
 
 def posterior_pmi_histogram(
     post_alpha, post_beta, factor, a=-20, b=5, delta=0.01
@@ -84,47 +56,6 @@ def posterior_pmi_histogram(
     plt.show()
 
 
-
-def calculate_all_kls_fast_cpu(
-    bigram, 
-    pmi_mean=PMI_MEAN, pmi_std=PMI_STD,
-    a=-10, b=10, delta=0.1
-):
-    a = -3
-    b = 3
-    delta = .1
-
-    Nxx = bigram.Nxx.toarray()
-    Nx = bigram.Nx
-    Nxt = bigram.Nxt
-    N = bigram.N
-
-    KL = np.zeros_like(Nxx)
-    X = np.arange(a, b, delta).reshape(-1,1)
-
-    # PMI pdf in torch
-    #coeff = 1 / (np.sqrt(2*np.pi)*pmi_std)
-    #exponent = -(X - pmi_mean)**2 / (2*pmi_std**2)
-    #pmi_pdf = coeff * np.e**(exponent)
-
-    pmi_logpdf = scipy.stats.norm.logpdf(X, pmi_mean, pmi_std)
-
-    i = 5
-    factor = Nx[i] * Nxt / N**2
-    p = factor * np.e**X 
-
-    bin_logpdf_floored = scipy.stats.binom.logpmf(
-        np.floor(Nxx[i]).astype('int'), N, p
-    )
-
-    bin_logpdf_ceiled = scipy.stats.binom.logpmf(
-        np.ceil(Nxx[i]).astype('int'), N, p
-    )
-
-    postpdf = np.e**post_logpdf
-
-
-    import pdb; pdb.set_trace()
 
 
 def get_posterior_numerically(
