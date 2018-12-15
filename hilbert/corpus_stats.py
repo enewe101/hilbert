@@ -42,6 +42,32 @@ def calc_PMI(bigram):
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
+def calc_prior_beta_params(bigram, exp_mean, exp_std, Pxx_independent):
+    _, Nx, Nxt, N = bigram
+    mean = exp_mean * Pxx_independent
+    std = exp_std * Pxx_independent
+    alpha = mean * (mean*(1-mean)/std**2 - 1)
+    beta = (1-mean) * alpha / mean 
+    return alpha, beta
+
+
+def calc_exp_pmi_stats(bigram):
+    Nxx, _, _, _ = bigram
+    pmi = h.corpus_stats.calc_PMI(bigram)
+    # Keep only pmis for i,j where Nxx[i,j]>0
+    pmi = pmi[Nxx>0]
+    exp_pmi = np.e**pmi
+    return torch.mean(exp_pmi), torch.std(exp_pmi)
+
+
+
+
+#############
+#
+#    Stuff below here is scratch used for real-time analysis, but not
+#    necessarily good outside use.  Keeping it for now.
+#
+#############
 
 def posterior_pmi_histogram(
     post_alpha, post_beta, factor, a=-20, b=5, delta=0.01

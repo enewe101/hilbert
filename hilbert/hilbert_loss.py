@@ -69,8 +69,8 @@ class MaxPosteriorLoss(nn.Module):
         result = (N_posterior / N) * (term1 + term2)
         keep_result = keep(result, self.keep_prob)
 
-        # Should this return the negative?
-        return torch.sum(keep_result) / self.rescale
+        # Want to maximize posterior log probability, so minimize its negative
+        return - torch.sum(keep_result) / self.rescale
 
 
 

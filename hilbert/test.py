@@ -107,6 +107,41 @@ class TestCorpusStats(TestCase):
         ))
 
 
+    def test_calc_exp_pmi_stats(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+        PMI = PMI[Nxx>0]
+        exp_PMI = torch.exp(PMI)
+        expected_mean, expected_std = torch.mean(exp_PMI), torch.std(exp_PMI)
+
+        found_mean, found_std = h.corpus_stats.calc_exp_pmi_stats(bigram)
+
+        self.assertTrue(torch.allclose(found_mean, expected_mean))
+        self.assertTrue(torch.allclose(found_std, expected_std))
+
+
+    def test_calc_prior_beta_params(self):
+
+        bigram = h.corpus_stats.get_test_bigram(2)
+        exp_mean, exp_std = h.corpus_stats.calc_exp_pmi_stats(bigram)
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Pxx_independent = (Nx / N) * (Nxt / N)
+
+        means = exp_mean * Pxx_independent
+        stds = exp_std * Pxx_independent
+        expected_alpha = means * (means * (1-means) / stds**2 - 1)
+        expected_beta = (1-means) / means * expected_alpha
+
+        found_alpha, found_beta = h.corpus_stats.calc_prior_beta_params(
+            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+
+        self.assertTrue(torch.allclose(found_alpha, expected_alpha))
+        self.assertTrue(torch.allclose(found_beta, expected_beta))
+
+
+
 
 class TestM(TestCase):
 

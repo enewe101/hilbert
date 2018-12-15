@@ -152,8 +152,8 @@ class MaxLikelihoodSharder(MSharder):
 
 class MaxPosteriorSharder(MSharder):
 
-    def __init__(self, bigram, k, update_density=1, device=None):
-        super(MaximumLikelihoodSharder, self).__init__(
+    def __init__(self, bigram, update_density=1, device=None):
+        super(MaxPosteriorSharder, self).__init__(
             bigram, update_density, device)
         self.criterion = h.hilbert_loss.MaxPosteriorLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
@@ -165,8 +165,9 @@ class MaxPosteriorSharder(MSharder):
         self.bigram_shard = self.bigram.load_shard(shard, device=self.device)
         Nxx, Nx, Nxt, self.N = self.bigram_shard
         self.Pxx_independent = (Nx / self.N) * (Nxt / self.N)
-        exp_mean, exp_std =  calc_exp_pmi_stats(self.bigram_shard)
-        alpha, beta = calc_prior_beta_params(
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            self.bigram_shard)
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
             self.bigram_shard, exp_mean, exp_std, self.Pxx_independent)
         self.N_posterior = self.N + alpha + beta - 1
         self.Pxx_posterior = (Nxx + alpha) / self.N_posterior
@@ -183,7 +184,7 @@ class MaxPosteriorSharder(MSharder):
 class KLSharder(MSharder):
 
     def __init__(self, bigram, k, update_density=1, device=None):
-        super(MaximumLikelihoodSharder, self).__init__(
+        super(KLSharder, self).__init__(
             bigram, update_density, device)
         self.criterion = h.hilbert_loss.KLLoss(
             self.update_density, np.prod(self.bigram.Nxx.shape)
@@ -196,8 +197,9 @@ class KLSharder(MSharder):
         Nxx, Nx, Nxt, self.N = self.bigram_shard
         self.Pxx_independent = (Nx / self.N) * (Nxt / self.N)
 
-        exp_mean, exp_std =  calc_exp_pmi_stats(self.bigram_shard)
-        alpha, beta = calc_prior_beta_params(
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            self.bigram_shard)
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
             self.bigram_shard, exp_mean, exp_std, self.Pxx_independent)
 
         self.N_posterior = self.N + alpha + beta - 1
@@ -215,22 +217,5 @@ class KLSharder(MSharder):
         )
 
 
-
-def calc_prior_beta_params(bigram, exp_mean, exp_std, Pxx_independent):
-    _, Nx, Nxt, N = bigram
-    mean = exp_mean * Pxx_independent
-    std = exp_std * Pxx_independent
-    alpha = mean * (mean*(1-mean)/std - 1)
-    beta = (1-mean) * alpha / mean 
-    return alpha, beta
-
-
-def calc_exp_pmi_stats(bigram):
-    Nxx, _, _, _ = bigram
-    pmi = h.corpus_stats.calc_PMI(bigram)
-    # Keep only pmis for i,j where Nxx[i,j]>0
-    pmi = pmi[Nxx>0]
-    exp_pmi = np.e**pmi
-    return torch.mean(exp_pmi), torch.std(exp_pmi)
 
 

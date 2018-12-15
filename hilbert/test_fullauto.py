@@ -87,6 +87,29 @@ class TestSharder(TestCase):
         self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
 
 
+    def test_max_posterior_sharder(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        sharder = h.msharder.MaxPosteriorSharder(bigram)
+        sharder._load_shard(None)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+
+        Pxx_independent = (Nx / N) * (Nxt / N)
+
+        # These functions are assumed correct here, tested elsewhere
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            (Nxx, Nx, Nxt, N))
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
+            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+
+        N_posterior = N + alpha + beta - 1
+        Pxx_posterior = (Nxx + alpha) / N_posterior
+
+        self.assertTrue(torch.allclose(Pxx_posterior, sharder.Pxx_posterior))
+        self.assertTrue(torch.allclose(N_posterior, sharder.N_posterior))
+        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
+
+
 
 class TestLoss(TestCase):
 
@@ -105,11 +128,41 @@ class TestLoss(TestCase):
 
         loss_term1 = Pxx_data * torch.log(Pxx_model)
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
-        expected_loss = torch.sum(loss_term1 + loss_term2) / float(ncomponents)
+        expected_loss = -torch.sum(loss_term1 + loss_term2) / float(ncomponents)
         found_loss = loss_class(M_hat, Pxx_data, Pxx_independent)
 
         self.assertTrue(torch.allclose(found_loss, expected_loss))
 
+
+
+    def test_max_posterior_loss(self):
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        ncomponents = np.prod(Nxx.shape)
+        keep_prob = 1
+
+        loss_class = h.hilbert_loss.MaxPosteriorLoss(keep_prob, ncomponents)
+
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Pxx_independent = (Nx / N) * (Nxt / N)
+        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+            (Nxx, Nx, Nxt, N))
+        alpha, beta = h.corpus_stats.calc_prior_beta_params(
+            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+        N_posterior = N + alpha + beta - 1
+        Pxx_posterior = (Nxx + alpha) / N_posterior
+        M_hat = torch.ones_like(Nxx)
+        Pxx_model = Pxx_independent * torch.exp(M_hat)
+
+        loss_term1 = Pxx_posterior * torch.log(Pxx_model)
+        loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
+        scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
+        expected_loss = - torch.sum(scaled_loss) / float(ncomponents)
+        found_loss = loss_class(
+            M_hat, N, N_posterior, Pxx_posterior, Pxx_independent 
+        )
+
+        self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
 class TestAutoEmbedder(TestCase):
