@@ -189,6 +189,7 @@ class HilbertEmbedderSolver(object):
                         raise DivergenceError('Model has completely diverged!')
 
                     loss.backward()
+                    self.optimizer.step()
                     self.scheduler.step(loss.item())
 
                     # statistics
@@ -235,12 +236,12 @@ class AutoEmbedder(nn.Module):
         # add the bias vectors. vbias vector is added to each row
         # while the wbias vector is add to each column
         if self.learn_bias:
-            M_hat += self.v_bias[shard[1]].reshape(1, -1)
+            M_hat += self.v_bias[shard[1]].view(1, -1)
 
             if self.learn_w:
-                M_hat += self.w_bias[shard[0]].reshape(-1, 1)
+                M_hat += self.w_bias[shard[0]].view(-1, 1)
             else:
-                M_hat += self.v_bias[shard[0]].reshape(-1, 1)
+                M_hat += self.v_bias[shard[0]].view(-1, 1)
 
         # andddd that's all folks!
         return M_hat
