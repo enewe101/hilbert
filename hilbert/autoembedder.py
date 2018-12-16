@@ -1,7 +1,6 @@
 import hilbert as h
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 class DivergenceError(Exception):
@@ -151,13 +150,6 @@ class HilbertEmbedderSolver(object):
             self.learner.parameters(),
             **self.opt_kwargs,
         )
-        self.scheduler = ReduceLROnPlateau(self.optimizer,
-            mode='min',
-            factor=0.5,
-            patience=250,
-            verbose=True,
-            min_lr=1e-8,
-        )
 
 
     def get_params(self):
@@ -190,7 +182,6 @@ class HilbertEmbedderSolver(object):
 
                     loss.backward()
                     self.optimizer.step()
-                    self.scheduler.step(loss.item())
 
                     # statistics
                     self.epoch_loss += loss.item()
