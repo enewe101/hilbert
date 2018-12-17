@@ -27,6 +27,7 @@ def run_w2v(
         update_density=update_density, learning_rate=learning_rate, opt_str=opt_str,
         shard_factor=shard_factor, seed=seed, device=device
     )
+    print(embsolver.describe())
     hrun.init_workspace(embsolver, save_embeddings_dir)
     trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
 
