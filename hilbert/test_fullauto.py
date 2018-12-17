@@ -165,7 +165,7 @@ class TestLoss(TestCase):
 
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
-            expected_loss = -torch.sum(loss_array) / float(ncomponents)
+            expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
             found_loss = loss_class(
                 M_hat, Pxx_data, Pxx_independent, temperature)
             self.assertTrue(torch.allclose(found_loss, expected_loss))
