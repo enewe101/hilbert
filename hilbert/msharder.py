@@ -151,6 +151,13 @@ class MaxLikelihoodSharder(MSharder):
             M_hat, self.Pxx_data, self.Pxx_independent, self.temperature)
 
 
+    def describe(self):
+        s = 'Max Likelihood Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\ttemperature = {}\n'.format(self.temperature)
+        return s
+
+
 
 class MaxPosteriorSharder(MSharder):
 
@@ -182,6 +189,12 @@ class MaxPosteriorSharder(MSharder):
             self.Pxx_posterior, self.Pxx_independent, self.temperature
         )
 
+
+    def describe(self):
+        s = 'Max Posterior Probability Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\ttemperature = {}\n'.format(self.temperature)
+        return s
 
 
 class KLSharder(MSharder):
@@ -220,6 +233,12 @@ class KLSharder(MSharder):
             self.digamma_a, self.digamma_b, self.temperature
         )
 
+
+    def describe(self):
+        s = 'KL Sharder\n'
+        s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\ttemperature = {}\n'.format(self.temperature)
+        return s
 
 
 

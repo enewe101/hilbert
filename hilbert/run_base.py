@@ -67,7 +67,8 @@ def get_base_argparser():
         dest='opt_str'
     )
     parser.add_argument(
-        '--learning-rate', '-l', type=float, required=True, help="Learning rate",
+        '--learning-rate', '-l', type=float, required=True, 
+        help="Learning rate",
     )
     parser.add_argument(
         '--epochs', '-e', type=int, default=100,

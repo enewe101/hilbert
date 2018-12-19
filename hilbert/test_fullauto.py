@@ -146,6 +146,37 @@ class TestSharder(TestCase):
 
 class TestLoss(TestCase):
 
+    def test_w2v_loss(self):
+
+        k = 15
+        bigram = h.corpus_stats.get_test_bigram(2)
+        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        uNx, uNxt, uN = bigram.unigram.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE) 
+        ncomponents = np.prod(Nxx.shape)
+
+        sigmoid = lambda a: 1/(1+torch.exp(-a))
+        N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k)
+        M_hat = torch.ones_like(Nxx)
+        loss_term_1 = Nxx * torch.log(sigmoid(M_hat))
+        loss_term_2 = N_neg * torch.log(1-sigmoid(M_hat))
+        loss_array = -(loss_term_1 + loss_term_2)
+
+        for keep_prob in [1, 0.75, 0.1]:
+
+            torch.manual_seed(0)
+            rescale = float(keep_prob * ncomponents)
+            loss_masked = h.hilbert_loss.keep(loss_array, keep_prob)
+            expected_loss = torch.sum(loss_masked) / rescale
+
+            torch.manual_seed(0)
+            loss_class = h.hilbert_loss.W2VLoss(keep_prob, ncomponents)
+            found_loss = loss_class(M_hat, Nxx, N_neg)
+
+            self.assertTrue(torch.allclose(found_loss, expected_loss))
+
+
+
     def test_max_likelihood_loss(self):
         bigram = h.corpus_stats.get_test_bigram(2)
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)

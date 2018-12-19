@@ -9,111 +9,86 @@ def keep(tensor, keep_p):
     return dropout(tensor, p=1-keep_p, training=True) * keep_p
 
 
-class MSELoss(nn.Module):
+
+def lbeta(a,b):
+    """Log of the Beta function."""
+    return torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a+b)
+
+
+def temper(loss, Pxx_independent, temperature):
+    """
+    Reweights an array of pairwise losses, used when losses are proportional
+    to the cooccurrence probabilities of token pairs assuming independence.
+    High `temperature`, e.g t=100 leads to equalized weights.  
+    `temperature = 1` provide no reweighting.  `temperature` should be 
+    greater than or equal to 1.
+    """
+    if temperature != 1:
+        return loss * Pxx_independent ** (1/temperature - 1)
+    return loss
+
+
+
+class HilbertLoss(nn.Module):
 
     def __init__(self, keep_prob, ncomponents):
-        super(MSELoss, self).__init__()
+        super(HilbertLoss, self).__init__()
         self.keep_prob = keep_prob
         self.rescale = float(keep_prob * ncomponents)
 
-    def forward(self, M_hat, M, weights=None):
+    def forward(self, *args, **kwargs):
+        elementwise_loss = self._forward(*args, **kwargs)
+        minibatched_loss = keep(elementwise_loss, self.keep_prob)
+        return torch.sum(minibatched_loss) / self.rescale
+
+    def _forward(self):
+        raise NotImplementedError('Subclasses must override `_forward`.')
+
+
+
+class MSELoss(HilbertLoss):
+    def _forward(self, M_hat, M, weights=None):
         weights = 1 if weights is None else weights
-        mse = weights * ((M_hat - M) ** 2)
-        mse = keep(mse, self.keep_prob)
-        return 0.5 * torch.sum(mse) / self.rescale
+        return 0.5 * weights * ((M_hat - M) ** 2)
 
 
-class W2VLoss(nn.Module):
-
-    def __init__(self, keep_prob, ncomponents):
-        super(W2VLoss, self).__init__()
-        self.keep_prob = keep_prob
-        self.rescale = float(keep_prob * ncomponents)
-
-    def forward(self, M_hat, Nxx, N_neg):
+class W2VLoss(HilbertLoss):
+    def _forward(self, M_hat, Nxx, N_neg):
         logfactor = torch.log(torch.exp(M_hat) + 1)
         term1 = N_neg * logfactor
         term2 = Nxx * (logfactor - M_hat)
-        result = keep(term1 + term2, self.keep_prob)
-        return torch.sum(result) / self.rescale
+        return term1 + term2
 
 
-class MaxLikelihoodLoss(nn.Module):
-
-    def __init__(self, keep_prob, ncomponents):
-        super(MaxLikelihoodLoss, self).__init__()
-        self.keep_prob = keep_prob
-        self.rescale = float(keep_prob * ncomponents)
-
-    def forward(self, M_hat, Pxx_data, Pxx_independent, temperature):
+class MaxLikelihoodLoss(HilbertLoss):
+    def _forward(self, M_hat, Pxx_data, Pxx_independent, temperature):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         term1 = Pxx_data * torch.log(Pxx_model) 
         term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
-        result = term1 + term2
-
-        # High temperatures help equalize the gradient for different vectors
-        if temperature != 1:
-            result *= Pxx_independent**(1/temperature - 1)
-
-        result = keep(result, self.keep_prob)
-
-        # We want to maximize log likelihood, so minimize it's negative
-        return - torch.sum(result) / self.rescale
+        result = - (term1 + term2)
+        return temper(result, Pxx_independent, temperature)
 
 
-class MaxPosteriorLoss(nn.Module):
-
-    def __init__(self, keep_prob, ncomponents):
-        super(MaxPosteriorLoss, self).__init__()
-        self.keep_prob = keep_prob
-        self.rescale = float(keep_prob * ncomponents)
-
-    def forward(
+class MaxPosteriorLoss(HilbertLoss):
+    def _forward(
         self, M_hat, N, N_posterior, Pxx_posterior, Pxx_independent, temperature
     ):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         term1 = Pxx_posterior * torch.log(Pxx_model) 
         term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
-        result = (N_posterior / N) * (term1 + term2)
-
-        # High temperatures help equalize the gradient for different vectors
-        if temperature != 1:
-            result *= Pxx_independent**(1/temperature - 1)
-
-        keep_result = keep(result, self.keep_prob)
-
-        # Want to maximize posterior log probability, so minimize its negative
-        return - torch.sum(keep_result) / self.rescale
+        result =  - (N_posterior / N) * (term1 + term2)
+        return temper(result, Pxx_independent, temperature)
 
 
-
-class KLLoss(nn.Module):
-
-    def __init__(self, keep_prob, ncomponents):
-        super(KLLoss, self).__init__()
-        self.keep_prob = keep_prob
-        self.rescale = float(keep_prob * ncomponents)
-
-    def forward(
+class KLLoss(HilbertLoss):
+    def _forward(
         self, M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b, 
         temperature
     ):
-
         Pxx_model = Pxx_independent * torch.exp(M_hat)
         a_hat = N_posterior * Pxx_model
         b_hat = N_posterior * (1 - Pxx_model) + 1
-
         result = (lbeta(a_hat,b_hat) - a_hat*digamma_a - b_hat*digamma_b) / N
+        return temper(result, Pxx_independent, temperature)
 
-        # High temperatures help equalize the gradient for different vectors
-        if temperature != 1:
-            result *= Pxx_independent**(1/temperature - 1)
-
-        keep_result = keep(result, self.keep_prob)
-
-        return torch.sum(keep_result) / self.rescale
-
-
-def lbeta(a,b):
-    return torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a+b)
 
