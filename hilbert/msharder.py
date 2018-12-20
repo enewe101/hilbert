@@ -143,11 +143,15 @@ class Word2vecSharder(MSharder):
     def _load_shard(self, shard):
         self.Nxx, Nx, _, _ = self.bigram.load_shard(shard, device=self.device)
         _, uNxt, uN = self.bigram.unigram.load_shard(shard,device=self.device)
-        self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
+        self.N_neg = self.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
 
 
     def _get_loss(self, M_hat, shard):
         return self.criterion(M_hat, shard, self.Nxx, self.N_neg)
+
+    @staticmethod
+    def negative_sample(Nxx, Nx, uNxt, uN, k):
+        return k * (Nx - Nxx) * (uNxt / uN)
 
 
 class MaxLikelihoodSharder(MSharder):

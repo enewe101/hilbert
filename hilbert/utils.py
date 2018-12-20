@@ -28,25 +28,12 @@ def load_shard(
         return torch.tensor(
             np.asarray(source[shard]), dtype=dtype, device=device)
 
-    # Handle primitie values (don't subscript with shard).
+    # Handle primitive values (don't subscript with shard).
     elif isinstance(source, (int, float)):
         return torch.tensor(source, dtype=dtype, device=device)
 
     # Handle Numpy arrays and lists.
     return torch.tensor(source[shard], dtype=dtype, device=device)
-
-
-def dot(array_or_tensor_1, array_or_tensor_2):
-    if isinstance(array_or_tensor_1, np.ndarray):
-        return np.dot(
-            array_or_tensor_1.reshape(-1), array_or_tensor_2.reshape(-1))
-    elif isinstance(array_or_tensor_1, torch.Tensor):
-        return torch.dot(
-            array_or_tensor_1.reshape(-1), array_or_tensor_2.reshape(-1))
-    raise ValueError(
-        'Expected either numpy ndarray or torch Tensor.  Got %s'
-        % type(array_or_tensor).__name__
-    )
 
 
 def norm(array_or_tensor, ord=2, axis=None, keepdims=False):
@@ -71,44 +58,58 @@ def normalize(array_or_tensor, ord=2, axis=None):
     return array_or_tensor / norm(array_or_tensor, ord, axis, keepdims=True)
 
 
-def transpose(array_or_tensor):
-    if isinstance(array_or_tensor, np.ndarray):
-        return array_or_tensor.T
-    elif isinstance(array_or_tensor, torch.Tensor):
-        return array_or_tensor.t()
-    raise ValueError('Expected either numpy ndarray or torch Tensor.')
+#def dot(array_or_tensor_1, array_or_tensor_2):
+#    if isinstance(array_or_tensor_1, np.ndarray):
+#        return np.dot(
+#            array_or_tensor_1.reshape(-1), array_or_tensor_2.reshape(-1))
+#    elif isinstance(array_or_tensor_1, torch.Tensor):
+#        return torch.dot(
+#            array_or_tensor_1.reshape(-1), array_or_tensor_2.reshape(-1))
+#    raise ValueError(
+#        'Expected either numpy ndarray or torch Tensor.  Got %s'
+#        % type(array_or_tensor).__name__
+#    )
 
 
-def ensure_implementation_valid(implementation, device=None):
-    if implementation != 'torch' and implementation != 'numpy':
-        raise ValueError(
-            "implementation must be 'torch' or 'numpy'.  Got %s."
-            % repr(implementation)
-        )
 
-    if device is not None and device != 'cuda' and device != 'cpu':
-        raise ValueError(
-            "`device` must be None, 'cuda', or 'cpu'.  Got %s."
-            % repr(device)
-        )
+#def transpose(array_or_tensor):
+#    if isinstance(array_or_tensor, np.ndarray):
+#        return array_or_tensor.T
+#    elif isinstance(array_or_tensor, torch.Tensor):
+#        return array_or_tensor.t()
+#    raise ValueError('Expected either numpy ndarray or torch Tensor.')
 
 
-def fill_diagonal(tensor_2d, diag):
-    """
-    Return a copy of tensor_2d in which the diagonal has been replaced by 
-    the value ``diag``.  The copy has the same dtype and device as the original.
-    """
-    eye = torch.eye(
-        tensor_2d.shape[0], dtype=tensor_2d.dtype, device=tensor_2d.device)
-    return tensor_2d * (1. - eye) + eye * float(diag)
+#def ensure_implementation_valid(implementation, device=None):
+#    if implementation != 'torch' and implementation != 'numpy':
+#        raise ValueError(
+#            "implementation must be 'torch' or 'numpy'.  Got %s."
+#            % repr(implementation)
+#        )
+#
+#    if device is not None and device != 'cuda' and device != 'cpu':
+#        raise ValueError(
+#            "`device` must be None, 'cuda', or 'cpu'.  Got %s."
+#            % repr(device)
+#        )
 
 
-def clip(min, max, val):
-    return min if val < min else max if val > max else val
+#def fill_diagonal(tensor_2d, diag):
+#    """
+#    Return a copy of tensor_2d in which the diagonal has been replaced by 
+#    the value ``diag``.  The copy has the same dtype and device as the original.
+#    """
+#    eye = torch.eye(
+#        tensor_2d.shape[0], dtype=tensor_2d.dtype, device=tensor_2d.device)
+#    return tensor_2d * (1. - eye) + eye * float(diag)
 
 
-def sample_sphere(num_vecs, d, device=None):
-    device = device or h.CONSTANTS.MATRIX_DEVICE
-    sample = torch.rand((num_vecs, d), device=device).mul_(2).sub_(1)
-    return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
+#def clip(min, max, val):
+#    return min if val < min else max if val > max else val
+
+
+#def sample_sphere(num_vecs, d, device=None):
+#    device = device or h.CONSTANTS.MATRIX_DEVICE
+#    sample = torch.rand((num_vecs, d), device=device).mul_(2).sub_(1)
+#    return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
 
