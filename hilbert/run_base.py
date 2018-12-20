@@ -82,4 +82,11 @@ def get_base_argparser():
         '--update-density', '-u', type=float, default=1,
         help="proportion of samples to keep at each iteration (minibatching)"
     )
+    parser.add_argument(
+        '--mask-diagonal', '-m', action='store_true',
+        help=(
+            "whether to mask diagonal elements of the M-matrix so that they "
+            "do not affect the loss and gradient."
+        )
+    )
     return parser

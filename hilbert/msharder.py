@@ -7,11 +7,32 @@ from scipy import sparse
 # base abstract class for the other sharders
 class MSharder(object):
 
-    def __init__(self, bigram, update_density=1, device=None):
+    criterion_class = None
+
+    def __init__(
+        self, bigram, update_density=1, mask_diagonal=False, device=None
+    ):
         self.bigram = bigram
         self.device = device or h.CONSTANTS.MATRIX_DEVICE
         self.update_density = update_density
-        self.last_shard = None
+        self.mask_diagonal = mask_diagonal
+        self._get_criterion()
+
+        # False indicates last_shard has not been set.  Note `None` may be
+        # interpreted as a valid shard.
+        self.last_shard = False 
+
+
+    def _get_criterion(self):
+        if self.criterion_class is None:
+            raise NotImplementedError(
+                "Subclasses must provide an instance of `hilbert.HilbertLoss` "
+                "as `self.criterion_class`."
+            )
+        self.criterion = self.criterion_class(
+            self.update_density, np.prod(self.bigram.Nxx.shape),
+            self.mask_diagonal
+        )
 
 
     def calc_shard_loss(self, M_hat, shard):
@@ -19,7 +40,7 @@ class MSharder(object):
             self.last_shard = shard
             self._load_shard(shard)
 
-        return self._get_loss(M_hat)
+        return self._get_loss(M_hat, shard)
 
 
     def describe(self):
@@ -30,23 +51,19 @@ class MSharder(object):
         raise NotImplementedError('Subclasses must override `_load_shard`.')
 
 
-    def _get_loss(self, M_hat):
+    def _get_loss(self, M_hat, shard):
         raise NotImplementedError('Subclasses must override `_get_loss`.')
 
 
 
 class PPMISharder(MSharder):
 
-    def __init__(self, *args, **kwargs):
-        super(PPMISharder, self).__init__(*args, **kwargs)
-        self.criterion = h.hilbert_loss.MSELoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
-
+    criterion_class = h.hilbert_loss.MSELoss
 
     def describe(self):
         s = 'PPMI Sharder\n'
         s += '\tupdate_density = {}\n'.format(self.update_density)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 
@@ -56,23 +73,23 @@ class PPMISharder(MSharder):
         self.M = torch.clamp(self.M, min=0)
 
 
-    def _get_loss(self, M_hat):
-        return self.criterion(M_hat, self.M)
+    def _get_loss(self, M_hat, shard):
+        return self.criterion(M_hat, shard, self.M)
 
 
 
 class GloveSharder(MSharder):
 
+    criterion_class = h.hilbert_loss.MSELoss
+
     def __init__(
         self, bigram, X_max=100.0, alpha=0.75,
-        update_density=1, device=None,
+        update_density=1, mask_diagonal=False, device=None,
     ):
-        super(GloveSharder, self).__init__(bigram, update_density, device)
+        super(GloveSharder, self).__init__(
+            bigram, update_density, mask_diagonal, device)
         self.X_max = float(X_max)
         self.alpha = alpha
-        self.criterion = h.hilbert_loss.MSELoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
 
 
     def describe(self):
@@ -80,6 +97,7 @@ class GloveSharder(MSharder):
         s += '\tupdate_density = {}\n'.format(self.update_density)
         s += '\tX_max = {}\n'.format(self.X_max)
         s += '\talpha = {}\n'.format(self.alpha)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 
@@ -94,8 +112,8 @@ class GloveSharder(MSharder):
         self.multiplier[Nxx==0] = 0
 
 
-    def _get_loss(self, M_hat):
-        return 2 * self.criterion(M_hat, self.M, weights=self.multiplier)
+    def _get_loss(self, M_hat, shard):
+        return 2 * self.criterion(M_hat, shard, self.M, weights=self.multiplier)
 
 
 
@@ -103,19 +121,22 @@ class GloveSharder(MSharder):
 # noinspection PyCallingNonCallable
 class Word2vecSharder(MSharder):
 
-    def __init__(self, bigram, k, update_density=1, device=None):
-        super(Word2vecSharder, self).__init__(bigram, update_density, device)
+    criterion_class = h.hilbert_loss.W2VLoss
+
+    def __init__(
+        self, bigram, k=15, update_density=1, mask_diagonal=False, device=None
+    ):
+        super(Word2vecSharder, self).__init__(
+            bigram, update_density, mask_diagonal, device)
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         self.k = torch.tensor(k, device=self.device, dtype=dtype)
-        self.criterion = h.hilbert_loss.W2VLoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
 
 
     def describe(self):
         s = 'Word2Vec Sharder\n'
         s += '\tupdate_density = {}\n'.format(self.update_density)
         s += '\tk = {}\n'.format(self.k)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 
@@ -125,19 +146,21 @@ class Word2vecSharder(MSharder):
         self.N_neg = h.M.negative_sample(self.Nxx, Nx, uNxt, uN, self.k)
 
 
-    def _get_loss(self, M_hat):
-        return self.criterion(M_hat, self.Nxx, self.N_neg)
+    def _get_loss(self, M_hat, shard):
+        return self.criterion(M_hat, shard, self.Nxx, self.N_neg)
 
 
 class MaxLikelihoodSharder(MSharder):
 
-    def __init__(self, bigram, temperature=1, update_density=1, device=None):
+    criterion_class = h.hilbert_loss.MaxLikelihoodLoss
+
+    def __init__(
+        self, bigram, temperature=1, update_density=1, mask_diagonal=False,
+        device=None
+    ):
         super(MaxLikelihoodSharder, self).__init__(
-            bigram, update_density, device)
+            bigram, update_density, mask_diagonal, device)
         self.temperature = temperature
-        self.criterion = h.hilbert_loss.MaxLikelihoodLoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
 
 
     def _load_shard(self, shard):
@@ -146,28 +169,31 @@ class MaxLikelihoodSharder(MSharder):
         self.Pxx_independent = (Nx / N) * (Nxt / N)
 
 
-    def _get_loss(self, M_hat):
+    def _get_loss(self, M_hat, shard):
         return self.criterion(
-            M_hat, self.Pxx_data, self.Pxx_independent, self.temperature)
+            M_hat, shard, self.Pxx_data, self.Pxx_independent, self.temperature)
 
 
     def describe(self):
         s = 'Max Likelihood Sharder\n'
         s += '\tupdate_density = {}\n'.format(self.update_density)
         s += '\ttemperature = {}\n'.format(self.temperature)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 
 
 class MaxPosteriorSharder(MSharder):
 
-    def __init__(self, bigram, temperature=1, update_density=1, device=None):
+    criterion_class = h.hilbert_loss.MaxPosteriorLoss
+
+    def __init__(
+        self, bigram, temperature=1, update_density=1, mask_diagonal=False,
+        device=None
+    ):
         super(MaxPosteriorSharder, self).__init__(
-            bigram, update_density, device)
+            bigram, update_density, mask_diagonal, device)
         self.temperature = temperature
-        self.criterion = h.hilbert_loss.MaxPosteriorLoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
 
 
     def _load_shard(self, shard):
@@ -183,9 +209,9 @@ class MaxPosteriorSharder(MSharder):
         self.Pxx_posterior = (Nxx + alpha) / self.N_posterior
 
 
-    def _get_loss(self, M_hat):
+    def _get_loss(self, M_hat, shard):
         return self.criterion(
-            M_hat, self.N, self.N_posterior, 
+            M_hat, shard, self.N, self.N_posterior, 
             self.Pxx_posterior, self.Pxx_independent, self.temperature
         )
 
@@ -194,18 +220,21 @@ class MaxPosteriorSharder(MSharder):
         s = 'Max Posterior Probability Sharder\n'
         s += '\tupdate_density = {}\n'.format(self.update_density)
         s += '\ttemperature = {}\n'.format(self.temperature)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 
 class KLSharder(MSharder):
 
-    def __init__(self, bigram, temperature=1, update_density=1, device=None):
+    criterion_class = h.hilbert_loss.KLLoss
+
+    def __init__(
+        self, bigram, temperature=1, update_density=1, mask_diagonal=False,
+        device=None
+    ):
         super(KLSharder, self).__init__(
-            bigram, update_density, device)
+            bigram, update_density, mask_diagonal, device)
         self.temperature = temperature
-        self.criterion = h.hilbert_loss.KLLoss(
-            self.update_density, np.prod(self.bigram.Nxx.shape)
-        )
 
 
     def _load_shard(self, shard):
@@ -227,9 +256,9 @@ class KLSharder(MSharder):
         self.digamma_b = torch.digamma(b) - torch.digamma(a+b)
 
 
-    def _get_loss(self, M_hat):
+    def _get_loss(self, M_hat, shard):
         return self.criterion(
-            M_hat, self.N, self.N_posterior, self.Pxx_independent,
+            M_hat, shard, self.N, self.N_posterior, self.Pxx_independent,
             self.digamma_a, self.digamma_b, self.temperature
         )
 
@@ -238,6 +267,7 @@ class KLSharder(MSharder):
         s = 'KL Sharder\n'
         s += '\tupdate_density = {}\n'.format(self.update_density)
         s += '\ttemperature = {}\n'.format(self.temperature)
+        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
         return s
 
 

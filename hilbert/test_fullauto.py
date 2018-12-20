@@ -12,6 +12,31 @@ def vprint(*args):
         print(*args)
 
 
+class MockMSELossMaskedDiag(h.hilbert_loss.HilbertLoss):
+    """
+    Provides an implementation of MSELoss that always masks the diagonal using
+    multiplication with a mask, to help test the correctness of the
+    mask_diagonal flag supported by other HilbertLoss instances.
+    """
+    def _forward(self, M_hat, shard, M, weights=None):
+        weights = 1 if weights is None else weights
+        loss_array = 0.5 * weights * ((M_hat - M) ** 2)
+        device = h.CONSTANTS.MATRIX_DEVICE
+
+        # Mask the main diagonal
+        if h.shards.on_diag(shard):
+            mask = torch.ones_like(loss_array, device=device) 
+            for i in range(min(mask.shape)):
+                mask[i,i] = 0
+            loss_array = loss_array * mask
+
+        return loss_array
+
+
+class MockPPMISharder(h.msharder.PPMISharder):
+    criterion_class = MockMSELossMaskedDiag
+
+
 class TestSharder(TestCase):
 
     def test_glove_sharder(self):
@@ -41,6 +66,159 @@ class TestSharder(TestCase):
         M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         M[M<0] = 0
         self.assertTrue(torch.allclose(M, sharder.M))
+
+
+    def test_loss_with_masked_diagonal(self):
+        """
+        Tests that masking the diagonal behaves in the expected way, for the
+        PPMI sharder, by comparing it to a mocked version that is hard-coded
+        to mask the diagonal of the loss function in a way that will certainly
+        produce the desired effect.  Masking diagonal is tested with other
+        sharding classes (but without mocks) in another test.
+        """
+        bigram = h.corpus_stats.get_test_bigram(2)
+        keep = 1
+
+        # Test for different shard factors to make sure the diagonal elements
+        # are always correctly found
+        for shard_factor in [1,2,3]:
+
+            shards = h.shards.Shards(shard_factor)
+
+            # Run an ordinary sharder without any diagonal masking.
+            sharder = h.msharder.PPMISharder(
+                bigram, update_density=keep, mask_diagonal=False)
+            mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
+            ))
+            optimizer = torch.optim.SGD((mhat,), lr=0.1)
+            for shard in shards:
+                optimizer.zero_grad()
+                loss = sharder.calc_shard_loss(mhat[shard], shard)
+                loss.backward()
+                optimizer.step()
+
+            # Run the a masked sharder for one update.
+            masked_diag_sharder = h.msharder.PPMISharder(
+                bigram, update_density=keep, mask_diagonal=True)
+            masked_mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
+            ))
+            optimizer = torch.optim.SGD((masked_mhat,), lr=0.1)
+            for shard in shards:
+                optimizer.zero_grad()
+                loss = masked_diag_sharder.calc_shard_loss(
+                    masked_mhat[shard], shard)
+                loss.backward()
+                optimizer.step()
+
+            # Run the mock masked sharder for one update.
+            mock_diag_sharder = MockPPMISharder(
+                bigram, update_density=keep, mask_diagonal=False)
+            mock_mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
+            ))
+            optimizer = torch.optim.SGD((mock_mhat,), lr=0.1)
+            for shard in shards:
+                optimizer.zero_grad()
+                loss = mock_diag_sharder.calc_shard_loss(mock_mhat[shard],shard)
+                loss.backward()
+                optimizer.step()
+
+            # Every model should have undergone an update.
+            ones = torch.ones_like(mhat)
+            self.assertFalse(torch.allclose(mhat, ones))
+            self.assertFalse(torch.allclose(masked_mhat, ones))
+            self.assertFalse(torch.allclose(mock_mhat, ones))
+
+            # Masked sharder should match manually masked mock sharder.
+            self.assertTrue(torch.allclose(masked_mhat, mock_mhat))
+
+            # Masked and non-masked sharders should differ along the diagonal,
+            # but be the same elsewhere.  First construct indices needed to
+            # address these regions.
+            device = h.CONSTANTS.MATRIX_DEVICE
+            dtype = torch.uint8
+            diagonal = torch.eye(11, dtype=dtype, device=device)
+            off_diagonal = torch.ones(
+                (11,11),dtype=dtype,device=device) - diagonal
+
+            # Now show they are different on diagonal, but same off diagonal. 
+            self.assertFalse(torch.allclose(
+                masked_mhat[diagonal], mhat[diagonal]))
+            self.assertTrue(torch.allclose(
+                masked_mhat[off_diagonal], mhat[off_diagonal]))
+
+
+    def test_all_sharders_can_mask_diagonal(self):
+        """
+        Tests that every combination of sharder class and masking or not 
+        masking the diagonal of the loss function works as expected.
+        """
+
+        bigram = h.corpus_stats.get_test_bigram(3)
+        keep = 1
+
+        # We will need to address diagonal and non-diagonal entries in 
+        # M-matrices below.  Prepare the indices now.
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = torch.uint8
+        diagonal = torch.eye(11, dtype=dtype, device=device)
+        off_diagonal = torch.ones(
+            (11,11),dtype=dtype,device=device) - diagonal
+
+        # Test for different shard factors to make sure the diagonal elements
+        # are always correctly found
+        sharder_classes = [
+            h.msharder.PPMISharder, h.msharder.Word2vecSharder,
+            h.msharder.GloveSharder, h.msharder.MaxLikelihoodSharder,
+            h.msharder.MaxPosteriorSharder, h.msharder.KLSharder
+        ] 
+
+        for shard_factor, sharder_class in product([1,2,3], sharder_classes):
+
+            shards = h.shards.Shards(shard_factor)
+
+            # Run an ordinary sharder without any diagonal masking.
+            sharder = sharder_class(
+                bigram=bigram, update_density=keep, mask_diagonal=False)
+            mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
+            optimizer = torch.optim.SGD((mhat,), lr=0.1)
+            for shard in shards:
+                optimizer.zero_grad()
+                loss = sharder.calc_shard_loss(mhat[shard], shard)
+                loss.backward()
+                optimizer.step()
+
+            # Run the a masked sharder for one update.
+            masked_diag_sharder = sharder_class(
+                bigram, update_density=keep, mask_diagonal=True)
+            masked_mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
+            optimizer = torch.optim.SGD((masked_mhat,), lr=0.1)
+            for shard in shards:
+                optimizer.zero_grad()
+                loss = masked_diag_sharder.calc_shard_loss(
+                    masked_mhat[shard], shard)
+                loss.backward()
+                optimizer.step()
+
+            # Every model should have undergone an update.
+            ones = torch.ones_like(mhat)
+            self.assertFalse(torch.allclose(mhat, ones))
+            self.assertFalse(torch.allclose(masked_mhat, ones))
+
+            # Masked and non-masked sharders should differ along the diagonal,
+            # but be the same elsewhere.
+            if torch.allclose(masked_mhat[diagonal], mhat[diagonal]):
+                import pdb; pdb.set_trace()
+
+            self.assertFalse(torch.allclose(
+                masked_mhat[diagonal], mhat[diagonal]))
+            self.assertTrue(torch.allclose(
+                masked_mhat[off_diagonal], mhat[off_diagonal]))
+
 
 
     def test_mse_minibatching_loss(self):
@@ -146,6 +324,37 @@ class TestSharder(TestCase):
 
 class TestLoss(TestCase):
 
+    def test_mask_diagonal(self):
+        """
+        Tests the mask_diagonal function, independent from its use by sharders.
+        """
+
+        # Make two identical square tensors
+        tensor = torch.arange(64).reshape(8,8)
+        clone = torch.clone(tensor)
+
+        # Mask the diagonal of one of them
+        h.hilbert_loss.mask_diagonal(tensor)
+
+        # Make indices for the diagonal and off-diagonal entries
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = torch.uint8
+        diagonal = torch.eye(8, dtype=dtype, device=device)
+        off_diagonal = torch.ones((8,8), dtype=dtype, device=device) - diagonal
+
+        # tensor and clone should differ only along the diagonal, and tensor's
+        # diagonal should be zero.
+        self.assertFalse(all(torch.eq(
+            tensor[diagonal], clone[diagonal]
+        )))
+        self.assertTrue(all(torch.eq(
+            tensor[off_diagonal], clone[off_diagonal]
+        )))
+        self.assertTrue(all(torch.eq(
+            tensor[diagonal], torch.zeros(8, dtype=torch.int64)
+        )))
+
+
     def test_w2v_loss(self):
 
         k = 15
@@ -154,6 +363,7 @@ class TestLoss(TestCase):
         uNx, uNxt, uN = bigram.unigram.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE) 
         ncomponents = np.prod(Nxx.shape)
+        shard = None
 
         sigmoid = lambda a: 1/(1+torch.exp(-a))
         N_neg = h.M.negative_sample(Nxx, Nx, uNxt, uN, k)
@@ -171,7 +381,7 @@ class TestLoss(TestCase):
 
             torch.manual_seed(0)
             loss_class = h.hilbert_loss.W2VLoss(keep_prob, ncomponents)
-            found_loss = loss_class(M_hat, Nxx, N_neg)
+            found_loss = loss_class(M_hat, shard, Nxx, N_neg)
 
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -194,11 +404,12 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
         loss_array = loss_term1 + loss_term2
 
+        shard = None
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
             expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
             found_loss = loss_class(
-                M_hat, Pxx_data, Pxx_independent, temperature)
+                M_hat, shard, Pxx_data, Pxx_independent, temperature)
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
@@ -225,11 +436,12 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
         scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
 
+        shard = None
         for temperature in [1, 10]:
             tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
             expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
             found_loss = loss_class(
-                M_hat, N, N_posterior, Pxx_posterior, Pxx_independent, 
+                M_hat, shard, N, N_posterior, Pxx_posterior, Pxx_independent, 
                 temperature
             )
             self.assertTrue(torch.allclose(found_loss, expected_loss))
@@ -265,12 +477,13 @@ class TestLoss(TestCase):
             a_hat + b_hat)
         KL = (lbeta - a_hat * digamma_a - b_hat * digamma_b) / N
 
+        shard = None
         for temperature in [1, 10]:
             tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
             expected_loss = torch.sum(tempered_KL) / float(ncomponents)
             found_loss = loss_obj(
-                M_hat, N, N_posterior, Pxx_independent, digamma_a, digamma_b,
-                temperature
+                M_hat, shard, N, N_posterior, Pxx_independent, digamma_a,
+                digamma_b, temperature
             )
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -393,6 +606,7 @@ class TestAutoEmbedder(TestCase):
         shape = bigram.Nxx.shape
         w2v_sharder = h.msharder.Word2vecSharder(bigram, 15, update_density=1)
         opt = torch.optim.Adam
+        shard = None
 
         solver = h.autoembedder.HilbertEmbedderSolver(
             w2v_sharder, opt, d=10,
@@ -410,7 +624,7 @@ class TestAutoEmbedder(TestCase):
             V, W, _, _ = solver.get_params()
             mhat = W @ V.t()
 
-            loss_value = w2v_sharder._get_loss(mhat).item()
+            loss_value = w2v_sharder._get_loss(mhat, shard).item()
 
             # get expected
             smhat = mhat.sigmoid()

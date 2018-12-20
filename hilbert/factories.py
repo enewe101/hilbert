@@ -38,6 +38,7 @@ def construct_w2v_solver(
         t_clean_undersample=None,
         alpha_smoothing=0.75,
         update_density=1.,
+        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         shard_factor=1,
@@ -54,7 +55,10 @@ def construct_w2v_solver(
     bigram.unigram.apply_smoothing(alpha_smoothing)
 
     # now make the sharder
-    sharder = h.msharder.Word2vecSharder(bigram, k, update_density, device)
+    sharder = h.msharder.Word2vecSharder(
+        bigram=bigram, k=k, update_density=update_density,
+        mask_diagonal=mask_diagonal, device=device
+    )
 
     # get initial embeddings (if any)
     init_vecs = get_init_embs(init_embeddings_path)
@@ -76,6 +80,7 @@ def construct_glv_solver(
         alpha=0.75,
         xmax=100,
         update_density=1.,
+        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         shard_factor=1,
@@ -90,7 +95,9 @@ def construct_glv_solver(
     # make bigram and that's all we need for glove
     bigram = get_bigram(bigram_path)
     sharder = h.msharder.GloveSharder(bigram, X_max=xmax, alpha=alpha,
-        update_density=update_density, device=device)
+        update_density=update_density, mask_diagonal=mask_diagonal, 
+        device=device
+    )
 
     # initialize the vectors
     init_vecs = get_init_embs(init_embeddings_path)
@@ -109,7 +116,7 @@ def construct_max_likelihood_solver(*args, **kwargs):
     """
     This factory accepts the same set of arguments as
     _construct_tempered_solver, except for sharder_class (which should not be
-    provided.
+    provided here).
     """
     solver = _construct_tempered_solver(
         h.msharder.MaxLikelihoodSharder, *args, **kwargs)
@@ -121,7 +128,7 @@ def construct_max_posterior_solver(*args, **kwargs):
     """
     This factory accepts the same set of arguments as
     _construct_tempered_solver, except for sharder_class (which should not be
-    provided.
+    provided here).
     """
     solver = _construct_tempered_solver(
         h.msharder.MaxPosteriorSharder, *args, **kwargs)
@@ -133,7 +140,7 @@ def construct_KL_solver(*args, **kwargs):
     """
     This factory accepts the same set of arguments as
     _construct_tempered_solver, except for sharder_class (which should not be
-    provided.
+    provided here).
     """
     solver = _construct_tempered_solver(h.msharder.KLSharder, *args, **kwargs)
     print('finished loading KL bad boi!')
@@ -147,6 +154,7 @@ def _construct_tempered_solver(
     d=300,
     temperature=1,
     update_density=1.,
+    mask_diagonal=False,
     learning_rate=0.01,
     opt_str='adam',
     shard_factor=1,
@@ -160,7 +168,10 @@ def _construct_tempered_solver(
     bigram = get_bigram(bigram_path)
 
     # Now make the sharder.
-    sharder = sharder_class(bigram, temperature, update_density, device)
+    sharder = sharder_class(
+        bigram=bigram, temperature=temperature, update_density=update_density,
+        mask_diagonal=mask_diagonal, device=device
+    )
 
     # Get initial embeddings.
     init_vecs = get_init_embs(init_embeddings_path)

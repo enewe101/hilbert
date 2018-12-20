@@ -12,6 +12,7 @@ def run_kl(
         d=300,
         temperature=1,
         update_density=1.,
+        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         shard_factor=1,
@@ -22,8 +23,8 @@ def run_kl(
     embsolver = proletariat.construct_KL_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, temperature=temperature, update_density=update_density,
-        learning_rate=learning_rate, opt_str=opt_str,
-        shard_factor=shard_factor, seed=seed, device=device
+        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
+        opt_str=opt_str, shard_factor=shard_factor, seed=seed, device=device
     )
 
     print(embsolver.describe())
@@ -47,7 +48,7 @@ if __name__ == '__main__':
 
     base_parser = hrun.get_base_argparser()
     base_parser.add_argument(
-        '--temperature', '-t', type=float, default=None, dest='temperature',
+        '--temperature', '-t', type=float, default=1, dest='temperature',
         help=(
             "equalizes weighting for loss from individual token pairs.  "
             "Use temperature > 1 for more equal weights."

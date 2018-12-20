@@ -14,6 +14,7 @@ def run_w2v(
         t_clean_undersample=None,
         alpha_smoothing=0.75,
         update_density=1.,
+        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         shard_factor=1,
@@ -23,9 +24,10 @@ def run_w2v(
 
     embsolver = proletariat.construct_w2v_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
-        d=d, k=k, t_clean_undersample=t_clean_undersample, alpha_smoothing=alpha_smoothing,
-        update_density=update_density, learning_rate=learning_rate, opt_str=opt_str,
-        shard_factor=shard_factor, seed=seed, device=device
+        d=d, k=k, t_clean_undersample=t_clean_undersample,
+        alpha_smoothing=alpha_smoothing, update_density=update_density,
+        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
+        opt_str=opt_str, shard_factor=shard_factor, seed=seed, device=device
     )
     print(embsolver.describe())
     hrun.init_workspace(embsolver, save_embeddings_dir)

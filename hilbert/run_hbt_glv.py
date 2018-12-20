@@ -13,6 +13,7 @@ def run_glv(
         xmax=100,
         alpha=0.75,
         update_density=1.,
+        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         shard_factor=1,
@@ -23,8 +24,8 @@ def run_glv(
     embsolver = proletariat.construct_glv_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, alpha=alpha, xmax=xmax,update_density=update_density,
-        learning_rate=learning_rate, opt_str=opt_str,
-        shard_factor=shard_factor, seed=seed, device=device
+        mask_diagonal=mask_diagonal, learning_rate=learning_rate, 
+        opt_str=opt_str, shard_factor=shard_factor, seed=seed, device=device
     )
     print(embsolver.describe())
 

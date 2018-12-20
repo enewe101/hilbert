@@ -1,5 +1,14 @@
 
+# A "shard" representing the whole array
 whole = (slice(None), slice(None))
+
+
+def on_diag(shard):
+    """
+    True if `shard` contains elements from the main diagonal.
+    """
+    return shard is None or shard[0] == shard[1]
+
 
 class Shards:
     """
@@ -64,8 +73,3 @@ class Shards:
 
 
 
-def on_diag(shard):
-    """
-    Check if this shard contains elements from the main diagonal.
-    """
-    return shard is None or shard[0] == shard[1]
