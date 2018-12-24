@@ -266,6 +266,16 @@ class Unigram(object):
         self.dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
 
 
+    def prune(self, min_count):
+        """Drop tokens occurring fewer than `min_count` times."""
+        if not self.sorted:
+            self.sort()
+        for k, count in enumerate(self.Nx):
+            if count < min_count:
+                self.truncate(k)
+                break
+
+
     @staticmethod
     def load(path, device=None, verbose=True):
         """

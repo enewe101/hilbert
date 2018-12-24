@@ -57,6 +57,12 @@ class HilbertLoss(nn.Module):
         raise NotImplementedError('Subclasses must override `_forward`.')
 
 
+class NewMSELoss(HilbertLoss):
+    def _forward(self, shard_spec, gpu_data_shard, M_hat_shard):
+        weights = gpu_data_shard.get('weights', 1)
+        return 0.5 * weights * ((M_hat_shard - gpu_data_shard['M']) ** 2)
+
+
 
 class MSELoss(HilbertLoss):
     def _forward(self, M_hat, shard, M, weights=None):
