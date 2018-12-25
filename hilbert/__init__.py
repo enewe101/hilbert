@@ -11,6 +11,4 @@ import hilbert.msharder
 import hilbert.autoembedder
 import hilbert.factories
 import hilbert.run_base
-import hilbert.preloader
-import hilbert.cpu_loader
-import hilbert.gpu_loader
+import hilbert.loader
