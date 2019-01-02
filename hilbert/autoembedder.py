@@ -157,6 +157,10 @@ class HilbertEmbedderSolver(object):
 
 
     def get_dictionary(self):
+        warnings.warn(
+            "`HilbertEmbedderSolver.get_dictionary()` is Deprecated---not all "
+            "`HilbertEmbedderSolver`s have a `dictionary`."
+        )
         return self.sharder.bigram.dictionary
 
 

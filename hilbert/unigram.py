@@ -43,7 +43,7 @@ class Unigram(object):
         self.device = device
         self.verbose = verbose
 
-        self.sorted = self.check_sorted()
+        self.check_sorted()
 
 
     def check_sorted(self):
@@ -54,9 +54,11 @@ class Unigram(object):
         last_count = np.inf
         for count in self.Nx:
             if count > last_count:
-                return False
+                self.sorted = False
+                return self.sorted
             last_count = count
-        return True
+        self.sorted = True
+        return self.sorted
 
 
     def apply_smoothing(self, alpha):
@@ -101,7 +103,7 @@ class Unigram(object):
     #   CHECK
     def __deepcopy__(self, memo):
         result = Unigram(
-            dictionary=deepcopy(self.dictionary),
+            dictionary=deepcopy(self.dictionary, memo),
             Nx=self.Nx,
             verbose=self.verbose
         )

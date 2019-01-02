@@ -1,7 +1,10 @@
 import hilbert.CONSTANTS
 import hilbert.corpus_stats
 import hilbert.unigram
-import hilbert.bigram
+import hilbert.bigram_base
+import hilbert.bigram_mutable
+import hilbert.bigram_sector
+import hilbert.bigram_sampler
 import hilbert.dictionary
 import hilbert.utils
 import hilbert.embeddings

@@ -1,0 +1,64 @@
+bigram_base.py
+bigram_sector.py
+    BigramSector.__init__
+        Be careful that the tensorized marginals and unigram data are kept
+        off the gpu.  BigramSector should only put things on the GPU when 
+        load_*shard is called.
+
+    BigramSector.load_shard
+        This needs to be adapted so that it gets addressed using absolute
+        shard, not the shard relative to the sector.  Use a function that
+        turns a requested absolute shard into a shard relative to the current
+        sector
+
+
+
+corpus_stats.py
+
+    The following will affect tests (and should maybe be moved to tests):
+
+        def get_test_bigram_mutable(window_size):
+
+    Accesses like in calc_PMI(bigram) will be changed to 
+    calc_PMI(bigram_data_shard) where a bigram_data_shard is the 4-tuple
+    (Nxx, Nx, Nxt, N).  It will always be bigram shards carrying this out.  A
+    bigram shard is the tuple of tensors (Nxx, Nx, Nxt, N).  A unigram shard is
+    the tuple of tensors (uNx, uNxt, uN).
+
+    Both Nx and Nxt (which are transposes of one another) are provided, because
+    in general they are different.  We may not have the same vocabulary for 
+    vectors and covectors.  And, even if the vocabularies are identical, 
+    in a given shard, the supported vocabulary of the covectors will not be
+    equal to the supported vocabulary in the vectors.
+
+
+factories.py
+
+    In this context, we want to be dealing with a Bigram representing the 
+    whole Dataset.  This Bigram should inheret from Dataset.  This bigram
+    will be used to generate BigramSector instances within the child process.
+
+    What happens if we apply operations on the unigram before passing the
+    dataset over to the children.  E.g. if we do
+    BigramMutable.unigram.apply_smooting(), will that be carried forward into
+    the children?
+
+    e.g. `unigram.apply_smoothing()`, l55
+
+    Seems like inside loader we should change how setup quite works....
+
+loader.py -- 
+
+    The role currently played by Bigram should actually be done by BigramSector.
+    So, what needs to happen is that the call to _setup should build a
+    BigramSector instead of the current Bigram.
+
+    Instead of doing ShardSector.load, it should do self.bigram_sector =
+    self.Bigram.get_sector().  Sectorizing should be a subsampling operation
+    that mimics what is done during save sector.  (In fact, it would be
+    cleaner if save_sector would first create a sector using a get_sector(),
+    and then call the generated sector's save method.
+
+    (Can all of the subsequently accessed functionality be built in BigramBase?
+    This should determine how we name the uses of Bigram / BigramSector there.)
+

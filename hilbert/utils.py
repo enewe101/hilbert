@@ -1,5 +1,6 @@
 import hilbert as h
 from queue import Empty
+from multiprocessing import Queue, JoinableQueue
 
 try:
     from scipy import sparse
@@ -139,9 +140,15 @@ def iterate_queue(
         else:
             if sentinal is not None and isinstance(item, sentinal):
                 num_sentinals -= 1
+                #try:
+                #    queue.task_done()
+                #except AttributeError:
+                #    pass
                 if num_sentinals == 0:
                     raise StopIteration
             else:
                 yield item
+
+
 
 

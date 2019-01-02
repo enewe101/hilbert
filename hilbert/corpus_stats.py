@@ -1,3 +1,4 @@
+import os
 import time
 import scipy
 import hilbert as h
@@ -27,18 +28,32 @@ def load_tokens(path):
         return f.read().split()
 
 
-def get_test_bigram(window_size):
-    bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
-    #bigram.sort()
+def get_test_bigram_mutable(window_size):
+    bigram = get_bigram_mutable(load_test_tokens(), window_size, verbose=False) 
     return bigram
+
+#
+#   Superseeded below
+#
+#def get_test_bigram_base(window_size):
+#    bigram = get_bigram_base(load_test_tokens(), window_size, verbose=False) 
+#    return bigram
+#
+
+
+def w2v_prob_keep(uNx, uN, t=1e-5):
+    freqs = uNx / uN
+    drop_probs = torch.clamp((freqs - t)/freqs - torch.sqrt(t/freqs), 0, 1)
+    keep_probs = 1 - drop_probs
+    return keep_probs
 
 
 def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def calc_PMI(bigram):
-    Nxx, Nx, Nxt, N = bigram
+def calc_PMI(bigram_shard):
+    Nxx, Nx, Nxt, N = bigram_shard
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
@@ -119,6 +134,7 @@ def get_posterior_numerically(
 
 
 def calculate_all_kls(bigram):
+    assert bigram.sector == h.shards.whole, "expecting whole bigram"
     KL = np.zeros((bigram.vocab, bigram.vocab))
     iters = 0
     start = time.time()
@@ -235,26 +251,49 @@ def calc_PMI_star(cooc_stats):
     return calc_PMI((useNxx, Nx, Nxt, N))
 
 
-#def get_stats(token_list, window_size, verbose=True):
-#    cooc_stats = h.cooc_stats.CoocStats(verbose=verbose)
-#    for i in range(len(token_list)):
-#        focal_word = token_list[i]
-#        for j in range(i-window_size, i +window_size+1):
-#            if i==j or j < 0:
-#                continue
-#            try:
-#                context_word = token_list[j]
-#            except IndexError:
-#                continue
-#            cooc_stats.add(focal_word, context_word)
-#    return cooc_stats
+def get_test_bigram_base(device=None, verbose=True):
+    """
+    For testing purposes, builds a bigram_base from constituents (not using it's
+    own load function) and returns the bigram_base along with the constituents
+    used to make it.
+    """
+    path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+    unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+    Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
+    bigram_base = h.bigram_base.BigramBase(
+        unigram, Nxx, device=device, verbose=verbose)
+
+    return bigram_base, unigram, Nxx
 
 
-def get_bigram(token_list, window_size, verbose=True):
+def get_test_bigram_sector(sector):
+    """
+    For testing purposes, builds a `BigramSector` starting from a `BigramBase`
+    (not using `BigramBase`'s load function) and returns both.
+    """
+    bigram_base = h.bigram_base.BigramBase.load(
+        os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
+    args = {
+        'unigram':bigram_base.unigram,
+        'Nxx':bigram_base.Nxx[sector],
+        'Nx':bigram_base.Nx,
+        'Nxt':bigram_base.Nxt,
+        'sector':sector
+    }
+    bigram_sector = h.bigram_sector.BigramSector(**args)
+    return bigram_sector, bigram_base
+
+
+
+
+# There should be some code that generates a BigramMutable by sampling text
+# It should exhibit the different samplers too.  For now this stub is a
+# reminder.
+def get_bigram_mutable(token_list, window_size, verbose=True):
     unigram = h.unigram.Unigram(verbose=verbose)
     for token in token_list:
         unigram.add(token)
-    bigram = h.bigram.Bigram(unigram, verbose=verbose)
+    bigram = h.bigram_mutable.BigramMutable(unigram, verbose=verbose)
     for i in range(len(token_list)):
         focal_word = token_list[i]
         for j in range(i-window_size, i +window_size+1):

@@ -38,7 +38,8 @@ def run_glv(
         losses = embsolver.cycle(epochs=iters_per_epoch, hold_loss=True)
 
         # saving data
-        hrun.save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
+        hrun.save_embeddings(
+            embsolver, save_embeddings_dir, iters_per_epoch * epoch)
         crt_iter = (epoch - 1) * iters_per_epoch
         hrun.write_trace(trace_path, crt_iter, losses)
 

@@ -133,3 +133,15 @@ class TestCorpusStats(TestCase):
         self.assertTrue(torch.allclose(found_beta, expected_beta))
 
 
+    def test_keep_prob(self):
+        t = 1e-5
+        bigram_base = h.corpus_stats.get_test_bigram_base()
+        uNx, uNxt, uN = bigram_base.load_unigram_shard()
+        freq = uNx / uN
+        p_keep_expected = t / freq + torch.sqrt(t / freq)
+        p_keep_expected = torch.clamp(p_keep_expected, 0, 1)
+        p_keep_found = h.corpus_stats.w2v_prob_keep(uNx, uN, t)
+        self.assertTrue(torch.allclose(p_keep_found, p_keep_expected))
+
+
+

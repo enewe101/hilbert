@@ -1,16 +1,10 @@
 import hilbert as h
 try:
     import torch
-    from torch.multiprocessing import Queue, Process
+    from torch.multiprocessing import JoinableQueue, Process
 except ImportError:
     torch = None
-    Queue, Process = None, None
-
-
-def construct_bigram_loader(shard_schedule, bigram_path, num_workers):
-    preloaders = [
-        h.preloader.BigramPreloader(bigram_path) for w in range(num_workers)]
-    return MultiLoader(shard_schedule, preloaders, bigram_path)
+    JoinableQueue, Process = None, None
 
 
 
@@ -88,7 +82,7 @@ class Loader(object):
             'Subclasses should override `Loader._load()`, which must '
             'return an iterable yielding pairs like `(shard_spec, gpu_data)`, '
             'where `gpu_data` is some collection of gpu-tensors (e.g. tuple of '
-            'tensors, dictionary, or single tensor).'
+            'tensors, dict of tensors, or single tensor).'
         )
 
 
@@ -102,7 +96,7 @@ class Loader(object):
             'Subclasses should override `Loader._preload()`, which must '
             'return an iterable yielding pairs like `(shard_spec, cpu_data)`, '
             'where `cpu_data` is some collection of cpu-tensors (e.g. tuple of '
-            'tensors, dictionary, or single tensor).'
+            'tensors, dict of tensors, or single tensor).'
         )
 
 
@@ -192,8 +186,8 @@ class MultiLoader(Loader):
         # Place the desired shards onto the request queue, which serves as a 
         # listing of work from which loaders draw.  Loaders will place 
         # finished shards (shards loaded into cRAM) onto the result_queue
-        self.request_queue = Queue()
-        self.result_queue = Queue(maxsize=self.queue_size)
+        self.request_queue = JoinableQueue()
+        self.result_queue = JoinableQueue(maxsize=self.queue_size)
 
         # Preload the request queue with all of the shards representing one 
         # epoch.
@@ -210,10 +204,17 @@ class MultiLoader(Loader):
 
     def _preload_iter(self):
         # Iterates through preloaded shards, as they become available
-        return h.utils.iterate_queue(
+        preload_iterator = h.utils.iterate_queue(
             self.result_queue, stop_when_empty=False, sentinal=StopIteration,
             num_sentinals=self.num_loaders
         )
+        for shard_spec, cpu_tensor in preload_iterator:
+            yield shard_spec, cpu_tensor
+            #self.result_queue.task_done()
+
+        print('trying to join')
+        #self.result_queue.join()
+        print('joined')
 
 
     def __iter__(self):
@@ -234,6 +235,7 @@ class MultiLoader(Loader):
         but rather, override the `_preload()` to which it delegates.  Notice
         that before 
         """
+        print('\n\n  STARTING PRELOADER \n\n')
         self._setup(loader_id)
         for shard_spec in h.utils.iterate_queue(self.request_queue):
             self.result_queue.put((shard_spec, self._preload(shard_spec)))
@@ -241,7 +243,7 @@ class MultiLoader(Loader):
 
 
 
-class BigramLoader(MultiLoader):
+class BigramLoader(Loader):
 
     def __init__(
         self, shard_schedule, num_loaders, bigram_path, 
@@ -266,7 +268,7 @@ class BigramLoader(MultiLoader):
         )
 
     def _setup(self, loader_id):
-        self.bigram = h.bigram.Bigram.load(self.bigram_path)
+        self.bigram_sector = h.bigram_sector.BigramSector.load(self.bigram_path)
 
     def _load(self, shard_spec, cpu_data):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
@@ -274,6 +276,9 @@ class BigramLoader(MultiLoader):
         return Nxx.to(device), Nx.to(device), Nxt.to(device), N.to(device)
 
     def _preload(self, shard_spec):
-        return self.bigram.load_shard(shard=shard_spec, device='cpu')
+        return self.bigram_sector.load_shard(shard=shard_spec, device='cpu')
 
+
+class BigramMultiLoader(BigramLoader, MultiLoader):
+    pass
 
