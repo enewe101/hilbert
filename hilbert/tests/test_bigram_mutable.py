@@ -13,6 +13,51 @@ except ImportError:
     torch = None
 
 
+class TestSectorize(TestCase):
+
+    def test_sectorize(self):
+        sector_factor = 3
+        path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+        out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sectorize')
+        sector_fnames = {
+            'Nxx-{}-{}-{}.npz'.format(i,j,sector_factor)
+            for i in range(sector_factor) for j in range(sector_factor)
+        }
+
+        # Ensure that there are not sector files already at path.
+        for sector_fname in sector_fnames:
+            sector_path = os.path.join(path, sector_fname)
+            if os.path.exists(sector_path):
+                os.remove(sector_path)
+
+        h.bigram.sectorize(path, sector_factor, verbose=False)
+
+        # Check that the sectors were in fact saved
+        found_paths = set(os.listdir(path))
+        extra_paths = {'dictionary', 'Nxx.npz', 'Nx.txt', 'Nx.npy', 'Nxt.npy'}
+        self.assertEqual(found_paths, sector_fnames | extra_paths)
+
+        # Clean up.
+        # Ensure that there are not sector files already at path.
+        for sector_fname in sector_fnames:
+            os.remove(os.path.join(path, sector_fname))
+
+        # Ensure out_path doesn't exist
+        if os.path.exists(out_path):
+            shutil.rmtree(out_path)
+
+        h.bigram.sectorize(path, sector_factor, out_path, verbose=False)
+
+        found_paths = set(os.listdir(out_path))
+        extra_paths -= {'Nxx.npz'}
+        self.assertEqual(found_paths, sector_fnames | extra_paths)
+
+        # Cleanup
+        shutil.rmtree(out_path)
+
+
+
+
 class TestBigramMutable(TestCase):
 
     def get_test_bigram(self):
@@ -373,7 +418,7 @@ class TestBigramMutable(TestCase):
         indexing of the loaded sector.
         """
 
-        shard_factor = 3
+        sector_factor = 3
         write_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-save-load-bigram-sector')
         if os.path.exists(write_path):
@@ -386,7 +431,7 @@ class TestBigramMutable(TestCase):
         Nxx, Nx, Nxt, N = bigram.load_shard()
 
         # Save all the sectors, but don't save the unigram (and dictionary)
-        sectors = h.shards.Shards(shard_factor)
+        sectors = h.shards.Shards(sector_factor)
         for sector in sectors:
             bigram.save_sector(
                 write_path, sector, save_marginal=False, save_unigram=False)
@@ -395,8 +440,8 @@ class TestBigramMutable(TestCase):
         # dictionary were not.
         paths = set(os.listdir(write_path))
         expected_paths = {
-            'Nxx-{}-{}-{}.npz'.format(i,j,shard_factor)
-            for i in range(shard_factor) for j in range(shard_factor)
+            'Nxx-{}-{}-{}.npz'.format(i,j,sector_factor)
+            for i in range(sector_factor) for j in range(sector_factor)
         }
         self.assertEqual(paths, expected_paths)
 

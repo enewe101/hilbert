@@ -1,4 +1,5 @@
 import os
+import time
 from copy import deepcopy
 from collections import Counter
 import warnings
@@ -13,15 +14,33 @@ except ImportError:
     stats = None
     torch = None
 
-import bigram as b
 import hilbert as h
+from .bigram_base import BigramBase
 
 
 def read_stats(path):
     return BigramMutable.load(path)
 
 
-class BigramMutable(b.BigramBase):
+def sectorize(path, sector_factor, out_path=None, verbose=True):
+    out_path = out_path if out_path is not None else path
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    start = time.time()
+    bigram = BigramMutable.load(path)
+    if verbose:
+        print("Loaded ({} seconds)".format(time.time() - start))
+    start = time.time()
+    save_extras = True
+    for i, sector in enumerate(h.shards.Shards(sector_factor)):
+        bigram.save_sector(out_path, sector, save_extras, save_extras)
+        save_extras = False
+        if verbose:
+            print("Saved sector {} ({} seconds)".format(i, time.time() - start))
+        start = time.time()
+
+
+class BigramMutable(BigramBase):
     """
     Similar to BigramBase, but supporting various mutation and 
     writing operations.  useful for accumulating cooccurrence 
@@ -210,7 +229,6 @@ class BigramMutable(b.BigramBase):
 
         if save_unigram:
             self.unigram.save(path)
-
 
 
     @staticmethod

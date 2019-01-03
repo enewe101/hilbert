@@ -13,9 +13,9 @@ except ImportError:
     torch = None
 
 import hilbert as h
-import bigram as b
+from .bigram_base import BigramBase
 
-class BigramSector(b.BigramBase):
+class BigramSector(BigramBase):
     """Represents cooccurrence statistics."""
 
     def __init__(
@@ -182,27 +182,49 @@ class BigramSector(b.BigramBase):
         return self.load_relative_shard(relative_shard, device)
 
 
-    def load_relative_shard(self, relative_shard=None, device=None):
+    def load_relative_shard(self, shard=None, device=None):
+        """
+        Provides tensors corresponding to the cooccurrence data, marginalized
+        data, and total count, specific to the requested shard, when indexing
+        relative to the current sector.
+
+        I.e. the data yielded will correspond to `shard * sector`.
+
+        INPUTS
+        `shard`
+            A pair of slice objects specifying a particular subset of cells, 
+            or None (in which case the entire sector is loaded). 
+        """
 
         # If no shard is provided, by default load the entire sector
-        if relative_shard is None:
-            relative_shard = h.shards.whole
+        if shard is None:
+            shard = h.shards.whole
 
         device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
 
         loaded_Nxx = h.utils.load_shard(
-            self.Nxx, relative_shard, device=device)
+            self.Nxx, shard, device=device)
         loaded_Nx = h.utils.load_shard(
-            self.Nx, relative_shard[0], device=device)
+            self.Nx, shard[0], device=device)
         loaded_Nxt = h.utils.load_shard(
-            self.Nxt, (slice(None), relative_shard[1]), device=device)
+            self.Nxt, (slice(None), shard[1]), device=device)
         loaded_N = h.utils.load_shard(self.N, device=device)
 
         return loaded_Nxx, loaded_Nx, loaded_Nxt, loaded_N
 
 
     def load_unigram_shard(self, shard=None, device=None):
+        """
+        Provides tensors corresponding to the word occurrence (unigram) data,
+        specific to the requested shard.
 
+        I.e. the data yielded will correspond to `shard * sector`.
+
+        INPUTS
+        `shard`
+            A pair (tuple) of slice objects specifying a particular subset of
+            cells, or None (in which case the entire sector is loaded). 
+        """
         # If no shard is provided, by default load the entire sector
         if shard is None:
             shard = self.sector
@@ -211,18 +233,29 @@ class BigramSector(b.BigramBase):
         return self.load_relative_unigram_shard(relative_shard, device)
 
 
-    def load_relative_unigram_shard(self, relative_shard=None, device=None):
+    def load_relative_unigram_shard(self, shard=None, device=None):
+        """
+        Provides tensors corresponding to the word occurrence (unigram) data,
+        specific to the requested shard, when indexing relative to the current
+        sector.
 
+        I.e. the data yielded will correspond to `shard * sector`.
+
+        INPUTS
+        `shard`
+            A pair (tuple) of slice objects specifying a particular subset of
+            cells, or None (in which case the entire sector is loaded). 
+        """
         # If no shard is provided, by default load the entire sector
-        if relative_shard is None:
-            relative_shard = h.shards.whole
+        if shard is None:
+            shard = h.shards.whole
 
         device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
 
         loaded_uNx = h.utils.load_shard(
-            self.uNx, relative_shard[0], device=device)
+            self.uNx, shard[0], device=device)
         loaded_uNxt = h.utils.load_shard(
-            self.uNxt, (slice(None), relative_shard[1]), device=device)
+            self.uNxt, (slice(None), shard[1]), device=device)
         loaded_uN = h.utils.load_shard(self.uN, device=device)
 
         return loaded_uNx, loaded_uNxt, loaded_uN

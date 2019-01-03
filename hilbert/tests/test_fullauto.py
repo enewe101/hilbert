@@ -43,7 +43,7 @@ class MockPPMISharder(h.msharder.PPMISharder):
 class TestSharder(TestCase):
 
     def test_glove_sharder(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
         sharder = h.msharder.GloveSharder(bigram)
         sharder._load_shard(None)
         Nxx, _,_,_ = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
@@ -61,7 +61,7 @@ class TestSharder(TestCase):
 
 
     def test_ppmi_sharder(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
         sharder = h.msharder.PPMISharder(bigram)
         sharder._load_shard(None)
 
@@ -79,7 +79,9 @@ class TestSharder(TestCase):
         produce the desired effect.  Masking diagonal is tested with other
         sharding classes (but without mocks) in another test.
         """
-        bigram = h.corpus_stats.get_test_bigram(2)
+
+
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         keep = 1
 
         # Test for different shard factors to make sure the diagonal elements
@@ -94,7 +96,7 @@ class TestSharder(TestCase):
             mhat = torch.nn.Parameter(torch.ones(
                 (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
             ))
-            optimizer = torch.optim.SGD((mhat,), lr=0.1)
+            optimizer = torch.optim.SGD((mhat,), lr=1.)
             for shard in shards:
                 optimizer.zero_grad()
                 loss = sharder.calc_shard_loss(mhat[shard], shard)
@@ -107,7 +109,7 @@ class TestSharder(TestCase):
             masked_mhat = torch.nn.Parameter(torch.ones(
                 (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
             ))
-            optimizer = torch.optim.SGD((masked_mhat,), lr=0.1)
+            optimizer = torch.optim.SGD((masked_mhat,), lr=1.)
             for shard in shards:
                 optimizer.zero_grad()
                 loss = masked_diag_sharder.calc_shard_loss(
@@ -121,7 +123,7 @@ class TestSharder(TestCase):
             mock_mhat = torch.nn.Parameter(torch.ones(
                 (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
             ))
-            optimizer = torch.optim.SGD((mock_mhat,), lr=0.1)
+            optimizer = torch.optim.SGD((mock_mhat,), lr=1.)
             for shard in shards:
                 optimizer.zero_grad()
                 loss = mock_diag_sharder.calc_shard_loss(mock_mhat[shard],shard)
@@ -142,9 +144,9 @@ class TestSharder(TestCase):
             # address these regions.
             device = h.CONSTANTS.MATRIX_DEVICE
             dtype = torch.uint8
-            diagonal = torch.eye(11, dtype=dtype, device=device)
+            diagonal = torch.eye(mhat.shape[0], dtype=dtype, device=device)
             off_diagonal = torch.ones(
-                (11,11),dtype=dtype,device=device) - diagonal
+                mhat.shape,dtype=dtype,device=device) - diagonal
 
             # Now show they are different on diagonal, but same off diagonal. 
             self.assertFalse(torch.allclose(
@@ -159,26 +161,30 @@ class TestSharder(TestCase):
         masking the diagonal of the loss function works as expected.
         """
 
-        bigram = h.corpus_stats.get_test_bigram(3)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         keep = 1
 
         # We will need to address diagonal and non-diagonal entries in 
         # M-matrices below.  Prepare the indices now.
         device = h.CONSTANTS.MATRIX_DEVICE
         dtype = torch.uint8
-        diagonal = torch.eye(11, dtype=dtype, device=device)
+        diagonal = torch.eye(bigram.shape[0], dtype=dtype, device=device)
         off_diagonal = torch.ones(
-            (11,11),dtype=dtype,device=device) - diagonal
+            bigram.shape, dtype=dtype,device=device) - diagonal
 
         # Test for different shard factors to make sure the diagonal elements
         # are always correctly found
-        sharder_classes = [
-            h.msharder.PPMISharder, h.msharder.Word2vecSharder,
-            h.msharder.GloveSharder, h.msharder.MaxLikelihoodSharder,
-            h.msharder.MaxPosteriorSharder, h.msharder.KLSharder
-        ] 
+        sharder_classes_and_learning_rates = [
+            (h.msharder.PPMISharder, 1.0), 
+            (h.msharder.Word2vecSharder, 0.1),
+            (h.msharder.GloveSharder, 0.1),
+            (h.msharder.MaxLikelihoodSharder, 1000),
+            (h.msharder.MaxPosteriorSharder, 1000),
+            (h.msharder.KLSharder, 1000)
+        ]
+        runs = product([1,3], sharder_classes_and_learning_rates)
 
-        for shard_factor, sharder_class in product([1,2,3], sharder_classes):
+        for shard_factor, (sharder_class, learning_rate) in runs:
 
             shards = h.shards.Shards(shard_factor)
 
@@ -187,7 +193,7 @@ class TestSharder(TestCase):
                 bigram=bigram, update_density=keep, mask_diagonal=False)
             mhat = torch.nn.Parameter(torch.ones(
                 (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
-            optimizer = torch.optim.SGD((mhat,), lr=0.1)
+            optimizer = torch.optim.SGD((mhat,), lr=learning_rate)
             for shard in shards:
                 optimizer.zero_grad()
                 loss = sharder.calc_shard_loss(mhat[shard], shard)
@@ -199,7 +205,7 @@ class TestSharder(TestCase):
                 bigram, update_density=keep, mask_diagonal=True)
             masked_mhat = torch.nn.Parameter(torch.ones(
                 (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
-            optimizer = torch.optim.SGD((masked_mhat,), lr=0.1)
+            optimizer = torch.optim.SGD((masked_mhat,), lr=learning_rate)
             for shard in shards:
                 optimizer.zero_grad()
                 loss = masked_diag_sharder.calc_shard_loss(
@@ -214,9 +220,6 @@ class TestSharder(TestCase):
 
             # Masked and non-masked sharders should differ along the diagonal,
             # but be the same elsewhere.
-            if torch.allclose(masked_mhat[diagonal], mhat[diagonal]):
-                import pdb; pdb.set_trace()
-
             self.assertFalse(torch.allclose(
                 masked_mhat[diagonal], mhat[diagonal]))
             self.assertTrue(torch.allclose(
@@ -225,7 +228,7 @@ class TestSharder(TestCase):
 
 
     def test_mse_minibatching_loss(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
 
         for keep in [0.1, 0.5, 1]:
             for scale, constructor in [(1, h.msharder.PPMISharder),
@@ -254,11 +257,11 @@ class TestSharder(TestCase):
                     mse, p=1-keep, training=True)
                 exloss = keep * torch.sum(exloss) / expected_scaler
 
-                self.assertEqual(loss, exloss)
+                self.assertTrue(torch.allclose(loss, exloss))
 
 
     def test_max_likelihood_sharder(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         temperature = 10
         sharder = h.msharder.MaxLikelihoodSharder(bigram, temperature)
         sharder._load_shard(None)
@@ -273,7 +276,7 @@ class TestSharder(TestCase):
 
 
     def test_max_posterior_sharder(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         temperature = 10
         sharder = h.msharder.MaxPosteriorSharder(bigram, temperature)
         sharder._load_shard(None)
@@ -299,7 +302,7 @@ class TestSharder(TestCase):
 
     def test_KL_sharder(self):
 
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         temperature = 10
         sharder = h.msharder.KLSharder(bigram, temperature)
         sharder._load_shard(None)
@@ -361,7 +364,7 @@ class TestLoss(TestCase):
     def test_w2v_loss(self):
 
         k = 15
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         uNx, uNxt, uN = bigram.unigram.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE) 
@@ -391,7 +394,7 @@ class TestLoss(TestCase):
 
 
     def test_max_likelihood_loss(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
@@ -417,7 +420,7 @@ class TestLoss(TestCase):
 
 
     def test_max_posterior_loss(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
@@ -451,7 +454,7 @@ class TestLoss(TestCase):
 
 
     def test_KL_loss(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
@@ -522,7 +525,7 @@ class TestAutoEmbedder(TestCase):
 
 
     def test_emb_solver_functionality(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         glv_sharder = h.msharder.GloveSharder(bigram)
         ppmi_sharder = h.msharder.PPMISharder(bigram)
         w2v_sharder = h.msharder.Word2vecSharder(bigram, 15)
@@ -583,7 +586,7 @@ class TestAutoEmbedder(TestCase):
 
 
     def test_solver_nan(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         ppmi_sharder = h.msharder.PPMISharder(bigram)
         opt = torch.optim.SGD
         shape = bigram.Nxx.shape
@@ -591,7 +594,7 @@ class TestAutoEmbedder(TestCase):
         solver = h.autoembedder.HilbertEmbedderSolver(
             ppmi_sharder, opt, d=300,
             shape=shape,
-            learning_rate=1000,
+            learning_rate=10000,
             shard_factor=1,
             one_sided=False,
             learn_bias=False,
@@ -605,7 +608,7 @@ class TestAutoEmbedder(TestCase):
 
 
     def test_w2v_solver(self):
-        bigram = h.corpus_stats.get_test_bigram(2)
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         shape = bigram.Nxx.shape
         w2v_sharder = h.msharder.Word2vecSharder(bigram, 15, update_density=1)
         opt = torch.optim.Adam

@@ -1,3 +1,8 @@
+FAILING TESTCASES
+TestSharder
+TestLoss
+TestAutoEmbedder
+
 bigram_base.py
 bigram_sector.py
     BigramSector.__init__
