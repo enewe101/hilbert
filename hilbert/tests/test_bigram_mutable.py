@@ -17,7 +17,7 @@ class TestBigramMutable(TestCase):
 
     def get_test_bigram(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram = h.bigram.BigramMutable(unigram, array, verbose=False)
         return bigram
 
 
@@ -35,39 +35,39 @@ class TestBigramMutable(TestCase):
 
         # Make a bigram by passing in a unigram, and optionally some 
         # cooccurrence data (Nxx)
-        h.bigram_mutable.BigramMutable(unigram)
-        h.bigram_mutable.BigramMutable(unigram, Nxx=Nxx)
+        h.bigram.BigramMutable(unigram)
+        h.bigram.BigramMutable(unigram, Nxx=Nxx)
 
         # Unigram is required
         with self.assertRaises(TypeError):
-            h.bigram_mutable.BigramMutable()
+            h.bigram.BigramMutable()
         with self.assertRaises(TypeError):
-            h.bigram_mutable.BigramMutable(Nxx=Nxx)
+            h.bigram.BigramMutable(Nxx=Nxx)
 
         # BigramBases need a sorted unigram instance
         unsorted_unigram = deepcopy(unigram)
         random.shuffle(unsorted_unigram.Nx)
         self.assertFalse(unsorted_unigram.check_sorted())
         with self.assertRaises(ValueError):
-            h.bigram_mutable.BigramMutable(unsorted_unigram, Nxx)
+            h.bigram.BigramMutable(unsorted_unigram, Nxx)
 
         # Truncated unigram leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.Nx = truncated_unigram.Nx[:-1]
         with self.assertRaises(ValueError):
-            h.bigram_mutable.BigramMutable(truncated_unigram, Nxx)
+            h.bigram.BigramMutable(truncated_unigram, Nxx)
 
         # Truncated unigram dictionary leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.dictionary = h.dictionary.Dictionary(
             unigram.dictionary.tokens[:-1])
         with self.assertRaises(ValueError):
-            h.bigram_mutable.BigramMutable(truncated_unigram, Nxx)
+            h.bigram.BigramMutable(truncated_unigram, Nxx)
 
 
     def test_deepcopy(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram1 = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram1 = h.bigram.BigramMutable(unigram, array, verbose=False)
         Nxx1, Nx1, Nxt1, N1 = bigram1.load_shard()
 
         bigram2 = deepcopy(bigram1)
@@ -94,7 +94,7 @@ class TestBigramMutable(TestCase):
 
     def test_copy(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram1 = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram1 = h.bigram.BigramMutable(unigram, array, verbose=False)
         Nxx1, Nx1, Nxt1, N1 = bigram1.load_shard()
 
         bigram2 = copy(bigram1)
@@ -133,7 +133,7 @@ class TestBigramMutable(TestCase):
 
     #    # Make one CoocStat instance to be added.
     #    dictionary, array, unigram1 = self.get_test_cooccurrence_stats()
-    #    bigram1 = h.bigram_mutable.BigramMutable(unigram1, array, verbose=False)
+    #    bigram1 = h.bigram.BigramMutable(unigram1, array, verbose=False)
 
     #    # Make another CoocStat instance to be added.
     #    token_pairs2 = [
@@ -156,7 +156,7 @@ class TestBigramMutable(TestCase):
     #    ])
     #    unigram2 = h.unigram.Unigram(dictionary2, array2.sum(axis=1))
 
-    #    bigram2 = h.bigram_mutable.BigramMutable(unigram2, verbose=False)
+    #    bigram2 = h.bigram.BigramMutable(unigram2, verbose=False)
     #    for tok1, tok2 in token_pairs2:
     #        bigram2.add(tok1, tok2)
     #        bigram2.add(tok2, tok1)
@@ -221,35 +221,34 @@ class TestBigramMutable(TestCase):
 
     def test_add(self):
 
+        # Create a `BigramMutable` instance using counts
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        Nxx = array
-        Nx = np.sum(Nxx, axis=1).reshape(-1,1)
-        Nxt = np.sum(Nxx, axis=0).reshape(1,-1)
-        N = np.sum(Nxx)
-
-        # Create a bigram instance using counts
-        bigram = h.bigram_mutable.BigramMutable(unigram, Nxx=Nxx, verbose=False)
+        bigram_mutable = h.bigram.BigramMutable(
+            unigram, Nxx=array, verbose=False)
+        Nxx = torch.tensor(array, dtype=h.CONSTANTS.DEFAULT_DTYPE)
 
         # We can add tokens if they are in the unigram vocabulary
-        bigram.add('banana', 'socks')
-        expected_Nxx = Nxx.copy()
-        expected_Nxx[0,1] += 1
-        expected_Nx = expected_Nxx.sum(axis=1, keepdims=True)
-        expected_Nxt = expected_Nxx.sum(axis=0, keepdims=True)
-        expected_N = expected_Nxx.sum()
+        add_count = 3
+        bigram_mutable.add('banana', 'socks', add_count)
+        expected_Nxx = Nxx.clone()
+        expected_Nxx[0,1] += add_count
+        expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
+        expected_Nxt = torch.sum(expected_Nxx, dim=0, keepdim=True)
+        expected_N = torch.sum(expected_Nxx)
 
-        self.assertTrue(np.allclose(bigram.Nxx.toarray(), expected_Nxx))
-        self.assertTrue(np.allclose(bigram.Nx, expected_Nx))
-        self.assertTrue(np.allclose(bigram.Nxt, expected_Nxt))
-        self.assertEqual(bigram.N, expected_N)
+        # Check that adding occurred
+        self.assertTrue(np.allclose(bigram_mutable.Nxx.toarray(), expected_Nxx))
+        self.assertTrue(torch.allclose(bigram_mutable.Nx, expected_Nx))
+        self.assertTrue(torch.allclose(bigram_mutable.Nxt, expected_Nxt))
+        self.assertEqual(bigram_mutable.N, expected_N)
 
         # We cannot add tokens if they are outside of the unigram vocabulary
         with self.assertRaises(ValueError):
-            bigram.add('archaeopteryx', 'socks')
+            bigram_mutable.add('archaeopteryx', 'socks')
 
         # If skip_unk is True, then don't raise an error when attempting to
         # add tokens outside vocabulary, just skip
-        bigram.add('archaeopteryx', 'socks', skip_unk=True)
+        bigram_mutable.add('archaeopteryx', 'socks', skip_unk=True)
 
 
     #
@@ -280,7 +279,7 @@ class TestBigramMutable(TestCase):
     #    ])
 
     #    unsorted_unigram = h.unigram.Unigram(unsorted_dictionary, unsorted_Nx)
-    #    bigram = h.bigram_mutable.BigramMutable(unsorted_unigram, unsorted_Nxx, verbose=False)
+    #    bigram = h.bigram.BigramMutable(unsorted_unigram, unsorted_Nxx, verbose=False)
 
     #    # Bigram is unsorted
     #    self.assertFalse(np.allclose(bigram.Nxx.toarray(), sorted_Nxx))
@@ -306,7 +305,7 @@ class TestBigramMutable(TestCase):
     def test_truncate(self):
 
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram = h.bigram.BigramMutable(unigram, array, verbose=False)
 
         trunc_tokens = ['banana', 'socks']
         trunc_uNx = [5, 4]
@@ -341,12 +340,12 @@ class TestBigramMutable(TestCase):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
 
         # Create a bigram instance.
-        bigram = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram = h.bigram.BigramMutable(unigram, array, verbose=False)
         Nxx, Nx, Nxt, N = bigram.load_shard()
 
         # Save it, then load it
         bigram.save(write_path)
-        bigram2 = h.bigram_mutable.BigramMutable.load(write_path, verbose=False)
+        bigram2 = h.bigram.BigramMutable.load(write_path, verbose=False)
 
         Nxx2, Nx2, Nxt2, N2 = bigram2.load_shard()
 
@@ -383,7 +382,7 @@ class TestBigramMutable(TestCase):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
 
         # Create a bigram instance.
-        bigram = h.bigram_mutable.BigramMutable(unigram, array, verbose=False)
+        bigram = h.bigram.BigramMutable(unigram, array, verbose=False)
         Nxx, Nx, Nxt, N = bigram.load_shard()
 
         # Save all the sectors, but don't save the unigram (and dictionary)
@@ -415,7 +414,7 @@ class TestBigramMutable(TestCase):
         # everything lines up.
         for sector in sectors:
 
-            bigram_sector = h.bigram_sector.BigramSector.load(
+            bigram_sector = h.bigram.BigramSector.load(
                 write_path, sector=sector, verbose=False)
 
             row_dict = bigram_sector.row_dictionary
@@ -468,7 +467,7 @@ class TestBigramMutable(TestCase):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
         unigram.save(write_path)
 
-        bigram = h.bigram_mutable.BigramMutable.load_unigram(write_path)
+        bigram = h.bigram.BigramMutable.load_unigram(write_path)
 
         self.assertTrue(np.allclose(bigram.unigram.Nx, unigram.Nx))
         self.assertTrue(np.allclose(bigram.unigram.N, unigram.N))

@@ -13,9 +13,9 @@ except ImportError:
     torch = None
 
 import hilbert as h
+import bigram as b
 
-
-class BigramSector(h.bigram_base.BigramBase):
+class BigramSector(b.BigramBase):
     """Represents cooccurrence statistics."""
 
     def __init__(
@@ -284,7 +284,7 @@ class BigramSector(h.bigram_base.BigramBase):
         return self
 
 
-    def get_sector(self):
+    def get_sector(self, *args):
         raise NotImplementedError("`BigramSector`s cannot `get_sector`.")
 
 

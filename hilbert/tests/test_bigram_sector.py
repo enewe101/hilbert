@@ -23,7 +23,7 @@ def approx_equal(a, b):
 class TestBigramSector(TestCase):
 
     def get_test_bigram_sector(self):
-        bigram_base = h.bigram_base.BigramBase.load(
+        bigram_base = h.bigram.BigramBase.load(
             os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
 
         # BigramBases should generally be made by passing a unigram and Nxx
@@ -37,7 +37,7 @@ class TestBigramSector(TestCase):
             'Nxt':bigram_base.Nxt,
             'sector':arbitrary_sector
         }
-        bigram_sector = h.bigram_sector.BigramSector(**args)
+        bigram_sector = h.bigram.BigramSector(**args)
         return bigram_sector, bigram_base
 
 
@@ -51,7 +51,7 @@ class TestBigramSector(TestCase):
     #def get_bigger_test_bigram(self):
     #    read_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
     #    write_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
-    #    bigram_mutable = h.bigram_mutable.BigramMutable.load(read_path)
+    #    bigram_mutable = h.bigram.BigramMutable.load(read_path)
     #    for i, sector in enumerate(h.shards.Shards(3)):
     #        if i == 0:
     #            bigram_mutable.save_sector(write_path, sector)
@@ -60,13 +60,13 @@ class TestBigramSector(TestCase):
 
 
     def test_bigram_sector(self):
-        bigram_base = h.bigram_base.BigramBase.load(
+        bigram_base = h.bigram.BigramBase.load(
             os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
 
         shard_factor = 3
         for sector in h.shards.Shards(shard_factor):
 
-            bigram_sector = h.bigram_sector.BigramSector(
+            bigram_sector = h.bigram.BigramSector(
                 bigram_base.unigram, bigram_base.Nxx[sector],
                 bigram_base.Nx, bigram_base.Nxt, sector
             )
@@ -132,7 +132,7 @@ class TestBigramSector(TestCase):
 
     def test_invalid_arguments(self):
 
-        bigram_base = h.bigram_base.BigramBase.load(
+        bigram_base = h.bigram.BigramBase.load(
             os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
 
         # `BigramBases`s should generally be made by passing a unigram, Nxx
@@ -153,7 +153,7 @@ class TestBigramSector(TestCase):
             temp_args = dict(args)
             del temp_args[key]
             with self.assertRaises(TypeError):
-                h.bigram_sector.BigramSector(**temp_args)
+                h.bigram.BigramSector(**temp_args)
 
         # `BigramSector`s need a sorted unigram instance
         unsorted_unigram = deepcopy(bigram_base.unigram)
@@ -162,7 +162,7 @@ class TestBigramSector(TestCase):
         with self.assertRaises(ValueError):
             temp_args = dict(args)
             temp_args['unigram'] = unsorted_unigram
-            h.bigram_sector.BigramSector(**temp_args)
+            h.bigram.BigramSector(**temp_args)
 
         # Truncated unigram leads to ValueError
         truncated_unigram = deepcopy(bigram_base.unigram)
@@ -170,7 +170,7 @@ class TestBigramSector(TestCase):
         with self.assertRaises(ValueError):
             temp_args = dict(args)
             temp_args['unigram'] = truncated_unigram
-            h.bigram_sector.BigramSector(**temp_args)
+            h.bigram.BigramSector(**temp_args)
 
         # Truncated unigram dictionary leads to ValueError
         truncated_unigram = deepcopy(bigram_base.unigram)
@@ -179,19 +179,19 @@ class TestBigramSector(TestCase):
         with self.assertRaises(ValueError):
             temp_args = dict(args)
             temp_args['unigram'] = truncated_unigram
-            h.bigram_sector.BigramSector(**temp_args)
+            h.bigram.BigramSector(**temp_args)
 
         # Truncated Nx leads to ValueError
         temp_args = dict(args)
         temp_args['Nx'] = args['Nx'][:-1]
         with self.assertRaises(ValueError):
-            h.bigram_sector.BigramSector(**temp_args)
+            h.bigram.BigramSector(**temp_args)
 
         # Truncated Nxt leads to ValueError
         temp_args = dict(args)
         temp_args['Nxt'] = args['Nxt'][:,:-1]
         with self.assertRaises(ValueError):
-            h.bigram_sector.BigramSector(**temp_args)
+            h.bigram.BigramSector(**temp_args)
 
 
     def test_load(self):
@@ -209,10 +209,10 @@ class TestBigramSector(TestCase):
                 'Nxt':bigram_base.Nxt,
                 'sector':sector
             }
-            expected_sector = h.bigram_sector.BigramSector(**args)
+            expected_sector = h.bigram.BigramSector(**args)
 
             # Load the corresponding sector directly from disk.
-            found_sector = h.bigram_sector.BigramSector.load(
+            found_sector = h.bigram.BigramSector.load(
                 os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors'), sector)
 
             # Cooccurrence arrays should be equal
@@ -261,12 +261,12 @@ class TestBigramSector(TestCase):
         device = h.CONSTANTS.MATRIX_DEVICE
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
-        bigram_base = h.bigram_base.BigramBase.load(
+        bigram_base = h.bigram.BigramBase.load(
             os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
 
         for sector in h.shards.Shards(3):
 
-            bigram_sector = h.bigram_sector.BigramSector.load(
+            bigram_sector = h.bigram.BigramSector.load(
                 os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors'), sector)
 
             # Test loading bigram data without specifying a shard. Should load
@@ -349,7 +349,7 @@ class TestBigramSector(TestCase):
         # Make a similar bigram, but change some of the bigram statistics
         decremented_Nxx = bigram_base.Nxx.toarray() - 1
         decremented_Nxx[decremented_Nxx<0] = 0
-        decremented_bigram_sector = h.bigram_sector.BigramSector(
+        decremented_bigram_sector = h.bigram.BigramSector(
             bigram_base.unigram, 
             decremented_Nxx[bigram_sector.sector],
             np.sum(decremented_Nxx, axis=1, keepdims=True),
@@ -382,7 +382,7 @@ class TestBigramSector(TestCase):
                 'Nxt':bigram_base.Nxt,
                 'sector':sector
             }
-            bigram_sector = h.bigram_sector.BigramSector(**args)
+            bigram_sector = h.bigram.BigramSector(**args)
 
             # Initially the counts reflect the provided cooccurrence matrix
             sNxx, sNx, sNxt, sN = bigram_sector.load_shard()
@@ -425,19 +425,49 @@ class TestBigramSector(TestCase):
             bigram_sector.get_sector(bigram_sector.sector)
 
 
-    # TODO: this needs to be adapted to the BigramSector
     def test_count(self):
-        for sector in h.shards.Shards(3):
-            bigram_sector, bigram_base = self.get_test_bigram_sector(sector)
-            for token1, token2 in test_tokens:
-                self.assertTrue(bigram.count('banana', 'socks'), 3)
-                self.assertTrue(bigram.count('socks', 'car'), 1)
+        bigram_base, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        sector_factor = 3
+        num_to_sample = 5
+        for sector in h.shards.Shards(sector_factor):
+            args = {
+                'unigram':unigram,
+                'Nxx':Nxx[sector],
+                'Nx':bigram_base.Nx,
+                'Nxt':bigram_base.Nxt,
+                'sector':sector
+            }
+            bigram_sector = h.bigram.BigramSector(**args)
+            row_tokens = random.sample(
+                unigram.dictionary.tokens[sector[0]], num_to_sample)
+            col_tokens = random.sample(
+                unigram.dictionary.tokens[sector[1]], num_to_sample)
+            for row_token, col_token in zip(row_tokens, col_tokens):
+                self.assertEqual(
+                    bigram_base.count(row_token, col_token),
+                    bigram_sector.count(row_token, col_token)
+                )
 
 
-    # TODO: this needs to be adapted to the BigramSector
     def test_density(self):
-        bigram = self.get_test_bigram_base()
-        self.assertEqual(bigram.density(), 0.5)
-        self.assertEqual(bigram.density(2), 0.125)
+        bigram_base, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        sector_factor = 3
+        num_to_sample = 5
+        for sector in h.shards.Shards(sector_factor):
+            args = {
+                'unigram':unigram,
+                'Nxx':Nxx[sector],
+                'Nx':bigram_base.Nx,
+                'Nxt':bigram_base.Nxt,
+                'sector':sector
+            }
+            bigram_sector = h.bigram.BigramSector(**args)
+            expected_sector = bigram_base.Nxx[sector]
+            size = np.prod(expected_sector.shape)
+            for thresh in [0,1,25]:
+                num_above_thresh = np.sum(expected_sector > thresh)
+                expected_density = num_above_thresh / size
+                self.assertEqual(
+                    bigram_sector.density(thresh), expected_density)
 
 

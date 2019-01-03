@@ -260,7 +260,7 @@ def get_test_bigram_base(device=None, verbose=True):
     path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
     unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
     Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-    bigram_base = h.bigram_base.BigramBase(
+    bigram_base = h.bigram.BigramBase(
         unigram, Nxx, device=device, verbose=verbose)
 
     return bigram_base, unigram, Nxx
@@ -271,7 +271,7 @@ def get_test_bigram_sector(sector):
     For testing purposes, builds a `BigramSector` starting from a `BigramBase`
     (not using `BigramBase`'s load function) and returns both.
     """
-    bigram_base = h.bigram_base.BigramBase.load(
+    bigram_base = h.bigram.BigramBase.load(
         os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
     args = {
         'unigram':bigram_base.unigram,

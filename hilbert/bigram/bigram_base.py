@@ -61,7 +61,7 @@ class BigramBase(object):
         self.Nxx = sparse.lil_matrix(Nxx)
         self.Nx = torch.tensor(np.sum(self.Nxx, axis=1), dtype=dtype)
         self.Nxt = torch.tensor(np.sum(self.Nxx, axis=0), dtype=dtype)
-        self.N = torch.tensor(np.sum(Nxx), dtype=dtype)
+        self.N = torch.sum(self.Nx)
 
         self.validate_shape()
 
@@ -287,7 +287,7 @@ class BigramBase(object):
     def get_sector(self, sector, device=None, verbose=None):
         device = device if device is not None else self.device
         verbose = verbose if verbose is not None else self.verbose
-        return h.bigram_sector.BigramSector(
+        return h.bigram.BigramSector(
             self.unigram, self.Nxx[sector], self.Nx, self.Nxt, sector,
             device=device, verbose=verbose
         )

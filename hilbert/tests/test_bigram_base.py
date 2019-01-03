@@ -19,7 +19,7 @@ class TestBigramBase(TestCase):
 
     def get_test_bigram_base(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram_base.BigramBase(unigram, array, verbose=False)
+        bigram = h.bigram.BigramBase(unigram, array, verbose=False)
         return bigram
 
 
@@ -67,7 +67,8 @@ class TestBigramBase(TestCase):
             bigram.Nx, torch.sum(array, dim=1, keepdim=True)))
         self.assertTrue(torch.allclose(
             bigram.Nxt, torch.sum(array, dim=0, keepdim=True)))
-        self.assertEqual(bigram.N, torch.tensor(np.sum(Nxx), dtype=dtype))
+        self.assertTrue(torch.allclose(
+            bigram.N, torch.tensor(np.sum(Nxx), dtype=dtype)))
 
 
 
@@ -78,27 +79,27 @@ class TestBigramBase(TestCase):
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
 
         # BigramBases should generally be made by passing a unigram and Nxx
-        h.bigram_base.BigramBase(unigram, Nxx)
+        h.bigram.BigramBase(unigram, Nxx)
 
         # BigramBases need a sorted unigram instance
         unsorted_unigram = deepcopy(unigram)
         random.shuffle(unsorted_unigram.Nx)
         self.assertFalse(unsorted_unigram.check_sorted())
         with self.assertRaises(ValueError):
-            h.bigram_base.BigramBase(unsorted_unigram, Nxx)
+            h.bigram.BigramBase(unsorted_unigram, Nxx)
 
         # Truncated unigram leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.Nx = truncated_unigram.Nx[:-1]
         with self.assertRaises(ValueError):
-            h.bigram_base.BigramBase(truncated_unigram, Nxx)
+            h.bigram.BigramBase(truncated_unigram, Nxx)
 
         # Truncated unigram dictionary leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.dictionary = h.dictionary.Dictionary(
             unigram.dictionary.tokens[:-1])
         with self.assertRaises(ValueError):
-            h.bigram_base.BigramBase(truncated_unigram, Nxx)
+            h.bigram.BigramBase(truncated_unigram, Nxx)
 
 
 
@@ -109,7 +110,7 @@ class TestBigramBase(TestCase):
         shards = h.shards.Shards(3)
 
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram_base.BigramBase(unigram, Nxx, verbose=False)
+        bigram = h.bigram.BigramBase(unigram, Nxx, verbose=False)
 
         Nxx = torch.tensor(Nxx, device=device, dtype=dtype)
         Nx = torch.sum(Nxx, dim=1, keepdim=True)
@@ -149,12 +150,12 @@ class TestBigramBase(TestCase):
 
         # Make a bigram
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram_base.BigramBase(unigram, array)
+        bigram = h.bigram.BigramBase(unigram, array)
 
         # Make a similar bigram, but change some of the bigram statistics
         decremented_array = array - 1
         decremented_array[decremented_array<0] = 0
-        decremented_bigram = h.bigram_base.BigramBase(unigram,decremented_array)
+        decremented_bigram = h.bigram.BigramBase(unigram,decremented_array)
 
         # Merge the two bigram instances
         bigram.merge(decremented_bigram)
@@ -218,7 +219,7 @@ class TestBigramBase(TestCase):
         for sector in h.shards.Shards(3):
             bigram_sector = bigram_base.get_sector(sector)
             self.assertTrue(isinstance(
-                bigram_sector, h.bigram_sector.BigramSector))
+                bigram_sector, h.bigram.BigramSector))
             self.assertTrue(np.allclose(
                 bigram_sector.Nxx.toarray(),
                 bigram_base.Nxx[sector].toarray()

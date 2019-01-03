@@ -13,7 +13,7 @@ except ImportError:
     stats = None
     torch = None
 
-
+import bigram as b
 import hilbert as h
 
 
@@ -21,7 +21,7 @@ def read_stats(path):
     return BigramMutable.load(path)
 
 
-class BigramMutable(h.bigram_base.BigramBase):
+class BigramMutable(b.BigramBase):
     """
     Similar to BigramBase, but supporting various mutation and 
     writing operations.  useful for accumulating cooccurrence 
@@ -143,20 +143,20 @@ class BigramMutable(h.bigram_base.BigramBase):
         self.N += count
 
 
-    def sort(self, force=False):
-        """Adopt decreasing order of unigram frequency."""
-        raise NotImplementedError("`BigramMutable`s are always sorted.")
-        top_indices = self.unigram.sort()
-        self.Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
-        self.Nx = self.Nx[top_indices]
-        self.Nxt = self.Nxt[:,top_indices]
+    #def sort(self, force=False):
+    #    """Adopt decreasing order of unigram frequency."""
+    #    raise NotImplementedError("`BigramMutable`s are always sorted.")
+    #    top_indices = self.unigram.sort()
+    #    self.Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
+    #    self.Nx = self.Nx[top_indices]
+    #    self.Nxt = self.Nxt[:,top_indices]
 
 
     def truncate(self, k):
         """Drop all but the `k` most common words."""
 
-        if not self.sorted:
-            self.sort()
+        #if not self.sorted:
+        #    self.sort()
 
         self.Nxx = self.Nxx[:k][:,:k]
         self.Nx = np.array(np.sum(self.Nxx, axis=1))
