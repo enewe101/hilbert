@@ -152,7 +152,10 @@ class BigramSector(BigramBase):
         unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
 
         # Read Nxx, Nx, and Nxt.
-        Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
+        if sector == h.shards.whole:
+            Nxx_fname = 'Nxx.npz'
+        else:
+            Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
         Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
         Nx = np.load(os.path.join(path, 'Nx.npy'))
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))

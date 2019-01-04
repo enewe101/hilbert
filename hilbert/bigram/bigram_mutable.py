@@ -2,7 +2,6 @@ import os
 import time
 from copy import deepcopy
 from collections import Counter
-import warnings
 
 try:
     import numpy as np

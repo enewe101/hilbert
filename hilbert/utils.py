@@ -1,4 +1,5 @@
 import hilbert as h
+import sys
 from queue import Empty
 from multiprocessing import Queue, JoinableQueue
 
@@ -121,7 +122,8 @@ def iterate_queue(
     stop_when_empty=True,
     sentinal=None,
     num_sentinals=1,
-    poll_frequency=0.1
+    poll_frequency=0.1,
+    verbose=True
 ):
     while True:
 
@@ -134,16 +136,18 @@ def iterate_queue(
             if stop_when_empty:
                 raise StopIteration
             else:
-                print('waiting')
+                if verbose:
+                    print('\twaiting for data to load...', file=sys.stderr)
 
         # If it isn't empty, note any sentinal or yield the item.
         else:
             if sentinal is not None and isinstance(item, sentinal):
                 num_sentinals -= 1
-                #try:
-                #    queue.task_done()
-                #except AttributeError:
-                #    pass
+                try:
+                    queue.task_done()
+                except AttributeError:
+                    print('could not mark task done')
+                    pass
                 if num_sentinals == 0:
                     raise StopIteration
             else:

@@ -11,9 +11,19 @@ except ImportError:
 
 class Loader(ABC):
 
-    def __init__(self, num_loaders=1, queue_size=1):
+    def __init__(self, num_loaders=1, queue_size=1, verbose=True):
         """
-        Iterable that provides GPU-loaded data shards (similar to minibatches).
+        Iterable that provides GPU-loaded minibatches.
+
+        This loader is a drop-in replacement for `MultiLoader`.  They are
+        identical in effect, except that (1) no preloading happens in the
+        background, and (2) the ordering of minibatches is deterministic.
+
+        While the whole purpose of a having a loader is to preload data in the
+        background, `Loader` as a drop-in replacement when debugging classes
+        that are intended to subclass MultiLoader.  Simply temporarily subclass
+        `Loader` instead of `MultiLoader` to keep execution in a single process
+        while debugging.
 
         INPUTS
         `num_loaders`, 
@@ -22,39 +32,18 @@ class Loader(ABC):
             concurrently in separate processes.  Here they run sequentially
             in the main process.
         
-        `queue_size`
-            Has no effect.  Included for compatibility with `MultiLoader`.
-
-        Shards are like minibatches, but for matrix data.  A "shard_spec" is 
-        a subset of rows and columns representing the (usually non-contiguous)
-        subset of matrix data selected for a given minibatch.
-
-        Shards are first constructed by the CPU then loaded onto the GPU 
-        where they may undergo further initialization, but ultimately are
-        yielded to the training loop where they are used to run forward /
-        backward training updates.
-
-        Compared to `MultiLoader`, which uses multiprocessing to prepare
-        shards in the background for faster loading, 
-        this loader runs in a single process. Any CPU manipulations involved
-        in loading are performed synchronously, when the next shard is requested
-        in the training loop.  This is generally slower, but provides a simpler
-        approach that is appropriate if the CPU-based operations to prepare a 
-        shard are minimal, or when troubleshooting specific loading logic.
-
-        Compatibility Note
-        This class is constructed so that one can easily write concrete
-        implementations that are simultaneously valid subclasses for Loader and
-        MultiLoader, making them easy to toggle between by changing the
-        inheritence in the subclass's definition.  The `__init__()` the inputs
-        `num_loaders`, `queue_size` have no effect.  The `worker_id` will
-        be passed into `_setup(worker_id)`, as in `MultiLoader`, and `_setup()`
-        will be run at the end of the `__init__()` function.
+        `queue_size`, `verbose`
+            Both have no effect.  Included for compatibility with `MultiLoader`.
         """
         self.num_loaders = num_loaders
 
 
     def __iter__(self):
+        """
+        Yields GPU-loaded shards.  This is the only element of the public interface.
+        The training loop should treat loader as an iterable, and calculate
+        forward, backward passes using the shards yielded.
+        """
         for loader_id in range(self.num_loaders):
             for preloaded in self._preload_iter(loader_id):
                 yield self._load(preloaded)
@@ -63,8 +52,8 @@ class Loader(ABC):
     @abstractmethod
     def _load(self, preloaded):
         """
-        Returns a gpu-loaded shard, in the form of a tuple
-        `(shard_spec, gpu_data)`, where `shard_spec` is an index representing
+        Returns a gpu-loaded shard, usually in the form of a tuple
+        `(shard_id, gpu_data)`, where `shard_id` is an index representing
         the rows and columns in the shard and `gpu_data` is some collection of
         gpu-tensors representing the data in that shard (e.g. tuple of tensors,
         dict of tensors, single tensor, etc.).'
@@ -75,11 +64,11 @@ class Loader(ABC):
     @abstractmethod
     def _preload_iter(self, loader_id):
         """
-        Returns a cpu-loaded shard, in the form of a tuple
-        `(shard_spec, cpu_data)`, where `shard_spec` is an index representing
-        the rows and columns in the shard and `cpu_data` is some collection of
-        cpu-tensors representing the data in that shard (e.g. tuple of tensors,
-        dict of tensors, single tensor, etc.).'
+        Generator that yields CPU-loaded shards usually in the form of a tuple
+        `(shard_id, cpu_data)`.  It will be iterated over inside a loader
+        process.  Based on the `loader_id` and `self.num_loaders`, it should
+        yield only a portion of the data, so that together all calls to 
+        `_preload_iter` yield the full dataset without overlap.
         """
         pass
 
@@ -87,15 +76,18 @@ class Loader(ABC):
 
 class MultiLoader(ABC):
 
-    def __init__(self, num_loaders, queue_size=1):
+    def __init__(self, num_loaders, queue_size=1, verbose=True):
         """
-        Like `Loader`, `MultiLoader` is an iterable that yields `(shard_spec,
-        gpu_tensors)` pairs.  However, unlike Loader, it runs preloading code
-        in separate loader processes, so that it can keep up with GPU demand
-        and provide fast loading times.
+        Iterable that yields GPU loaded minibatches.  Override `_preload_iter()`
+        with a generator that yields minibatches preloaded (into cRAM), and
+        override `_load()` with a function that moves those preloaded minibatches
+        onto the GPU.  Several loader processes will execute `_preload_iter()`
+        in the background, placing the yielded results onto a queue, to await
+        their turn on the GPU, the transfer of data onto the GPU faster.
 
-        This is an abstract base_class.  Concrete subclasses should override
-        `_setup`, `_preload`, and `_load`.
+        When writing a subclass of `MultiLoader`, temporarily inherit from `Loader`,
+        which supports the same interface, but keeps execution in the main process
+        for easier debugging, then change the inheritance once things are working.
 
         INPUTS
         ``````
@@ -112,31 +104,18 @@ class MultiLoader(ABC):
             of shards preloaded into cRAM awaiting their turn on the GPU.
             Normally setting it to 1 is fine, because it means that each worker
             is allowed to assemble it's own shard, but will only start on a
-            new shard once the one it made is taken, so it should naturally
-            keep memory usage low, while allowing you to have enough workers
-            to keep up with the GPU.
-
-        `device`
-            The target device for final loading.  Shards are preloaded onto the
-            CPU, but are finally loaded onto this device when it is time to 
-            learn from the given shard.  Normally this can be left to it's 
-            default, which is to target the globally set
-            h.CONSTANTS.MATRIX_DEVICE.
+            new shard once the one it made is accepted onto the queue.
         """
         self.queue_size = queue_size
         self.num_loaders = num_loaders
+        self.verbose = verbose
+        self.already_iterated = False
         self._start_preloading()
 
 
     def _start_preloading(self):
         """
-        Start a number child loader processes.  The number of processes started
-        is controlled by `self.num_loaders`.  In the child process, shards will
-        be preloaded by running the `_preload()` function on shard_specs,
-        as yielded by `self.shard_schedule`.  Preloading of shards is
-        asynchronous, so ordering in which shards will finally be loaded onto
-        the GPU is not guaranteed, but is roughly the same as that provided by
-        `self.shard_scheudle`.
+        Starts child loader processes, which will load cpu_shards in the background.
         """
 
         # Place the desired shards onto the request queue, which serves as a 
@@ -148,44 +127,52 @@ class MultiLoader(ABC):
         self.loading_processes = []
         for loader_id in range(self.num_loaders):
             p = Process(target=self._manage_preloading, args=(loader_id,))
+            p.daemon = True
             p.start()
             self.loading_processes.append(p)
 
 
     def __iter__(self):
-        # Loads and yields shards onto (on gRAM).  This is the public interface
-        # of the class which is used by the training loop to request the next
-        # shard to be loaded onto the GPU to run forward / backward learning
-        # iterations.
+        """
+        Yields GPU-loaded shards.  This is the only element of the public interface.
+        The training loop should treat loader as an iterable, and calculate
+        forward, backward passes using the shards yielded.
+        """
+        if self.already_iterated:
+            self._start_preloading()
+        self.already_iterated = True
 
         # Iterates through preloaded shards, as they become available
         preload_iterator = h.utils.iterate_queue(
             self.result_queue, stop_when_empty=False, sentinal=StopIteration,
-            num_sentinals=self.num_loaders
+            num_sentinals=self.num_loaders, verbose=self.verbose
         )
         for preloaded in preload_iterator:
             yield self._load(preloaded)
+            self.result_queue.task_done()
 
 
     def _manage_preloading(self, loader_id):
         """
-        Target function that runs inside child loader processes.  Using 
-        Queues, it simply takes shard specs, generates CPU-loaded shards
-        by delegation to `self._preload()`, and places the result onto a queue
-        for consumption in the main process.  Usually, don't override this,
-        but rather, override the `_preload()` to which it delegates.  Notice
-        that before 
+        Preloads data shards into CPU-ram, so that they can be more quickly
+        loaded onto the GPU when their turn comes.  Runs in a background loader
+        process.  Once all shards have been preloaded, it will signal to the
+        main process that it has no more work to send using a StopIteration as
+        a sentinal.  It will wait until the main process has consumed
+        everything off the queue (to avoid prematurely closing the queue and
+        generating exception in the main process).
         """
         for preloaded in self._preload_iter(loader_id):
             self.result_queue.put(preloaded)
         self.result_queue.put(StopIteration())
+        self.result_queue.join()
 
 
     @abstractmethod
     def _load(self, preloaded):
         """
-        Returns a gpu-loaded shard, in the form of a tuple
-        `(shard_spec, gpu_data)`, where `shard_spec` is an index representing
+        Returns a gpu-loaded shard, usually in the form of a tuple
+        `(shard_id, gpu_data)`, where `shard_id` is an index representing
         the rows and columns in the shard and `gpu_data` is some collection of
         gpu-tensors representing the data in that shard (e.g. tuple of tensors,
         dict of tensors, single tensor, etc.).'
@@ -196,8 +183,11 @@ class MultiLoader(ABC):
     @abstractmethod
     def _preload_iter(self, loader_id):
         """
-        This should generate `shard_id`, `cpu_data` tuples.  It will be 
-        iterated over inside a loader process.
+        Generator that yields CPU-loaded shards, usually in the form of a tuple
+        `(shard_id, cpu_data)`.  It will be iterated over inside a loader
+        process.  Based on the `loader_id` and `self.num_loaders`, it should
+        yield only a portion of the data, so that together all calls to 
+        `_preload_iter` yield the full dataset without overlap.
         """
         pass
 

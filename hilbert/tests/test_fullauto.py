@@ -1,3 +1,4 @@
+import os
 import hilbert as h
 import numpy as np
 from unittest import TestCase
@@ -15,316 +16,158 @@ def vprint(*args):
         print(*args)
 
 
-class MockMSELossMaskedDiag(h.hilbert_loss.HilbertLoss):
-    """
-    Provides an implementation of MSELoss that always masks the diagonal using
-    multiplication with a mask, to help test the correctness of the
-    mask_diagonal flag supported by other HilbertLoss instances.
-    """
-    def _forward(self, M_hat, shard, M, weights=None):
-        weights = 1 if weights is None else weights
-        loss_array = 0.5 * weights * ((M_hat - M) ** 2)
-        device = h.CONSTANTS.MATRIX_DEVICE
-
-        # Mask the main diagonal
-        if h.shards.on_diag(shard):
-            mask = torch.ones_like(loss_array, device=device) 
-            for i in range(min(mask.shape)):
-                mask[i,i] = 0
-            loss_array = loss_array * mask
-
-        return loss_array
-
-
-class MockPPMISharder(h.msharder.PPMISharder):
-    criterion_class = MockMSELossMaskedDiag
-
 
 class TestSharder(TestCase):
 
-    def test_glove_sharder(self):
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        sharder = h.msharder.GloveSharder(bigram)
-        sharder._load_shard(None)
-        Nxx, _,_,_ = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+    def test_glove_loader(self):
 
-        xmax = 100.
-        alpha = 0.75
-        m = lambda t: (t / xmax).pow(alpha)
-        em = m(Nxx)
-        em[em > 1] = 1
-        self.assertTrue(torch.allclose(em, sharder.multiplier))
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
-        zidx = Nxx == 0
-        self.assertTrue(all(sharder.M[zidx] == 0))
-        self.assertTrue(all(sharder.multiplier[zidx] == 0))
+        loader = h.bigram_loader.GloveLoader(
+            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
 
-
-    def test_ppmi_sharder(self):
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        sharder = h.msharder.PPMISharder(bigram)
-        sharder._load_shard(None)
-
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
-        M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
-        M[M<0] = 0
-        self.assertTrue(torch.allclose(M, sharder.M))
-
-
-    def test_loss_with_masked_diagonal(self):
-        """
-        Tests that masking the diagonal behaves in the expected way, for the
-        PPMI sharder, by comparing it to a mocked version that is hard-coded
-        to mask the diagonal of the loss function in a way that will certainly
-        produce the desired effect.  Masking diagonal is tested with other
-        sharding classes (but without mocks) in another test.
-        """
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id)
+            expected_M = torch.log(Nxx)
+            expected_M[Nxx==0] = 0
+            self.assertTrue(torch.allclose(shard_data['M'], expected_M))
+            xmax = 100.
+            alpha = 0.75
+            m = lambda t: (t / xmax).pow(alpha)
+            em = m(Nxx)
+            em[em>1] = 1
+            em *= 2
+            self.assertTrue(torch.allclose(em, shard_data['weights']))
+            zidx = Nxx == 0
+            self.assertTrue(all(shard_data['M'][zidx] == 0))
+            self.assertTrue(all(shard_data['weights'][zidx] == 0))
 
 
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        keep = 1
+    def test_word2vec_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        k = 10
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.Word2vecLoader( 
+            bigram_path, sector_factor, shard_factor, num_loaders, k=10, 
+            verbose=False
+        )
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id)
+            uNx, uNxt, uN = expected_bigram.load_unigram_shard(shard_id)
+            N_neg = k * (Nx - Nxx) * (uNxt / uN)
 
-        # Test for different shard factors to make sure the diagonal elements
-        # are always correctly found
-        for shard_factor in [1,2,3]:
+            self.assertTrue(torch.allclose(shard_data['Nxx'], Nxx))
+            self.assertTrue(torch.allclose(shard_data['N_neg'], N_neg))
 
-            shards = h.shards.Shards(shard_factor)
 
-            # Run an ordinary sharder without any diagonal masking.
-            sharder = h.msharder.PPMISharder(
-                bigram, update_density=keep, mask_diagonal=False)
-            mhat = torch.nn.Parameter(torch.ones(
-                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
-            ))
-            optimizer = torch.optim.SGD((mhat,), lr=1.)
-            for shard in shards:
-                optimizer.zero_grad()
-                loss = sharder.calc_shard_loss(mhat[shard], shard)
-                loss.backward()
-                optimizer.step()
+    def test_ppmi_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.PPMILoader( 
+            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
 
-            # Run the a masked sharder for one update.
-            masked_diag_sharder = h.msharder.PPMISharder(
-                bigram, update_density=keep, mask_diagonal=True)
-            masked_mhat = torch.nn.Parameter(torch.ones(
-                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
-            ))
-            optimizer = torch.optim.SGD((masked_mhat,), lr=1.)
-            for shard in shards:
-                optimizer.zero_grad()
-                loss = masked_diag_sharder.calc_shard_loss(
-                    masked_mhat[shard], shard)
-                loss.backward()
-                optimizer.step()
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
+            expected_M = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
+            expected_M[expected_M<0] = 0
+            self.assertTrue(torch.allclose(shard_data['M'], expected_M))
 
-            # Run the mock masked sharder for one update.
-            mock_diag_sharder = MockPPMISharder(
-                bigram, update_density=keep, mask_diagonal=False)
-            mock_mhat = torch.nn.Parameter(torch.ones(
-                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE
-            ))
-            optimizer = torch.optim.SGD((mock_mhat,), lr=1.)
-            for shard in shards:
-                optimizer.zero_grad()
-                loss = mock_diag_sharder.calc_shard_loss(mock_mhat[shard],shard)
-                loss.backward()
-                optimizer.step()
 
-            # Every model should have undergone an update.
-            ones = torch.ones_like(mhat)
-            self.assertFalse(torch.allclose(mhat, ones))
-            self.assertFalse(torch.allclose(masked_mhat, ones))
-            self.assertFalse(torch.allclose(mock_mhat, ones))
-
-            # Masked sharder should match manually masked mock sharder.
-            self.assertTrue(torch.allclose(masked_mhat, mock_mhat))
-
-            # Masked and non-masked sharders should differ along the diagonal,
-            # but be the same elsewhere.  First construct indices needed to
-            # address these regions.
-            device = h.CONSTANTS.MATRIX_DEVICE
-            dtype = torch.uint8
-            diagonal = torch.eye(mhat.shape[0], dtype=dtype, device=device)
-            off_diagonal = torch.ones(
-                mhat.shape,dtype=dtype,device=device) - diagonal
-
-            # Now show they are different on diagonal, but same off diagonal. 
-            self.assertFalse(torch.allclose(
-                masked_mhat[diagonal], mhat[diagonal]))
+    def test_max_likelihood_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        temperature = 10
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.MaxLikelihoodLoader( 
+            bigram_path, sector_factor, shard_factor, num_loaders, 
+            temperature=temperature, verbose=False
+        )
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
+            Pxx_data = Nxx / N
+            Pxx_independent = (Nx / N) * (Nxt / N)
+            self.assertTrue(torch.allclose(Pxx_data, shard_data['Pxx_data']))
             self.assertTrue(torch.allclose(
-                masked_mhat[off_diagonal], mhat[off_diagonal]))
+                Pxx_independent, shard_data['Pxx_independent']))
+            self.assertEqual(temperature, shard_data['temperature'])
 
 
-    def test_all_sharders_can_mask_diagonal(self):
-        """
-        Tests that every combination of sharder class and masking or not 
-        masking the diagonal of the loss function works as expected.
-        """
-
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        keep = 1
-
-        # We will need to address diagonal and non-diagonal entries in 
-        # M-matrices below.  Prepare the indices now.
-        device = h.CONSTANTS.MATRIX_DEVICE
-        dtype = torch.uint8
-        diagonal = torch.eye(bigram.shape[0], dtype=dtype, device=device)
-        off_diagonal = torch.ones(
-            bigram.shape, dtype=dtype,device=device) - diagonal
-
-        # Test for different shard factors to make sure the diagonal elements
-        # are always correctly found
-        sharder_classes_and_learning_rates = [
-            (h.msharder.PPMISharder, 1.0), 
-            (h.msharder.Word2vecSharder, 0.1),
-            (h.msharder.GloveSharder, 0.1),
-            (h.msharder.MaxLikelihoodSharder, 1000),
-            (h.msharder.MaxPosteriorSharder, 1000),
-            (h.msharder.KLSharder, 1000)
-        ]
-        runs = product([1,3], sharder_classes_and_learning_rates)
-
-        for shard_factor, (sharder_class, learning_rate) in runs:
-
-            shards = h.shards.Shards(shard_factor)
-
-            # Run an ordinary sharder without any diagonal masking.
-            sharder = sharder_class(
-                bigram=bigram, update_density=keep, mask_diagonal=False)
-            mhat = torch.nn.Parameter(torch.ones(
-                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
-            optimizer = torch.optim.SGD((mhat,), lr=learning_rate)
-            for shard in shards:
-                optimizer.zero_grad()
-                loss = sharder.calc_shard_loss(mhat[shard], shard)
-                loss.backward()
-                optimizer.step()
-
-            # Run the a masked sharder for one update.
-            masked_diag_sharder = sharder_class(
-                bigram, update_density=keep, mask_diagonal=True)
-            masked_mhat = torch.nn.Parameter(torch.ones(
-                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
-            optimizer = torch.optim.SGD((masked_mhat,), lr=learning_rate)
-            for shard in shards:
-                optimizer.zero_grad()
-                loss = masked_diag_sharder.calc_shard_loss(
-                    masked_mhat[shard], shard)
-                loss.backward()
-                optimizer.step()
-
-            # Every model should have undergone an update.
-            ones = torch.ones_like(mhat)
-            self.assertFalse(torch.allclose(mhat, ones))
-            self.assertFalse(torch.allclose(masked_mhat, ones))
-
-            # Masked and non-masked sharders should differ along the diagonal,
-            # but be the same elsewhere.
-            self.assertFalse(torch.allclose(
-                masked_mhat[diagonal], mhat[diagonal]))
+    def test_max_posterior_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        temperature = 10
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.MaxPosteriorLoader( 
+            bigram_path, sector_factor, shard_factor, num_loaders, 
+            temperature=temperature, verbose=False
+        )
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
+            Pxx_independent = (Nx / N) * (Nxt / N)
+            exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+                (Nxx, Nx, Nxt, N))
+            alpha, beta = h.corpus_stats.calc_prior_beta_params(
+                (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+            N_posterior = N + alpha + beta - 1
+            Pxx_posterior = (Nxx + alpha) / N_posterior
             self.assertTrue(torch.allclose(
-                masked_mhat[off_diagonal], mhat[off_diagonal]))
+                Pxx_posterior, shard_data['Pxx_posterior']))
+            self.assertTrue(torch.allclose(
+                N_posterior, shard_data['N_posterior']))
+            self.assertTrue(torch.allclose(
+                Pxx_independent, shard_data['Pxx_independent']))
+            self.assertEqual(temperature, shard_data['temperature'])
 
 
-
-    def test_mse_minibatching_loss(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-
-        for keep in [0.1, 0.5, 1]:
-            for scale, constructor in [(1, h.msharder.PPMISharder),
-                                       (2, h.msharder.GloveSharder)]:
-
-                sharder = constructor(bigram, update_density=keep)
-
-                expected_scaler = float(np.prod(bigram.Nxx.shape) * keep)
-                self.assertEqual(expected_scaler, sharder.criterion.rescale)
-
-                sharder._load_shard(None)
-                mhat = torch.ones(
-                    sharder.M.shape, device=h.CONSTANTS.MATRIX_DEVICE)
-
-                try:
-                    weights = sharder.multiplier
-                except AttributeError:
-                    weights = 1
-
-                torch.manual_seed(1)
-                loss = sharder.calc_shard_loss(mhat, None)
-                mse = scale * 0.5 * weights * ((mhat - sharder.M) ** 2)
-
-                torch.manual_seed(1)
-                exloss = torch.nn.functional.dropout(
-                    mse, p=1-keep, training=True)
-                exloss = keep * torch.sum(exloss) / expected_scaler
-
-                self.assertTrue(torch.allclose(loss, exloss))
-
-
-    def test_max_likelihood_sharder(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+    def test_KL_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
         temperature = 10
-        sharder = h.msharder.MaxLikelihoodSharder(bigram, temperature)
-        sharder._load_shard(None)
-
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
-        Pxx_data = Nxx / N
-        Pxx_independent = (Nx / N) * (Nxt / N)
-
-        self.assertTrue(torch.allclose(Pxx_data, sharder.Pxx_data))
-        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
-        self.assertEqual(temperature, sharder.temperature)
-
-
-    def test_max_posterior_sharder(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        temperature = 10
-        sharder = h.msharder.MaxPosteriorSharder(bigram, temperature)
-        sharder._load_shard(None)
-
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
-
-        Pxx_independent = (Nx / N) * (Nxt / N)
-
-        # These functions are assumed correct here, tested elsewhere
-        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
-            (Nxx, Nx, Nxt, N))
-        alpha, beta = h.corpus_stats.calc_prior_beta_params(
-            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
-
-        N_posterior = N + alpha + beta - 1
-        Pxx_posterior = (Nxx + alpha) / N_posterior
-
-        self.assertTrue(torch.allclose(Pxx_posterior, sharder.Pxx_posterior))
-        self.assertTrue(torch.allclose(N_posterior, sharder.N_posterior))
-        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
-        self.assertEqual(temperature, sharder.temperature)
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.KLLoader( 
+            bigram_path, sector_factor, shard_factor, num_loaders, 
+            temperature=temperature, verbose=False
+        )
+        expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        for shard_id, shard_data in loader:
+            Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
+            Pxx_independent = (Nx / N) * (Nxt / N)
+            exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
+                (Nxx, Nx, Nxt, N))
+            alpha, beta = h.corpus_stats.calc_prior_beta_params(
+                (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
+            N_posterior = N + alpha + beta - 1
+            a = Nxx + alpha
+            b = N - Nxx + beta
+            digamma_a = torch.digamma(a) - torch.digamma(a+b)
+            digamma_b = torch.digamma(b) - torch.digamma(a+b)
+            self.assertTrue(torch.allclose(N, shard_data['N']))
+            self.assertTrue(torch.allclose(
+                N_posterior, shard_data['N_posterior']))
+            self.assertTrue(torch.allclose(
+                Pxx_independent,shard_data['Pxx_independent']))
+            self.assertTrue(torch.allclose(
+                digamma_a, shard_data['digamma_a']))
+            self.assertTrue(torch.allclose(
+                digamma_b, shard_data['digamma_b']))
+            self.assertEqual(temperature, shard_data['temperature'])
 
 
-    def test_KL_sharder(self):
-
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        temperature = 10
-        sharder = h.msharder.KLSharder(bigram, temperature)
-        sharder._load_shard(None)
-
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
-        Pxx_independent = (Nx / N) * (Nxt / N)
-        exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
-            (Nxx, Nx, Nxt, N))
-        alpha, beta = h.corpus_stats.calc_prior_beta_params(
-            (Nxx, Nx, Nxt, N), exp_mean, exp_std, Pxx_independent)
-        N_posterior = N + alpha + beta - 1
-
-        a = Nxx + alpha
-        b = N - Nxx + beta
-        digamma_a = torch.digamma(a) - torch.digamma(a+b)
-        digamma_b = torch.digamma(b) - torch.digamma(a+b)
-
-        self.assertTrue(torch.allclose(N_posterior, sharder.N_posterior))
-        self.assertTrue(torch.allclose(Pxx_independent,sharder.Pxx_independent))
-        self.assertTrue(torch.allclose(digamma_a, sharder.digamma_a))
-        self.assertTrue(torch.allclose(digamma_b, sharder.digamma_b))
-        self.assertEqual(temperature, sharder.temperature)
 
 
 
@@ -361,6 +204,88 @@ class TestLoss(TestCase):
         )))
 
 
+    def test_all_sharders_can_mask_diagonal(self):
+        """
+        Tests that every combination of sharder class and masking or not 
+        masking the diagonal of the loss function works as expected.
+        """
+
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        keep = 1
+
+        # We will need to address diagonal and non-diagonal entries in 
+        # M-matrices below.  Prepare the indices now.
+        device = h.CONSTANTS.MATRIX_DEVICE
+        dtype = torch.uint8
+        diagonal = torch.eye(bigram.shape[0], dtype=dtype, device=device)
+        off_diagonal = torch.ones(
+            bigram.shape, dtype=dtype,device=device) - diagonal
+
+        # Test for different shard factors to make sure the diagonal elements
+        # are always correctly found
+        l = h.hilbert_loss
+        L = h.bigram_loader
+        setups = [
+            (L.PPMILoader, l.MSELoss, 1.0), 
+            (L.Word2vecLoader, l.Word2vecLoss, 0.1),
+            (L.GloveLoader, l.MSELoss, 0.1),
+            (L.MaxLikelihoodLoader, l.MaxLikelihoodLoss, 1000),
+            (L.MaxPosteriorLoader, l.MaxPosteriorLoss, 1000),
+            (L.KLLoader, l.KLLoss, 1000)
+        ]
+        runs = product([1,3], setups)
+
+        for shard_factor, (loader_class, loss_class, learning_rate) in runs:
+
+            shards = h.shards.Shards(shard_factor)
+
+            loader = loader_class(
+                bigram_path, sector_factor, shard_factor, num_loaders, 
+                verbose=False)
+            loss_obj = loss_class(keep, bigram.vocab**2, mask_diagonal=False)
+            mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
+            optimizer = torch.optim.SGD((mhat,), lr=learning_rate)
+            for shard_id, shard_data in loader:
+                optimizer.zero_grad()
+                loss = loss_obj(shard_id, mhat[shard_id], shard_data)
+                loss.backward()
+                optimizer.step()
+
+            # Run the a masked sharder for one update.
+            loader = loader_class(
+                bigram_path, sector_factor, shard_factor, num_loaders, 
+                verbose=False
+            )
+            masked_loss_obj = loss_class(
+                keep, bigram.vocab**2, mask_diagonal=True)
+            masked_mhat = torch.nn.Parameter(torch.ones(
+                (bigram.vocab, bigram.vocab), device=h.CONSTANTS.MATRIX_DEVICE))
+            optimizer = torch.optim.SGD((masked_mhat,), lr=learning_rate)
+            for shard_id, shard_data in loader:
+                optimizer.zero_grad()
+                loss = masked_loss_obj(
+                    shard_id, masked_mhat[shard_id], shard_data)
+                loss.backward()
+                optimizer.step()
+
+            # Every model should have undergone an update.
+            ones = torch.ones_like(mhat)
+            self.assertFalse(torch.allclose(mhat, ones))
+            self.assertFalse(torch.allclose(masked_mhat, ones))
+
+            # Masked and non-masked sharders should differ along the diagonal,
+            # but be the same elsewhere.
+            self.assertFalse(torch.allclose(
+                masked_mhat[diagonal], mhat[diagonal]))
+            self.assertTrue(torch.allclose(
+                masked_mhat[off_diagonal], mhat[off_diagonal]))
+
+
     def test_w2v_loss(self):
 
         k = 15
@@ -369,7 +294,7 @@ class TestLoss(TestCase):
         uNx, uNxt, uN = bigram.unigram.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE) 
         ncomponents = np.prod(Nxx.shape)
-        shard = None
+        shard_id = None
 
         sigmoid = lambda a: 1/(1+torch.exp(-a))
         N_neg = h.msharder.Word2vecSharder.negative_sample(Nxx, Nx, uNxt, uN, k)
@@ -386,8 +311,8 @@ class TestLoss(TestCase):
             expected_loss = torch.sum(loss_masked) / rescale
 
             torch.manual_seed(0)
-            loss_class = h.hilbert_loss.W2VLoss(keep_prob, ncomponents)
-            found_loss = loss_class(M_hat, shard, Nxx, N_neg)
+            loss_obj = h.hilbert_loss.Word2vecLoss(keep_prob, ncomponents)
+            found_loss = loss_obj(shard_id, M_hat, {'Nxx':Nxx, 'N_neg':N_neg})
 
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -410,12 +335,15 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
         loss_array = loss_term1 + loss_term2
 
-        shard = None
+        shard_id = None
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
             expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
-            found_loss = loss_class(
-                M_hat, shard, Pxx_data, Pxx_independent, temperature)
+            found_loss = loss_class(shard_id, M_hat, {
+                'Pxx_data': Pxx_data,
+                'Pxx_independent': Pxx_independent, 
+                'temperature': temperature
+            })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
@@ -442,14 +370,17 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
         scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
 
-        shard = None
+        shard_id = None
         for temperature in [1, 10]:
             tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
             expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
-            found_loss = loss_class(
-                M_hat, shard, N, N_posterior, Pxx_posterior, Pxx_independent, 
-                temperature
-            )
+            found_loss = loss_class(shard_id, M_hat, {
+                'N': N,
+                'N_posterior': N_posterior, 
+                'Pxx_posterior': Pxx_posterior,
+                'Pxx_independent': Pxx_independent, 
+                'temperature': temperature
+            })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
@@ -483,14 +414,18 @@ class TestLoss(TestCase):
             a_hat + b_hat)
         KL = (lbeta - a_hat * digamma_a - b_hat * digamma_b) / N
 
-        shard = None
+        shard_id = None
         for temperature in [1, 10]:
             tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
             expected_loss = torch.sum(tempered_KL) / float(ncomponents)
-            found_loss = loss_obj(
-                M_hat, shard, N, N_posterior, Pxx_independent, digamma_a,
-                digamma_b, temperature
-            )
+            found_loss = loss_obj(shard_id, M_hat, {
+                'N': N, 
+                'N_posterior': N_posterior, 
+                'Pxx_independent': Pxx_independent, 
+                'digamma_a': digamma_a,
+                'digamma_b': digamma_b, 
+                'temperature': temperature
+            })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
@@ -524,124 +459,161 @@ class TestAutoEmbedder(TestCase):
             self.assertTrue(torch.allclose(got_M, expected_M))
 
 
-    def test_emb_solver_functionality(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        glv_sharder = h.msharder.GloveSharder(bigram)
-        ppmi_sharder = h.msharder.PPMISharder(bigram)
-        w2v_sharder = h.msharder.Word2vecSharder(bigram, 15)
-        opt = torch.optim.Adam
-        shape = bigram.Nxx.shape
-
-        # TODO: right now this doesn't work for sharding > 1.
-        # Perhaps this is because the bigram matrix is 11x11, which
-        # is too small?
-        sharders = [glv_sharder, ppmi_sharder, w2v_sharder]
-        shard_fs = [1, 2, 5]
-        oss = [True, False]
-        lbs = [True, False]
-        options = product(sharders, shard_fs, oss, lbs)
-
-        for sharder, shard_factor, one_sided, learn_bias in options:
-            vprint('\n', sharder.__class__)
-            vprint('one_sided =', one_sided, 'learn_bias =', learn_bias, 
-                    'shard_factor =', shard_factor)
-
-            solver = h.autoembedder.HilbertEmbedderSolver(
-                sharder, opt, d=300,
-                shape=shape if not one_sided else (shape[0],),
-                learning_rate=0.003,
-                shard_factor=shard_factor,
-                one_sided=one_sided,
-                learn_bias=learn_bias,
-                device=h.CONSTANTS.MATRIX_DEVICE,
-                verbose=False,
-            )
-
-            # check to make sure we get the same loss after resetting
-            l1 = solver.cycle(epochs=10, shard_times=1, hold_loss=True)
-            solver.restart()
-            l2 = solver.cycle(epochs=10, shard_times=1, hold_loss=True)
-            solver.restart()
-            l3 = solver.cycle(epochs=5, shard_times=1, hold_loss=True)
-            l3 += solver.cycle(epochs=5, shard_times=1, hold_loss=True)
-            self.assertTrue(np.allclose(l1, l2))
-            self.assertTrue(np.allclose(l1, l3))
-            solver.restart()
-
-            # here we're ensuring that the equality between the solver parameters
-            # and the torch module parameters are always the same, before and
-            # after learning
-            for _ in range(3):
-                V, W, vb, wb = solver.get_params()
-                aV, aW, avb, awb = (
-                    solver.learner.V, solver.learner.W,
-                    solver.learner.v_bias, solver.learner.w_bias
-                )
-                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
-                    if t1 is None and t2 is None:
-                        continue
-                    self.assertTrue(torch.allclose(t1, t2))
-
-                solver.cycle(1)
+#    def test_emb_solver_functionality(self):
+#
+#        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+#        sector_factor = 3
+#        num_loaders = 9
+#        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+#        keep_prob = 1
+#        opt = torch.optim.Adam
+#        shape = bigram.Nxx.shape
+#
+#        # TODO: right now this doesn't work for sharding > 1.
+#        # Perhaps this is because the bigram matrix is 11x11, which
+#        # is too small?
+#        loaders_losses = [
+#            (h.bigram_loader.PPMILoader, h.hilbert_loss.MSELoss),
+#            (h.bigram_loader.GloveLoader, h.hilbert_loss.MSELoss),
+#            (h.bigram_loader.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
+#            (h.bigram_loader.MaxLikelihoodLoader, 
+#                h.hilbert_loss.MaxLikelihoodLoss),
+#            (h.bigram_loader.MaxPosteriorLoader, 
+#                h.hilbert_loss.MaxPosteriorLoss),
+#            (h.bigram_loader.KLLoader, h.hilbert_loss.KLLoss),
+#        ]
+#        shard_fs = [1, 3]
+#        oss = [True, False]
+#        lbs = [True, False]
+#        options = product(loaders_losses, shard_fs, oss, lbs)
+#
+#        for (loader_class, loss_class), sf, one_sided, learn_bias in options:
+#
+#            vprint('\n', loader_class)
+#            vprint('one_sided =', one_sided, 'learn_bias =', learn_bias, 
+#                    'shard_factor =', sf)
+#
+#            loader = loader_class(
+#                bigram_path, sector_factor, sf, num_loaders, verbose=False)
+#            loss = loss_class(keep_prob, bigram.vocab**2)
+#            solver = h.autoembedder.HilbertEmbedderSolver(
+#                loader, loss, opt, d=300, learning_rate=0.003,
+#                shape=shape if not one_sided else (shape[0],),
+#                one_sided=one_sided, learn_bias=learn_bias, verbose=False,
+#            )
+#
+#            # check to make sure we get the same loss after resetting
+#            l1 = solver.cycle(epochs=10, shard_times=1, hold_loss=True)
+#            solver.restart()
+#            l2 = solver.cycle(epochs=10, shard_times=1, hold_loss=True)
+#            solver.restart()
+#            l3 = solver.cycle(epochs=5, shard_times=1, hold_loss=True)
+#            l3 += solver.cycle(epochs=5, shard_times=1, hold_loss=True)
+#            self.assertTrue(np.allclose(l1, l2))
+#            self.assertTrue(np.allclose(l1, l3))
+#            solver.restart()
+#
+#            # here we're ensuring that the equality between the solver
+#            # parameters and the torch module parameters are always the same,
+#            # before and after learning
+#            for _ in range(3):
+#                V, W, vb, wb = solver.get_params()
+#                aV, aW, avb, awb = (
+#                    solver.learner.V, solver.learner.W,
+#                    solver.learner.v_bias, solver.learner.w_bias
+#                )
+#                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+#                    if t1 is None and t2 is None:
+#                        continue
+#                    self.assertTrue(torch.allclose(t1, t2))
+#
+#                solver.cycle(1)
 
 
     def test_solver_nan(self):
         bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        ppmi_sharder = h.msharder.PPMISharder(bigram)
+        keep = 1
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.PPMILoader(
+            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
+        loss = h.hilbert_loss.MSELoss(keep, bigram.vocab**2) 
         opt = torch.optim.SGD
         shape = bigram.Nxx.shape
-
         solver = h.autoembedder.HilbertEmbedderSolver(
-            ppmi_sharder, opt, d=300,
+            loader=loader, 
+            loss=loss, 
+            optimizer_constructor=opt, 
+            d=300,
             shape=shape,
-            learning_rate=10000,
-            shard_factor=1,
+            learning_rate=1e5,
             one_sided=False,
             learn_bias=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
             verbose=VERBOSE,
         )
 
-        # check to make sure we get the same loss after resetting
+        # The high learning rate causes `nan`s, which should raise an error.
         with self.assertRaises(h.autoembedder.DivergenceError):
-            solver.cycle(epochs=100, shard_times=1, hold_loss=True)
+            solver.cycle(epochs=1, shard_times=100, hold_loss=True)
 
 
     def test_w2v_solver(self):
         bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         shape = bigram.Nxx.shape
-        w2v_sharder = h.msharder.Word2vecSharder(bigram, 15, update_density=1)
-        opt = torch.optim.Adam
-        shard = None
+        scale = bigram.vocab**2
+        learning_rate = 0.000001
+        keep = 1
+        sector_factor = 1
+        shard_factor = 1
+        num_loaders = 1
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        loader = h.bigram_loader.Word2vecLoader(
+            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
+        outer_loader = h.bigram_loader.Word2vecLoader(
+            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
+        loss = h.hilbert_loss.Word2vecLoss(keep, bigram.vocab**2) 
 
         solver = h.autoembedder.HilbertEmbedderSolver(
-            w2v_sharder, opt, d=10,
+            loader=loader, 
+            loss=loss,
+            optimizer_constructor=torch.optim.SGD, 
+            d=300,
             shape=shape,
-            learning_rate=0.01,
-            shard_factor=1,
+            learning_rate=learning_rate,
             one_sided=False,
             learn_bias=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
             verbose=VERBOSE,
         )
-        w2v_sharder._load_shard(None)
 
-        for _ in range(3):
-            V, W, _, _ = solver.get_params()
-            mhat = W @ V.t()
+        V, W, _, _ = solver.get_params()
+        expected_V = V.clone()
+        expected_W = W.clone()
 
-            loss_value = w2v_sharder._get_loss(mhat, shard).item()
+        # Loader is superfluous because there's just one shard and just one 
+        # sector.  So just give us the data!
+        shard_id, shard_data = next(iter(outer_loader))
 
-            # get expected
-            smhat = mhat.sigmoid()
-            total = -torch.mean(
-                (w2v_sharder.Nxx * torch.log(smhat)) +
-                (w2v_sharder.N_neg * torch.log(1 - smhat))
-            )
-            expected_loss = total.item()
-            eps = 0.05
-            self.assertTrue(
-                expected_loss - eps < loss_value < expected_loss + eps)
-            solver.cycle(5, True)
+        for iteration in range(5):
+
+            # Manually calculate the gradient and expected update
+            mhat = expected_W @ expected_V.t()
+            N_sum = (shard_data['Nxx'] + shard_data['N_neg'])
+            delta = shard_data['Nxx'] - mhat.sigmoid() * N_sum
+            neg_grad_V = torch.mm(delta.t(), expected_W) / scale
+            neg_grad_W = torch.mm(delta, expected_V) / scale
+            expected_V += learning_rate * neg_grad_V
+            expected_W += learning_rate * neg_grad_W
+
+            # Let the solver make one update
+            solver.cycle()
+            found_V, found_W, _, _ = solver.get_params()
+
+            # Check that the solvers update matches expectation.
+            self.assertTrue(torch.allclose(found_V, expected_V))
+            self.assertTrue(torch.allclose(found_W, expected_W))
 
 

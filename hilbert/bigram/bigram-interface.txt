@@ -3,6 +3,15 @@ TestSharder
 TestLoss
 TestAutoEmbedder
 
+
+loader.py
+change the iteration unpacking so that shard_id is surfaced and enforced as 
+part of the interface (i.e. part of what is expected from iterating it).
+
+bigram_loader.py
+temperature should be moved into the loss constructor.
+
+
 bigram_base.py
 bigram_sector.py
     BigramSector.__init__

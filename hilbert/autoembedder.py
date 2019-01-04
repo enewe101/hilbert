@@ -1,7 +1,7 @@
 import hilbert as h
 import torch
 import torch.nn as nn
-
+import warnings
 
 class DivergenceError(Exception):
     pass
@@ -16,7 +16,8 @@ class HilbertEmbedderSolver(object):
 
     def __init__(
         self,
-        sharder,
+        loader,
+        loss,
         optimizer_constructor,
         d=300,
         learning_rate=1e-6,
@@ -25,7 +26,6 @@ class HilbertEmbedderSolver(object):
         shape=None,
         one_sided=False,
         learn_bias=False,
-        shard_factor=10,
         seed=1917,
         verbose=True,
         device=None
@@ -38,7 +38,7 @@ class HilbertEmbedderSolver(object):
             (2) the optimizer *constructor* (from torch.optim)
             (3) the dimensionality (an integer for the size of the embeddings)
 
-        :param sharder: an MSharder object that stores the loss
+        :param loader: a Loader object that iterates gpu-loaded shards
         :param optimizer_constructor: a constructor from torch.optim that we will build later
         :param d: the desired dimensionality
         :param learning_rate: learning rate
@@ -49,7 +49,6 @@ class HilbertEmbedderSolver(object):
                 covectors to be their transpose
         :param learn_bias: boolean, whether or not to learn bias values for each
                 vector and covector (like GloVe does!)
-        :param shard_factor: how much to shard the model
         :param seed: random seed number to use
         :param verbose: verbose
         :param device: gpu or cpu
@@ -57,13 +56,13 @@ class HilbertEmbedderSolver(object):
         if shape is None and init_vecs is None:
             raise ValueError("Provide `shape` or `init_vecs`.")
 
-        self.sharder = sharder
+        self.loader = loader
+        self.loss = loss
         self.optimizer_constructor = optimizer_constructor
         self.d = d
         self.learning_rate = learning_rate
         self.one_sided = one_sided
         self.learn_bias = learn_bias
-        self.shard_factor = shard_factor
         self.seed = seed
         self.verbose = verbose
         self.device = device
@@ -98,14 +97,13 @@ class HilbertEmbedderSolver(object):
 
 
     def describe(self):
-        s = 'Sharder: {}\n--'.format(self.sharder.describe())
+        s = 'Sharder: {}\n--'.format(self.loader.describe())
         sfun = lambda strr, value: '\t{} = {}\n'.format(strr, value)
         s += sfun('optimizer', self.optimizer_constructor)
         s += sfun('d', self.d)
         s += sfun('learning_rate', self.learning_rate)
         s += sfun('one_sided', self.one_sided)
         s += sfun('learn_bias', self.learn_bias)
-        s += sfun('shard_factor', self.shard_factor)
         s += sfun('seed', self.seed)
         return s
 
@@ -159,9 +157,9 @@ class HilbertEmbedderSolver(object):
     def get_dictionary(self):
         warnings.warn(
             "`HilbertEmbedderSolver.get_dictionary()` is Deprecated---not all "
-            "`HilbertEmbedderSolver`s have a `dictionary`."
+            "`HilbertEmbedderSolver`s have a `dictionary`.", DeprecationWarning
         )
-        return self.sharder.bigram.dictionary
+        return self.loader.bigram.dictionary
 
 
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):
@@ -171,15 +169,15 @@ class HilbertEmbedderSolver(object):
             self.epoch_loss = 0
 
             # iterate over the shards we have to do
-            for shard in h.shards.Shards(self.shard_factor):
+            for shard_id, shard_data in self.loader:
                 for _ in range(shard_times):
 
                     # zero out the gradient
                     self.optimizer.zero_grad()
 
-                    # get our mhat for the shard!
-                    M_hat = self.learner(shard)
-                    loss = self.sharder.calc_shard_loss(M_hat, shard)
+                    # get our mhat for the shard_id!
+                    M_hat = self.learner(shard_id)
+                    loss = self.loss(shard_id, M_hat, shard_data)
 
                     if torch.isnan(loss):
                         raise DivergenceError('Model has completely diverged!')
