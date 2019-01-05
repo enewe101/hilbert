@@ -96,10 +96,21 @@ class MaxPosteriorLoss(HilbertLoss):
         temperature
     ):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
-        term1 = Pxx_posterior * torch.log(Pxx_model) 
+        term1 = Pxx_posterior * M_hat
         term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
         result =  - (N_posterior / N) * (term1 + term2)
         return temper(result, Pxx_independent, temperature)
+
+#class MaxPosteriorLoss(HilbertLoss):
+#    def _forward(
+#        self, M_hat, shard, N, N_posterior, Pxx_posterior, Pxx_independent,
+#        temperature
+#    ):
+#        Pxx_model = Pxx_independent * torch.exp(M_hat)
+#        term1 = Pxx_posterior * torch.log(Pxx_model) 
+#        term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
+#        result =  - (N_posterior / N) * (term1 + term2)
+#        return temper(result, Pxx_independent, temperature)
 
 
 class KLLoss(HilbertLoss):
