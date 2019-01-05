@@ -75,10 +75,19 @@ class W2VLoss(HilbertLoss):
 class MaxLikelihoodLoss(HilbertLoss):
     def _forward(self, M_hat, shard, Pxx_data, Pxx_independent, temperature):
         Pxx_model = Pxx_independent * torch.exp(M_hat)
-        term1 = Pxx_data * torch.log(Pxx_model) 
+        term1 = Pxx_data * M_hat 
         term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
         result = - (term1 + term2)
         return temper(result, Pxx_independent, temperature)
+
+
+#class MaxLikelihoodLoss(HilbertLoss):
+#    def _forward(self, M_hat, shard, Pxx_data, Pxx_independent, temperature):
+#        Pxx_model = Pxx_independent * torch.exp(M_hat)
+#        term1 = Pxx_data * torch.log(Pxx_model) 
+#        term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
+#        result = - (term1 + term2)
+#        return temper(result, Pxx_independent, temperature)
 
 
 class MaxPosteriorLoss(HilbertLoss):
