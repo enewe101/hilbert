@@ -27,7 +27,9 @@ class TestSharder(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         loader = h.bigram_loader.GloveLoader(
-            bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
+            bigram_path, sector_factor, shard_factor, num_loaders, 
+            verbose=False
+        )
 
         expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         for shard_id, shard_data in loader:
@@ -87,12 +89,10 @@ class TestSharder(TestCase):
         sector_factor = 3
         shard_factor = 4
         num_loaders = 9
-        temperature = 10
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
         loader = h.bigram_loader.MaxLikelihoodLoader( 
             bigram_path, sector_factor, shard_factor, num_loaders, 
-            temperature=temperature, verbose=False
-        )
+            verbose=False)
         expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         for shard_id, shard_data in loader:
             Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
@@ -101,19 +101,16 @@ class TestSharder(TestCase):
             self.assertTrue(torch.allclose(Pxx_data, shard_data['Pxx_data']))
             self.assertTrue(torch.allclose(
                 Pxx_independent, shard_data['Pxx_independent']))
-            self.assertEqual(temperature, shard_data['temperature'])
 
 
     def test_max_posterior_loader(self):
         sector_factor = 3
         shard_factor = 4
         num_loaders = 9
-        temperature = 10
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
         loader = h.bigram_loader.MaxPosteriorLoader( 
             bigram_path, sector_factor, shard_factor, num_loaders, 
-            temperature=temperature, verbose=False
-        )
+            verbose=False)
         expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         for shard_id, shard_data in loader:
             Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
@@ -130,19 +127,16 @@ class TestSharder(TestCase):
                 N_posterior, shard_data['N_posterior']))
             self.assertTrue(torch.allclose(
                 Pxx_independent, shard_data['Pxx_independent']))
-            self.assertEqual(temperature, shard_data['temperature'])
 
 
     def test_KL_loader(self):
         sector_factor = 3
         shard_factor = 4
         num_loaders = 9
-        temperature = 10
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
         loader = h.bigram_loader.KLLoader( 
             bigram_path, sector_factor, shard_factor, num_loaders, 
-            temperature=temperature, verbose=False
-        )
+            verbose=False)
         expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         for shard_id, shard_data in loader:
             Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
@@ -165,8 +159,6 @@ class TestSharder(TestCase):
                 digamma_a, shard_data['digamma_a']))
             self.assertTrue(torch.allclose(
                 digamma_b, shard_data['digamma_b']))
-            self.assertEqual(temperature, shard_data['temperature'])
-
 
 
 
@@ -324,14 +316,12 @@ class TestLoss(TestCase):
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
 
-        loss_class = h.hilbert_loss.MaxLikelihoodLoss(keep_prob, ncomponents)
-
         M_hat = torch.ones_like(Nxx)
         Pxx_data = Nxx / N
         Pxx_independent = (Nx / N) * (Nxt / N)
         Pxx_model = Pxx_independent * torch.exp(M_hat)
 
-        loss_term1 = Pxx_data * torch.log(Pxx_model)
+        loss_term1 = Pxx_data * M_hat
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
         loss_array = loss_term1 + loss_term2
 
@@ -339,11 +329,10 @@ class TestLoss(TestCase):
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
             expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
+            loss_class = h.hilbert_loss.MaxLikelihoodLoss(
+                keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_class(shard_id, M_hat, {
-                'Pxx_data': Pxx_data,
-                'Pxx_independent': Pxx_independent, 
-                'temperature': temperature
-            })
+                'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
@@ -352,8 +341,6 @@ class TestLoss(TestCase):
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
-
-        loss_class = h.hilbert_loss.MaxPosteriorLoss(keep_prob, ncomponents)
 
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         Pxx_independent = (Nx / N) * (Nxt / N)
@@ -366,7 +353,7 @@ class TestLoss(TestCase):
         M_hat = torch.ones_like(Nxx)
         Pxx_model = Pxx_independent * torch.exp(M_hat)
 
-        loss_term1 = Pxx_posterior * torch.log(Pxx_model)
+        loss_term1 = Pxx_posterior * M_hat
         loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
         scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
 
@@ -374,12 +361,12 @@ class TestLoss(TestCase):
         for temperature in [1, 10]:
             tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
             expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
+            loss_class = h.hilbert_loss.MaxPosteriorLoss(
+                keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_class(shard_id, M_hat, {
-                'N': N,
-                'N_posterior': N_posterior, 
+                'N': N, 'N_posterior': N_posterior, 
                 'Pxx_posterior': Pxx_posterior,
-                'Pxx_independent': Pxx_independent, 
-                'temperature': temperature
+                'Pxx_independent': Pxx_independent
             })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -389,8 +376,6 @@ class TestLoss(TestCase):
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
-
-        loss_obj = h.hilbert_loss.KLLoss(keep_prob, ncomponents)
 
         Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
         Pxx_independent = (Nx / N) * (Nxt / N)
@@ -418,13 +403,12 @@ class TestLoss(TestCase):
         for temperature in [1, 10]:
             tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
             expected_loss = torch.sum(tempered_KL) / float(ncomponents)
+            loss_obj = h.hilbert_loss.KLLoss(
+                keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_obj(shard_id, M_hat, {
-                'N': N, 
-                'N_posterior': N_posterior, 
+                'N': N, 'N_posterior': N_posterior, 
                 'Pxx_independent': Pxx_independent, 
-                'digamma_a': digamma_a,
-                'digamma_b': digamma_b, 
-                'temperature': temperature
+                'digamma_a': digamma_a, 'digamma_b': digamma_b, 
             })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -459,6 +443,10 @@ class TestAutoEmbedder(TestCase):
             self.assertTrue(torch.allclose(got_M, expected_M))
 
 
+#
+#   This takes too long to run!  Need to make it quicker.  Hard-skipped right
+#   Now to save my sanity :)
+#
 #    def test_emb_solver_functionality(self):
 #
 #        bigram, _, _ = h.corpus_stats.get_test_bigram_base()

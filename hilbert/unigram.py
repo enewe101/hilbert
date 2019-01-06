@@ -44,6 +44,7 @@ class Unigram(object):
         self.verbose = verbose
 
         self.check_sorted()
+        self.smoothed = False
 
 
     def check_sorted(self):
@@ -63,11 +64,13 @@ class Unigram(object):
 
     def apply_smoothing(self, alpha):
         if alpha == 1 or alpha is None:
-            if self.verbose: print('unigram-smoothing:\t1')
             return
+        if self.smoothed:
+            raise ValueError(
+                "Attempting to apply unigram smoothing multiple times!")
+        self.smoothed = True
         self.Nx = [count**alpha for count in self.Nx]
         self.N = sum(self.Nx)
-        if self.verbose: print('unigram-smoothing:\t{}'.format(alpha))
 
 
     #   CHECK

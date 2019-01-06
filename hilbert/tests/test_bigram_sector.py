@@ -368,6 +368,20 @@ class TestBigramSector(TestCase):
         ))
 
 
+    def test_apply_unigram_smoothing(self):
+        alpha = 0.6
+        bigram_sector, bigram_base = self.get_test_bigram_sector()
+
+        expected_uNx = bigram_sector._uNx**alpha
+        expected_uNxt = bigram_sector._uNxt**alpha
+        expected_uN = torch.sum(expected_uNx)
+
+        bigram_sector.apply_unigram_smoothing(alpha)
+        self.assertTrue(torch.allclose(expected_uNx, bigram_sector._uNx))
+        self.assertTrue(torch.allclose(expected_uNxt, bigram_sector._uNxt))
+        self.assertTrue(torch.allclose(expected_uN, bigram_sector.uN))
+
+
     def test_apply_w2v_undersampling(self):
 
         t = 1e-5
@@ -401,13 +415,7 @@ class TestBigramSector(TestCase):
             expected_Nxx = Nxx * p_i * p_j
             expected_N = torch.sum(expected_Nx)
 
-            #pre_PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
-            #bigram_base.apply_w2v_undersampling(t)
             bigram_sector.apply_w2v_undersampling(t)
-            #nNxx, nNx, nNxt, nN = bigram_base.load_shard()
-            #post_PMI = h.corpus_stats.calc_PMI((nNxx, nNx, nNxt, nN))
-            #diff = torch.sum((pre_PMI - post_PMI) / pre_PMI) / (500*500)
-
             found_Nxx, found_Nx, found_Nxt, found_N = bigram_sector.load_shard()
 
             self.assertTrue(torch.allclose(found_Nxx, expected_Nxx[sector]))
@@ -415,6 +423,19 @@ class TestBigramSector(TestCase):
             self.assertTrue(torch.allclose(
                 found_Nxt, expected_Nxt[:,sector[1]]))
             self.assertTrue(torch.allclose(found_N, expected_N))
+
+            # attempting to call apply_undersampling twice is an error
+            with self.assertRaises(ValueError):
+                bigram_sector.apply_w2v_undersampling(t)
+
+        # Attempting to call apply_undersampling when in posession of a 
+        # smoothed unigram would produce incorrect results, and is an error.
+        bigram_sector, bigram_base = self.get_test_bigram_sector()
+        alpha = 0.6
+        bigram_sector.unigram.apply_smoothing(alpha)
+        with self.assertRaises(ValueError):
+            bigram_sector.apply_w2v_undersampling(t)
+
 
 
     def test_get_sector(self):

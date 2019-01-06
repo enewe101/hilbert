@@ -457,8 +457,7 @@ class Embeddings:
             dictionary = h.dictionary.Dictionary.load(dictionary_path)
 
         V_path = os.path.join(path, 'V.npy')
-        if os.path.exists(V_path):
-            V = np.load(V_path)
+        V = np.load(V_path)
 
         W_path = os.path.join(path, 'W.npy')
         if os.path.exists(os.path.join(path, 'W.npy')):

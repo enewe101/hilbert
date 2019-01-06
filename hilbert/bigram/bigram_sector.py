@@ -37,17 +37,20 @@ class BigramSector(BigramBase):
         self.verbose = verbose
 
         dtype = h.CONSTANTS.DEFAULT_DTYPE
+        mem_device = h.CONSTANTS.MEMORY_DEVICE
 
         # Store unigram data.
         self.unigram = unigram
-        self._uNx = torch.tensor(self.unigram.Nx, dtype=dtype).view(-1,1)
-        self._uNxt = torch.tensor(self.unigram.Nx, dtype=dtype).view(1,-1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype)
+        self._uNx = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1,1)
+        self._uNxt = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(1,-1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
-        self._Nx = torch.tensor(Nx, dtype=h.CONSTANTS.DEFAULT_DTYPE)
-        self._Nxt = torch.tensor(Nxt, dtype=h.CONSTANTS.DEFAULT_DTYPE)
+        self._Nx = torch.tensor(Nx, dtype=dtype, device=mem_device)
+        self._Nxt = torch.tensor(Nxt, dtype=dtype, device=mem_device)
         self.N = torch.sum(self._Nx)
 
         self.sector = sector
@@ -60,6 +63,8 @@ class BigramSector(BigramBase):
 
         # Check all is good
         self.validate_shape()
+        self.undersampled = False
+
 
 
     @property
@@ -264,6 +269,28 @@ class BigramSector(BigramBase):
         return loaded_uNx, loaded_uNxt, loaded_uN
 
 
+    def apply_unigram_smoothing(self, alpha):
+        """
+        Smooth the unigram distribution by raising all frequencies to the 
+        exponent `alpha`, followed by re-normalization.  This irreversibly
+        mutates the underlying unigram object.
+        """
+
+        if alpha == 1 or alpha is None:
+            return
+
+        self.unigram.apply_smoothing(alpha)
+
+        # We keep unigram data locally as a tensor, so we need to recopy it all
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        mem_device = h.CONSTANTS.MEMORY_DEVICE
+        self._uNx = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1,1)
+        self._uNxt = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(1,-1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+
+
     def apply_w2v_undersampling(self, t):
         """
         Simulate undersampling of common words, like how is done in word2vec.
@@ -272,6 +299,11 @@ class BigramSector(BigramBase):
         undersampling, and undersampling is applied in the "clean" way which
         does not alter the effective size of the sample window.
         """
+
+        if t == 1 or t is None:
+            return 
+        self.validate_undersampling()
+        self.undersampled = True
 
         # For each pair of words, calculate the probability that a given 
         # cooccurrence would still be observed given undersampling.

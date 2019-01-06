@@ -27,8 +27,8 @@ class HilbertEmbedderSolver(object):
         one_sided=False,
         learn_bias=False,
         seed=1917,
-        verbose=True,
-        device=None
+        device=None,
+        verbose=True
     ):
         """
         This is the base class for a Hilbert Embedder model. It uses pytorch's
@@ -94,6 +94,18 @@ class HilbertEmbedderSolver(object):
         self.optimizer = None
         self.learner = None
         self.restart(resample_vectors=init_vecs is None)
+        self.validate_vectors()
+
+
+    def validate_vectors(self):
+        V_okay = self.V.shape[1] == self.d
+        W_okay = self.one_sided or self.W.shape[1] == self.d
+        if not V_okay or not W_okay:
+            raise ValueError(
+                "Embeddings do not have the requested dimension.  Got {}, but "
+                "you said d={}".format(self.V.shape[1], self.d)
+            )
+
 
 
     def describe(self):
@@ -175,7 +187,7 @@ class HilbertEmbedderSolver(object):
                     # zero out the gradient
                     self.optimizer.zero_grad()
 
-                    # get our mhat for the shard_id!
+                    # Calculate forward pass, M_hat and loss, for this shard!
                     M_hat = self.learner(shard_id)
                     loss = self.loss(shard_id, M_hat, shard_data)
 

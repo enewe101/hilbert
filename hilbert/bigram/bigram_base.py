@@ -50,20 +50,26 @@ class BigramBase(object):
         self.verbose = verbose
 
         dtype = h.CONSTANTS.DEFAULT_DTYPE
+        mem_device = h.CONSTANTS.MEMORY_DEVICE
 
         # Own unigram statistics.
         self.unigram = unigram
-        self.uNx = torch.tensor(self.unigram.Nx, dtype=dtype).view(-1, 1)
-        self.uNxt = torch.tensor(self.unigram.Nx, dtype=dtype).view(1, -1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype)
+        self.uNx = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1, 1)
+        self.uNxt = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
-        self.Nx = torch.tensor(np.sum(self.Nxx, axis=1), dtype=dtype)
-        self.Nxt = torch.tensor(np.sum(self.Nxx, axis=0), dtype=dtype)
+        self.Nx = torch.tensor(
+            np.sum(self.Nxx, axis=1), dtype=dtype, device=mem_device)
+        self.Nxt = torch.tensor(
+            np.sum(self.Nxx, axis=0), dtype=dtype, device=mem_device)
         self.N = torch.sum(self.Nx)
 
         self.validate_shape()
+        self.undersampled = False
 
 
     def validate_shape(self):
@@ -228,6 +234,21 @@ class BigramBase(object):
         return self
 
 
+    def validate_undersampling(self):
+        # Performing undersampling multiple times is a mistake.
+        if self.undersampled:
+            raise ValueError(
+                "Undersampling was already done.  Cannot perform "
+                "undersampling multiple times."
+            )
+        # Undersampling using a smoothed unigram would give wrong results.
+        if self.unigram.smoothed:
+            raise ValueError(
+                "Cannot perform undersampling based on smoothed unigram "
+                "frequencies.  Perform undersampling before smoothing"
+            )
+
+
     def apply_w2v_undersampling(self, t):
         """
         Simulate undersampling of common words, like how is done in word2vec.
@@ -236,6 +257,11 @@ class BigramBase(object):
         undersampling, and undersampling is applied in the "clean" way which
         does not alter the effective size of the sample window.
         """
+
+        if t == 1 or t is None:
+            return 
+        self.validate_undersampling()
+        self.undersampled = True
 
         # First calculate probability of dropping row-word and col-words
         p_i = h.corpus_stats.w2v_prob_keep(self.uNx, self.uN, t)
@@ -250,6 +276,29 @@ class BigramBase(object):
         self.Nx = np.array(np.sum(self.Nxx, axis=1))
         self.Nxt = np.array(np.sum(self.Nxx, axis=0))
         self.N = np.sum(self.Nx)
+
+
+    def apply_unigram_smoothing(self, alpha):
+        """
+        Smooth the unigram distribution by raising all frequencies to the 
+        exponent `alpha`, followed by re-normalization.  This irreversibly
+        mutates the underlying unigram object.
+        """
+
+        if alpha == 1 or alpha is None:
+            return
+
+        self.unigram.apply_smoothing(alpha)
+
+        # We keep unigram data locally as a tensor, so we need to recopy it all
+        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        mem_device = h.CONSTANTS.MEMORY_DEVICE
+        self.uNx = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1, 1)
+        self.uNxt = torch.tensor(
+            self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+
 
 
     # TODO: figure out if this causes significant errors to targets.

@@ -6,12 +6,10 @@ from collections import Counter
 try:
     import numpy as np
     from scipy import sparse, stats
-    import torch
 except ImportError:
     np = None
     sparse = None
     stats = None
-    torch = None
 
 import hilbert as h
 from .bigram_base import BigramBase

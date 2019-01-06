@@ -54,7 +54,7 @@ class HilbertLoss(nn.Module):
         minibatched_loss = keep(elementwise_loss, self.keep_prob)
         return torch.sum(minibatched_loss) / self.rescale
 
-    def _forward(self):
+    def _forward(self, shard_id, M_hat, shard_data):
         raise NotImplementedError('Subclasses must override `_forward`.')
 
 
@@ -66,6 +66,7 @@ class MSELoss(HilbertLoss):
         return 0.5 * weights * ((M_hat - M) ** 2)
 
 
+
 class Word2vecLoss(HilbertLoss):
     def _forward(self, shard_id, M_hat, shard_data):
         logfactor = torch.log(torch.exp(M_hat) + 1)
@@ -74,35 +75,47 @@ class Word2vecLoss(HilbertLoss):
         return term1 + term2
 
 
-class MaxLikelihoodLoss(HilbertLoss):
+
+class TemperedLoss(HilbertLoss):
+    def __init__(
+        self, keep_prob, ncomponents, mask_diagonal=False, temperature=1.
+    ):
+        self.temperature = temperature
+        super(TemperedLoss, self).__init__(
+            keep_prob, ncomponents, mask_diagonal=mask_diagonal)
     def _forward(self, shard_id, M_hat, shard_data):
+        untempered = self._forward_temper(shard_id, M_hat, shard_data)
+        return temper(untempered,shard_data['Pxx_independent'],self.temperature)
+    def _forward_temper(self, shard_id, M_hat, shard_data):
+        raise NotImplementedError("Subclasses must override `_forward_temper`.")
+
+
+
+class MaxLikelihoodLoss(TemperedLoss):
+    def _forward_temper(self, shard_id, M_hat, shard_data):
         Pxx_model = shard_data['Pxx_independent'] * torch.exp(M_hat)
-        term1 = shard_data['Pxx_data'] * torch.log(Pxx_model) 
+        term1 = shard_data['Pxx_data'] * M_hat
         term2 = (1-shard_data['Pxx_data']) * torch.log(1-Pxx_model)
-        result = - (term1 + term2)
-        return temper(
-            result, shard_data['Pxx_independent'], shard_data['temperature'])
+        return -(term1 + term2)
 
 
-class MaxPosteriorLoss(HilbertLoss):
-    def _forward(self, shard_id, M_hat, shard_data):
+
+class MaxPosteriorLoss(TemperedLoss):
+    def _forward_temper(self, shard_id, M_hat, shard_data):
         Pxx_model = shard_data['Pxx_independent'] * torch.exp(M_hat)
-        term1 = shard_data['Pxx_posterior'] * torch.log(Pxx_model) 
+        term1 = shard_data['Pxx_posterior'] * M_hat
         term2 = (1-shard_data['Pxx_posterior']) * torch.log(1-Pxx_model)
-        result =  -(shard_data['N_posterior']/shard_data['N']) * (term1 + term2)
-        return temper(
-            result, shard_data['Pxx_independent'], shard_data['temperature'])
+        return -(shard_data['N_posterior']/shard_data['N']) * (term1 + term2)
 
 
-class KLLoss(HilbertLoss):
-    def _forward(self, shard_id, M_hat, shard_data):
+
+class KLLoss(TemperedLoss):
+    def _forward_temper(self, shard_id, M_hat, shard_data):
         Pxx_model = shard_data['Pxx_independent'] * torch.exp(M_hat)
         a_hat = shard_data['N_posterior'] * Pxx_model
         a_term = a_hat * shard_data['digamma_a']
         b_hat = shard_data['N_posterior'] * (1 - Pxx_model) + 1
         b_term = b_hat * shard_data['digamma_b']
-        result = (lbeta(a_hat, b_hat) - a_term - b_term) / shard_data['N']
-        return temper(
-            result, shard_data['Pxx_independent'], shard_data['temperature'])
+        return (lbeta(a_hat, b_hat) - a_term - b_term) / shard_data['N']
 
 

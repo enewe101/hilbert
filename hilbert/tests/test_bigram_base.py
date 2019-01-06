@@ -166,6 +166,21 @@ class TestBigramBase(TestCase):
             bigram.Nxx.toarray(), array + decremented_array))
 
 
+    def test_apply_unigram_smoothing(self):
+        alpha = 0.6
+        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+
+        expected_uNx = bigram.uNx**alpha
+        expected_uNxt = bigram.uNxt**alpha
+        expected_uN = torch.sum(expected_uNx)
+
+        bigram.apply_unigram_smoothing(alpha)
+        self.assertTrue(torch.allclose(expected_uNx, bigram.uNx))
+        self.assertTrue(torch.allclose(expected_uNxt, bigram.uNxt))
+        self.assertTrue(torch.allclose(expected_uN, bigram.uN))
+
+
+
     def test_apply_w2v_undersampling(self):
 
         t = 1e-5
@@ -187,7 +202,6 @@ class TestBigramBase(TestCase):
 
         #pre_PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         bigram.apply_w2v_undersampling(t)
-        #bigram.apply_w2v_undersampling_sector(t)
         #nNxx, nNx, nNxt, nN = bigram.load_shard()
         #post_PMI = h.corpus_stats.calc_PMI((nNxx, nNx, nNxt, nN))
         #diff = torch.sum((pre_PMI - post_PMI) / pre_PMI) / (500*500)
@@ -198,6 +212,20 @@ class TestBigramBase(TestCase):
         self.assertTrue(torch.allclose(found_Nx, expected_Nx))
         self.assertTrue(torch.allclose(found_Nxt, expected_Nxt))
         self.assertTrue(torch.allclose(found_N, expected_N))
+
+        # attempting to call apply_undersampling twice is an error
+        with self.assertRaises(ValueError):
+            bigram.apply_w2v_undersampling(t)
+
+        # Attempting to call apply_undersampling when in posession of a 
+        # smoothed unigram would produce incorrect results, and is an error.
+        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        alpha = 0.6
+        unigram.apply_smoothing(alpha)
+        with self.assertRaises(ValueError):
+            bigram.apply_w2v_undersampling(t)
+
+
 
 
     def test_count(self):

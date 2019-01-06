@@ -17,15 +17,24 @@ class TestBigramLoader(TestCase):
     def test_bigram_loader(self):
 
         # Make a bigram loader
+        t = 1e-5
+        alpha = 0.6
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
         sector_factor = 3
         shard_factor = 4
         num_loaders = sector_factor**2
         loader = h.bigram_loader.BigramLoader(
-            bigram_path, sector_factor, shard_factor, num_loaders)
+            bigram_path, sector_factor, shard_factor, num_loaders,
+            t_clean_undersample=t, 
+            alpha_unigram_smoothing=alpha
+        )
 
-        expected_bigram = h.bigram.BigramBase.load(bigram_path)
-        expected_shards = list(h.shards.Shards(sector_factor * shard_factor))
+        expected_bigram = h.bigram.BigramSector.load(
+            bigram_path, h.shards.whole)
+        expected_bigram.apply_w2v_undersampling(t)
+        expected_bigram.apply_unigram_smoothing(alpha)
+
+        expected_shards = list(h.shards.Shards(shard_factor * sector_factor))
         num_shards_iterated = 0
         for found_shard_id, bigram_data, unigram_data in loader:
             num_shards_iterated += 1
@@ -50,14 +59,23 @@ class TestBigramMultiLoader(TestCase):
     def test_bigram_multi_loader(self):
 
         # Make a bigram loader
+        t = 1e-5
+        alpha = 0.6
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
         sector_factor = 3
         shard_factor = 4
         num_loaders = sector_factor**2
         loader = h.bigram_loader.BigramMultiLoader(
-            bigram_path, sector_factor, shard_factor, num_loaders)
+            bigram_path, sector_factor, shard_factor, num_loaders,
+            t_clean_undersample=t, 
+            alpha_unigram_smoothing=alpha
+        )
 
-        expected_bigram = h.bigram.BigramBase.load(bigram_path)
+        expected_bigram = h.bigram.BigramSector.load(
+            bigram_path, h.shards.whole)
+        expected_bigram.apply_w2v_undersampling(t)
+        expected_bigram.apply_unigram_smoothing(alpha)
+
         expected_shards = list(h.shards.Shards(sector_factor * shard_factor))
         num_shards_iterated = 0
         for found_shard_id, bigram_data, unigram_data in loader:
