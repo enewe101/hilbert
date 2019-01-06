@@ -89,4 +89,22 @@ def get_base_argparser():
             "do not affect the loss and gradient."
         )
     )
+
+    parser.add_argument(
+        '--sector-factor', '-g', type=int, default=1, 
+        help='Sharding factor used to generate cooccurrence data files on disk' 
+    )
+    parser.add_argument(
+        '--shard-factor', '-f', type=int, default=1, 
+        help='Sharding factor used to generate minibatches from sectors' 
+    )
+    parser.add_argument(
+        '--num-loaders', '-L', type=int, default=1, 
+        help='number of background data loading processes'
+    )
+    parser.add_argument(
+        '--queue-size', '-q', type=int, default=32, 
+        help='number of background data loading processes'
+    )
+
     return parser

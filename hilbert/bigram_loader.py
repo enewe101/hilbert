@@ -101,6 +101,20 @@ class BigramLoaderBase():
         unigram_data = tuple(tensor.to(device) for tensor in unigram_data)
         return shard_id, bigram_data, unigram_data
 
+    def describe(self):
+        s = '\tbigram_path = {}\n'.format(self.bigram_path)
+        s += '\tsector_factor = {}\n'.format(self.sector_factor)
+        s += '\tshard_factor = {}\n'.format(self.shard_factor)
+        s += '\tnum_loaders = {}\n'.format(self.num_loaders)
+        s += '\tt_clean_undersample = {}\n'.format(self.t_clean_undersample)
+        s += '\talpha_unigram_smoothing = {}\n'.format(
+            self.alpha_unigram_smoothing)
+        s += '\tqueue_size = {}\n'.format(self.queue_size)
+        s += '\tdevice = {}\n'.format(self.device)
+        s += '\tverbose = {}\n'.format(self.verbose)
+        return s
+
+
 
 class BigramLoader(BigramLoaderBase, Loader):
     pass
@@ -121,10 +135,7 @@ class PPMILoader(BigramMultiLoader):
         return shard_id, {'M':M}
 
     def describe(self):
-        s = 'PPMI Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
+        return 'PPMI Sharder\n' + super(PPMILoader, self).describe()
 
 
 
@@ -144,14 +155,6 @@ class GloveLoader(BigramMultiLoader):
             queue_size=queue_size, device=device, verbose=verbose
         )
 
-    def describe(self):
-        s = 'GloVe Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tX_max = {}\n'.format(self.X_max)
-        s += '\talpha = {}\n'.format(self.alpha)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
-
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -163,6 +166,14 @@ class GloveLoader(BigramMultiLoader):
         weights[Nxx==0] = 0
         weights = weights * 2
         return shard_id, {'M':M, 'weights':weights}
+
+    def describe(self):
+        s =  'GloVe Sharder\n' 
+        s += '\tX_max = {}\n'.format(self.X_max)
+        s += '\talpha = {}\n'.format(self.alpha)
+        s += super(GloveLoader, self).describe()
+        return s
+
 
 
 
@@ -186,13 +197,6 @@ class Word2vecLoader(BigramMultiLoader):
         device = device or h.CONSTANTS.MATRIX_DEVICE
         self.k = torch.tensor(k, device=device, dtype=dtype)
 
-    def describe(self):
-        s = 'Word2Vec Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tk = {}\n'.format(self.k)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
-
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -204,6 +208,12 @@ class Word2vecLoader(BigramMultiLoader):
     @staticmethod
     def negative_sample(Nxx, Nx, uNxt, uN, k):
         return k * (Nx - Nxx) * (uNxt / uN)
+
+    def describe(self):
+        s = 'Word2Vec Sharder\n'
+        s += '\tk = {}\n'.format(self.k)
+        s += super(Word2vecLoader, self).describe()
+        return s
 
 
 
@@ -218,10 +228,9 @@ class MaxLikelihoodLoader(BigramMultiLoader):
             'Pxx_data':Pxx_data, 'Pxx_independent':Pxx_independent}
 
     def describe(self):
-        s = 'Max Likelihood Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
+        return 'Max Likelihood Sharder\n' + super(
+            MaxLikelihoodLoader, self).describe()
+
 
 
 
@@ -242,10 +251,8 @@ class MaxPosteriorLoader(BigramMultiLoader):
         }
 
     def describe(self):
-        s = 'Max Posterior Probability Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
+        return 'Max Posterior Probability Sharder\n' + super(
+            MaxPosteriorLoader, self).describe()
 
 
 class KLLoader(BigramMultiLoader):
@@ -268,10 +275,7 @@ class KLLoader(BigramMultiLoader):
         }
 
     def describe(self):
-        s = 'KL Sharder\n'
-        s += '\tupdate_density = {}\n'.format(self.update_density)
-        s += '\tmask_diagonal = {}\n'.format(self.mask_diagonal)
-        return s
+        return 'KL Sharder\n' + super(KLLoader, self).describe()
 
 
 

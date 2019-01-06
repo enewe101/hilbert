@@ -200,6 +200,13 @@ class BigramMutable(BigramBase):
             self.unigram.save(path)
 
 
+    def save_marginals(self, path):
+        Nx_path = os.path.join(path, 'Nx.npy')
+        np.save(Nx_path, self.Nx)
+        Nxt_path = os.path.join(path, 'Nxt.npy')
+        np.save(Nxt_path, self.Nxt)
+
+
     def save_sector(
         self, path, sector, 
         save_marginal=True, save_unigram=True
@@ -219,10 +226,7 @@ class BigramMutable(BigramBase):
         # Save the marginalized bigram statistics.  This differs from unigram
         # statistics by approximately a factor of 2 * window_size - 1.
         if save_marginal:
-            Nx_path = os.path.join(path, 'Nx.npy')
-            np.save(Nx_path, self.Nx)
-            Nxt_path = os.path.join(path, 'Nxt.npy')
-            np.save(Nxt_path, self.Nxt)
+            self.save_marginals(path)
 
         if save_unigram:
             self.unigram.save(path)
@@ -258,8 +262,8 @@ def write_marginals(path):
     Nx_path = os.path.join(path, 'Nx.npy')
     Nxt_path = os.path.join(path, 'Nxt.npy')
     Nxx = sparse.load_npz(Nxx_path).tolil()
-    np.save(Nx_path, np.asarray(np.sum(self.Nxx, axis=1)))
-    np.save(Nxt_path, np.asarray(np.sum(self.Nxx, axis=0)))
+    np.save(Nx_path, np.asarray(np.sum(Nxx, axis=1)))
+    np.save(Nxt_path, np.asarray(np.sum(Nxx, axis=0)))
 
 
 

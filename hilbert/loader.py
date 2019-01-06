@@ -36,7 +36,8 @@ class Loader(ABC):
             Both have no effect.  Included for compatibility with `MultiLoader`.
         """
         self.num_loaders = num_loaders
-
+        self.queue_size = queue_size
+        self.verbose = verbose
 
     def __iter__(self):
         """
