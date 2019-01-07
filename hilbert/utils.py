@@ -135,9 +135,9 @@ def iterate_queue(
         except Empty:
             if stop_when_empty:
                 raise StopIteration
-            else:
-                if verbose:
-                    print('\twaiting for data to load...', file=sys.stderr)
+            #else:
+            #    if verbose:
+            #        print('\twaiting for data to load...', file=sys.stderr)
 
         # If it isn't empty, note any sentinal or yield the item.
         else:

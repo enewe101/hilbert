@@ -37,6 +37,21 @@ def sectorize(path, sector_factor, out_path=None, verbose=True):
         start = time.time()
 
 
+def write_marginals(path):
+    """
+    An old version of BigramMutable did not save marginals.  This reads the old
+    version, and writes out the marginal, so that they can be loaded according
+    to the new version.
+    """
+    Nxx_path = os.path.join(path, 'Nxx.npz')
+    Nx_path = os.path.join(path, 'Nx.npy')
+    Nxt_path = os.path.join(path, 'Nxt.npy')
+    Nxx = sparse.load_npz(Nxx_path).tolil()
+    np.save(Nx_path, np.asarray(np.sum(Nxx, axis=1)))
+    np.save(Nxt_path, np.asarray(np.sum(Nxx, axis=0)))
+
+
+
 class BigramMutable(BigramBase):
     """
     Similar to BigramBase, but supporting various mutation and 
@@ -247,24 +262,5 @@ class BigramMutable(BigramBase):
     def load_unigram(path, device=None, verbose=True):
         unigram = h.unigram.Unigram.load(path)
         return BigramMutable(unigram, device=device, verbose=verbose)
-
-
-
-
-
-def write_marginals(path):
-    """
-    An old version of BigramMutable did not save marginals.  This reads the old
-    version, and writes out the marginal, so that they can be loaded according
-    to the new version.
-    """
-    Nxx_path = os.path.join(path, 'Nxx.npz')
-    Nx_path = os.path.join(path, 'Nx.npy')
-    Nxt_path = os.path.join(path, 'Nxt.npy')
-    Nxx = sparse.load_npz(Nxx_path).tolil()
-    np.save(Nx_path, np.asarray(np.sum(Nxx, axis=1)))
-    np.save(Nxt_path, np.asarray(np.sum(Nxx, axis=0)))
-
-
 
 
