@@ -1,3 +1,4 @@
+import time
 import hilbert as h
 import torch
 import torch.nn as nn
@@ -163,6 +164,9 @@ class HilbertEmbedderSolver(object):
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):
         losses = [] if hold_loss else None
 
+        if self.verbose:
+            start = time.time()
+
         for _ in range(epochs):
             self.epoch_loss = 0
 
@@ -190,7 +194,9 @@ class HilbertEmbedderSolver(object):
                 losses.append(self.epoch_loss)
 
             if self.verbose:
-                print('loss\t{}'.format(self.epoch_loss))
+                elapsed = time.time() - start
+                print('loss\t{}\telapsed\t{}'.format(self.epoch_loss, elapsed))
+                start = time.time()
 
         return losses
 
