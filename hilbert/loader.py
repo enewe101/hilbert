@@ -41,9 +41,9 @@ class Loader(ABC):
 
     def __iter__(self):
         """
-        Yields GPU-loaded shards.  This is the only element of the public interface.
-        The training loop should treat loader as an iterable, and calculate
-        forward, backward passes using the shards yielded.
+        Yields GPU-loaded shards.  This is the only element of the public
+        interface.  The training loop should treat loader as an iterable, and
+        calculate forward, backward passes using the shards yielded.
         """
         for loader_id in range(self.num_loaders):
             for preloaded in self._preload_iter(loader_id):
@@ -79,16 +79,18 @@ class MultiLoader(ABC):
 
     def __init__(self, num_loaders, queue_size=1, verbose=True):
         """
-        Iterable that yields GPU loaded minibatches.  Override `_preload_iter()`
-        with a generator that yields minibatches preloaded (into cRAM), and
-        override `_load()` with a function that moves those preloaded minibatches
-        onto the GPU.  Several loader processes will execute `_preload_iter()`
-        in the background, placing the yielded results onto a queue, to await
-        their turn on the GPU, the transfer of data onto the GPU faster.
+        Iterable that yields GPU loaded minibatches.  Override
+        `_preload_iter()` with a generator that yields minibatches preloaded
+        (into cRAM), and override `_load()` with a function that moves those
+        preloaded minibatches onto the GPU.  Several loader processes will
+        execute `_preload_iter()` in the background, placing the yielded
+        results onto a queue, to await their turn on the GPU, the transfer of
+        data onto the GPU faster.
 
-        When writing a subclass of `MultiLoader`, temporarily inherit from `Loader`,
-        which supports the same interface, but keeps execution in the main process
-        for easier debugging, then change the inheritance once things are working.
+        When writing a subclass of `MultiLoader`, temporarily inherit from
+        `Loader`, which supports the same interface, but keeps execution in the
+        main process for easier debugging, then change the inheritance once
+        things are working.
 
         INPUTS
         ``````
@@ -116,12 +118,12 @@ class MultiLoader(ABC):
 
     def _start_preloading(self):
         """
-        Starts child loader processes, which will load cpu_shards in the background.
+        Starts child loader processes, which will load cpu_shards in the
+        background.
         """
 
-        # Place the desired shards onto the request queue, which serves as a 
-        # listing of work from which loaders draw.  Loaders will place 
-        # finished shards (shards loaded into cRAM) onto the result_queue
+        # Loaders will place finished shards (shards loaded into cRAM) onto the
+        # result_queue
         self.result_queue = JoinableQueue(maxsize=self.queue_size)
 
         # Start the loader processes.
@@ -135,9 +137,9 @@ class MultiLoader(ABC):
 
     def __iter__(self):
         """
-        Yields GPU-loaded shards.  This is the only element of the public interface.
-        The training loop should treat loader as an iterable, and calculate
-        forward, backward passes using the shards yielded.
+        Yields GPU-loaded shards.  This is the only element of the public
+        interface.  The training loop should treat loader as an iterable, and
+        calculate forward, backward passes using the shards yielded.
         """
         if self.already_iterated:
             self._start_preloading()

@@ -19,6 +19,7 @@ def run_w2v(
         opt_str='adam',
         sector_factor=1,
         shard_factor=1,
+        shard_times=1,
         num_loaders=1,
         queue_size=32,
         seed=1,
@@ -44,10 +45,12 @@ def run_w2v(
     # run it up!
     for epoch in range(1, epochs+1):
         print('epoch\t{}'.format(epoch))
-        losses = embsolver.cycle(epochs=iters_per_epoch, hold_loss=True)
+        losses = embsolver.cycle(
+            epochs=iters_per_epoch, shard_times=shard_times, hold_loss=True)
 
         # saving data
-        hrun.save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
+        hrun.save_embeddings(
+            embsolver, save_embeddings_dir, iters_per_epoch * epoch)
         crt_iter = (epoch - 1) * iters_per_epoch
         hrun.write_trace(trace_path, crt_iter, losses)
 

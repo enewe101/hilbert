@@ -78,6 +78,7 @@ class BigramLoaderBase():
             if i % self.num_loaders != loader_id:
                 continue
 
+            sector_id = sector_id
             # Read the sector of bigram data into memory, and transform
             # distributions as desired.
             bigram_sector = h.bigram.BigramSector.load(
@@ -85,7 +86,7 @@ class BigramLoaderBase():
             bigram_sector.apply_w2v_undersampling(self.t_clean_undersample)
             bigram_sector.apply_unigram_smoothing(self.alpha_unigram_smoothing)
 
-            # Start yielding shards preloaded  into cRAM.
+            # Start yielding cRAM-preloaded shards
             for shard_id in h.shards.Shards(self.shard_factor):
                 bigram_data = bigram_sector.load_relative_shard(
                     shard=shard_id, device='cpu')
@@ -101,6 +102,7 @@ class BigramLoaderBase():
         unigram_data = tuple(tensor.to(device) for tensor in unigram_data)
         return shard_id, bigram_data, unigram_data
 
+
     def describe(self):
         s = '\tbigram_path = {}\n'.format(self.bigram_path)
         s += '\tsector_factor = {}\n'.format(self.sector_factor)
@@ -115,13 +117,12 @@ class BigramLoaderBase():
         return s
 
 
-
 class BigramLoader(BigramLoaderBase, Loader):
     pass
 
+
 class BigramMultiLoader(BigramLoaderBase, MultiLoader):
     pass
-
 
 
 class PPMILoader(BigramMultiLoader):

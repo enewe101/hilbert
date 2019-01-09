@@ -25,11 +25,10 @@ def get_bigram(pth):
 
 
 def get_init_embs(pth):
-    if pth is not None:
-        init_embeddings = h.embeddings.Embeddings.load(pth)
-        return init_embeddings.V, init_embeddings.W
-    else:
-        raise NotImplementedError('Need initial embeddings now!')
+    if pth is None:
+        return None
+    init_embeddings = h.embeddings.Embeddings.load(pth)
+    return init_embeddings.V, init_embeddings.W
 
 
 def construct_w2v_solver(
@@ -73,6 +72,9 @@ def construct_w2v_solver(
 
     # get initial embeddings (if any)
     init_vecs = get_init_embs(init_embeddings_path)
+    shape = None
+    if init_vecs is None:
+        shape = (vocab, vocab)
 
     # build the main daddyboy
     embsolver = h.autoembedder.HilbertEmbedderSolver(
@@ -82,7 +84,7 @@ def construct_w2v_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
-        shape=None,
+        shape=shape,
         one_sided=False,
         learn_bias=False,
         seed=seed,
@@ -138,6 +140,9 @@ def construct_glv_solver(
 
     # initialize the vectors
     init_vecs = get_init_embs(init_embeddings_path)
+    shape = None
+    if init_vecs is None:
+        shape = (vocab, vocab)
 
     # get the solver and we good!
     embsolver = h.autoembedder.HilbertEmbedderSolver(
@@ -147,7 +152,7 @@ def construct_glv_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
-        shape=None,
+        shape=shape,
         one_sided=False,
         learn_bias=True,
         seed=seed,
@@ -245,6 +250,9 @@ def _construct_tempered_solver(
 
     # Get initial embeddings.
     init_vecs = get_init_embs(init_embeddings_path)
+    shape = None
+    if init_vecs is None:
+        shape = (vocab, vocab)
 
     # Build the main daddyboi!
     embsolver = h.autoembedder.HilbertEmbedderSolver(
@@ -254,9 +262,10 @@ def _construct_tempered_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
+        shape=shape,
         one_sided=False,
         learn_bias=False,
-        seed=1917,
+        seed=seed,
         device=device,
         verbose=verbose
     )

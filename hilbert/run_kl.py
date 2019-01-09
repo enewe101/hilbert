@@ -17,6 +17,7 @@ def run_kl(
         opt_str='adam',
         sector_factor=1,
         shard_factor=1,
+        shard_times=1,
         num_loaders=1,
         queue_size=32,
         seed=1,
@@ -41,7 +42,8 @@ def run_kl(
     # run it up!
     for epoch in range(1, epochs+1):
         print('epoch\t{}'.format(epoch))
-        losses = embsolver.cycle(epochs=iters_per_epoch, hold_loss=True)
+        losses = embsolver.cycle(
+            epochs=iters_per_epoch, shard_times=shard_times, hold_loss=True)
 
         # saving data
         hrun.save_embeddings(

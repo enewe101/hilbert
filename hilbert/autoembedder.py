@@ -1,3 +1,4 @@
+import sys
 import hilbert as h
 import torch
 import torch.nn as nn
@@ -39,10 +40,12 @@ class HilbertEmbedderSolver(object):
             (3) the dimensionality (an integer for the size of the embeddings)
 
         :param loader: a Loader object that iterates gpu-loaded shards
-        :param optimizer_constructor: a constructor from torch.optim that we will build later
+        :param optimizer_constructor: a constructor from torch.optim that we 
+                will build later
         :param d: the desired dimensionality
         :param learning_rate: learning rate
-        :param opt_kwargs: dictionary of keyword arguments for optimizer constructor
+        :param opt_kwargs: dictionary of keyword arguments for optimizer 
+                constructor
         :param init_vecs: vectors to initialize with, as an Embeddings object
         :param shape: the desired shape of the vectors, if no initials passed
         :param one_sided: whether to only learn a set of vectors, forcing the
@@ -105,7 +108,6 @@ class HilbertEmbedderSolver(object):
                 "Embeddings do not have the requested dimension.  Got {}, but "
                 "you said d={}".format(self.V.shape[1], self.d)
             )
-
 
 
     def describe(self):
@@ -199,6 +201,9 @@ class HilbertEmbedderSolver(object):
 
                     # statistics
                     self.epoch_loss += loss.item()
+
+                    sys.stdout.write('.'); sys.stdout.flush()
+                print('+')
 
             if hold_loss:
                 losses.append(self.epoch_loss)
