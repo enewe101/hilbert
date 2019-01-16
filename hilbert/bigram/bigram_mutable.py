@@ -51,6 +51,11 @@ def write_marginals(path):
     np.save(Nxt_path, np.asarray(np.sum(Nxx, axis=0)))
 
 
+def truncate(in_path, out_path, k):
+    b = BigramMutable.load(in_path)
+    b.truncate(k)
+    b.save(out_path)
+
 
 class BigramMutable(BigramBase):
     """
@@ -208,8 +213,7 @@ class BigramMutable(BigramBase):
         if not os.path.exists(path):
             os.makedirs(path)
 
-        Nxx_fname = os.path.join(path, 'Nxx.npz')
-        sparse.save_npz(os.path.join(path, Nxx_fname), self.Nxx.tocsr())
+        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
 
         if save_unigram:
             self.unigram.save(path)

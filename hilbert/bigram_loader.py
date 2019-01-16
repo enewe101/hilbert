@@ -61,19 +61,8 @@ class BigramLoaderBase():
             num_loaders=num_loaders, queue_size=queue_size, verbose=verbose)
 
 
-#    def _preload_iter(self, loader_id):
-#        sector_id = h.shards.Shards(self.sector_factor)[loader_id]
-#        bigram_sector = h.bigram.BigramSector.load(
-#            self.bigram_path, sector_id)
-#        for shard_id in h.shards.Shards(self.shard_factor):
-#            bigram_data = bigram_sector.load_relative_shard(
-#                shard=shard_id, device='cpu')
-#            unigram_data = bigram_sector.load_relative_unigram_shard(
-#                shard=shard_id, device='cpu')
-#            yield shard_id * sector_id, bigram_data, unigram_data
-
-
     def _preload_iter(self, loader_id):
+
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
             if i % self.num_loaders != loader_id:
                 continue

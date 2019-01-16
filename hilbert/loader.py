@@ -8,7 +8,6 @@ except ImportError:
     JoinableQueue, Process = None, None
 
 
-
 class Loader(ABC):
 
     def __init__(self, num_loaders=1, queue_size=1, verbose=True):
@@ -193,6 +192,5 @@ class MultiLoader(ABC):
         `_preload_iter` yield the full dataset without overlap.
         """
         pass
-
 
 
