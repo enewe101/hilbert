@@ -73,27 +73,34 @@ class TestLoader(TestCase):
 class TestMultiLoaderKeep(TestCase):
 
     def test_multi_loader(self):
-        shard_factor = 2
-        num_loaders = 9
+        shard_factor = 10
+        num_loaders = 7
         sector_factor = 3
         num_epochs = 3
         bigram_path = os.path.join(
             '/home', 'ndg', 'projects', 'shared_datasets', 'hilbert',
-            'cooccurrence', '5w-dynamic-10k-giga-wiki'
+            'cooccurrence', '5w-dynamic-40k-giga-wiki'
         )
         loader = h.bigram_loader.BigramMultiLoader(
             bigram_path, sector_factor, shard_factor, num_loaders=num_loaders,
             queue_size=32
         )
+
+        first = True
         for epoch in range(num_epochs):
             print('+')
-            first = True
-            start = time.time()
             for item in loader:
+
                 if first:
                     first = False
-                    print(time.time() - start)
-                print('.')
+                    start = time.time()
+                    full_start = time.time()
+                    num_yielded = 0
+
+                num_yielded += 1
+                print(time.time() - start)
+                print((time.time() - full_start)/ num_yielded)
+                start = time.time()
 
 
 class TestMultiLoader(TestCase):
@@ -140,6 +147,9 @@ class TestMultiLoaderKeepalive(TestCase):
         print('\n'*3)
         for worker_id, item_num in loader:
             print(worker_id, item_num)
+
+
+
 
 
 

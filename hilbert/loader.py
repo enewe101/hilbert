@@ -74,7 +74,6 @@ class Loader(ABC):
         pass
 
 
-
 class MultiLoader(ABC):
 
     def __init__(self, num_loaders, queue_size=1, verbose=True):
@@ -157,7 +156,7 @@ class MultiLoader(ABC):
         )
         for preloaded in preload_iterator:
             yield self._load(preloaded)
-            self.result_queue.task_done()
+            #self.result_queue.task_done()
 
 
     def _manage_preloading(self, loader_id):
@@ -204,5 +203,34 @@ class MultiLoader(ABC):
         `_preload_iter` yield the full dataset without overlap.
         """
         pass
+
+
+
+class BufferedLoader(MultiLoader):
+
+    def __init__(self, *args, **kwargs):
+        super(BufferedLoader, self).__init__(*args, **kwargs)
+        self.cpu_preloads = None
+
+    def __iter__(self):
+        """
+        Yields GPU-loaded shards.
+
+        During first iteration, all cpu shards will be buffered into memory and
+        held there.  Subsequent iterations will simply load onto the GPU from
+        the in-memory cpu shards.
+        
+        This is the only element of the public
+        interface.  The training loop should treat loader as an iterable, and
+        calculate forward, backward passes using the shards yielded.
+        """
+        if self.cpu_preloads is None:
+            self.cpu_preloads = [
+                preload for loader_id in range(self.num_loaders)
+                for preload in self._preload_iter(loader_id)
+            ]
+        for preload in self.cpu_preloads:
+            yield self._load(preload)
+
 
 

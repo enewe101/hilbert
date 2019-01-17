@@ -110,5 +110,10 @@ def get_base_argparser():
         '--queue-size', '-q', type=int, default=32, 
         help='number of background data loading processes'
     )
+    parser.add_argument(
+        '--loader-policy', '-r', default='parallel', 
+        choices=('parallel', 'series', 'buffered'),
+        help='Base policy for loader'
+    )
 
     return parser

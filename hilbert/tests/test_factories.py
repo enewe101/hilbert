@@ -42,6 +42,7 @@ class TestFactory(TestCase):
         mask_diagonal = True
         learning_rate = 0.1
         opt_str = 'sgd'
+        loader_policy = 'buffered'
         sector_factor = 3
         shard_factor = 4
         num_loaders = 4
@@ -95,6 +96,7 @@ class TestFactory(TestCase):
                 shard_factor=shard_factor,
                 num_loaders=num_loaders,
                 queue_size=queue_size,
+                loader_policy=loader_policy,
                 seed=seed,
                 device=device,
                 verbose=verbose,
@@ -122,13 +124,14 @@ class TestFactory(TestCase):
                 (loader.device, 'cuda:1'),
                 (solver.device, 'cuda:1'),
                 (loader.verbose, verbose),
-                (solver.verbose, verbose)
+                (solver.verbose, verbose),
             ]
             for item1, item2 in common_equalities:
                 self.assertEqual(item1, item2)
             for item1_getter, item2 in equalities:
                 self.assertEqual(item1_getter(solver), item2)
 
+        self.assertTrue(isinstance(loader, h.loader.BufferedLoader), True)
         self.assertTrue(torch.allclose(solver.V, init_embeddings.V))
         self.assertTrue(torch.allclose(solver.W, init_embeddings.W))
 

@@ -5,6 +5,13 @@ import torch
 import time
 import torch.optim as op
 
+def get_base_loader(base_loader_str):
+    return {
+        'parallel': h.loader.MultiLoader,
+        'series': h.loader.Loader,
+        'buffered': h.loader.BufferedLoader,
+    }[base_loader_str]
+
 
 def get_opt(string):
     s = string.lower()
@@ -46,6 +53,7 @@ def construct_w2v_solver(
         shard_factor=1,
         num_loaders=1,
         queue_size=1,
+        loader_policy='parallel',
         seed=1,
         device=None,
         verbose=True
@@ -53,8 +61,11 @@ def construct_w2v_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+    base_loader_class = get_base_loader(loader_policy)
+
     # Make the loader
-    loader = h.bigram_loader.Word2vecLoader(
+    loader = h.bigram_loader.get_loader(
+        h.bigram_loader.Word2vecLoader, base_loader_class,
         bigram_path=bigram_path, sector_factor=sector_factor,
         shard_factor=shard_factor, num_loaders=num_loaders,
         k=k, t_clean_undersample=t_clean_undersample,
@@ -112,6 +123,7 @@ def construct_glv_solver(
         shard_factor=1,
         num_loaders=1,
         queue_size=1,
+        loader_policy='parallel',
         seed=1,
         device=None,
         verbose=True
@@ -121,8 +133,11 @@ def construct_glv_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+
     # Make bigram loader
-    loader = h.bigram_loader.GloveLoader(
+    base_loader_class = get_base_loader(loader_policy)
+    loader = h.bigram_loader.get_loader(
+        h.bigram_loader.GloveLoader, base_loader_class,
         bigram_path=bigram_path, sector_factor=sector_factor, 
         shard_factor=shard_factor, num_loaders=num_loaders,
         X_max=xmax, alpha=alpha, t_clean_undersample=t_clean_undersample,
@@ -224,6 +239,7 @@ def _construct_tempered_solver(
     shard_factor=1,
     num_loaders=1,
     queue_size=1,
+    loader_policy='parallel',
     seed=1,
     device=None,
     verbose=True
@@ -232,12 +248,13 @@ def _construct_tempered_solver(
     torch.random.manual_seed(seed)
 
     # Now make the loader.
-    loader = loader_class(
-        bigram_path=bigram_path, sector_factor=sector_factor, 
-        shard_factor=shard_factor, num_loaders=num_loaders, 
-        t_clean_undersample=t_clean_undersample, 
-        alpha_unigram_smoothing=alpha_unigram_smoothing,
-        queue_size=queue_size, device=device, verbose=verbose
+    base_loader_class = get_base_loader(loader_policy)
+    loader = h.bigram_loader.get_loader(
+        loader_class, base_loader_class, bigram_path=bigram_path,
+        sector_factor=sector_factor, shard_factor=shard_factor,
+        num_loaders=num_loaders, t_clean_undersample=t_clean_undersample,
+        alpha_unigram_smoothing=alpha_unigram_smoothing, queue_size=queue_size,
+        device=device, verbose=verbose
     )
 
     # Make the loss

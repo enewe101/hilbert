@@ -1,12 +1,22 @@
+import time
 import hilbert as h
 from abc import ABC, abstractmethod
 from hilbert.loader import Loader, MultiLoader
+import warnings
 try:
     import torch
-    from torch.multiprocessing import JoinableQueue, Process
 except ImportError:
     torch = None
-    JoinableQueue, Process = None, None
+
+
+
+def get_loader(
+    loader_class, loader_base_class, *constructor_args, **constructor_kwargs
+):
+    class TheLoader(loader_class, loader_base_class):
+        pass
+    return TheLoader(*constructor_args, **constructor_kwargs)
+
 
 
 class BigramLoaderBase():
@@ -45,7 +55,6 @@ class BigramLoaderBase():
         bigram / unigram data to load, and what other preparations to do to
         make the shard ready to be fed to the model.
         """
-        print(num_loaders, sector_factor**2)
         if num_loaders != sector_factor**2:
             warnings.warn(
                 "`num_loaders` must equal `sector_factor**2`, so that each "
@@ -126,7 +135,7 @@ class BigramMultiLoader(BigramLoaderBase, MultiLoader):
     pass
 
 
-class PPMILoader(BigramMultiLoader):
+class PPMILoader(BigramLoaderBase):
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
@@ -141,7 +150,7 @@ class PPMILoader(BigramMultiLoader):
 
 
 
-class GloveLoader(BigramMultiLoader):
+class GloveLoader(BigramLoaderBase):
 
     def __init__(
         self, bigram_path, sector_factor, shard_factor, num_loaders,
@@ -182,7 +191,7 @@ class GloveLoader(BigramMultiLoader):
 
 
 # noinspection PyCallingNonCallable
-class Word2vecLoader(BigramMultiLoader):
+class Word2vecLoader(BigramLoaderBase):
 
     def __init__(
         self, bigram_path, sector_factor, shard_factor, num_loaders, k=15,
@@ -219,7 +228,7 @@ class Word2vecLoader(BigramMultiLoader):
 
 
 
-class MaxLikelihoodLoader(BigramMultiLoader):
+class MaxLikelihoodLoader(BigramLoaderBase):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -236,7 +245,7 @@ class MaxLikelihoodLoader(BigramMultiLoader):
 
 
 
-class MaxPosteriorLoader(BigramMultiLoader):
+class MaxPosteriorLoader(BigramLoaderBase):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -257,7 +266,7 @@ class MaxPosteriorLoader(BigramMultiLoader):
             MaxPosteriorLoader, self).describe()
 
 
-class KLLoader(BigramMultiLoader):
+class KLLoader(BigramLoaderBase):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
