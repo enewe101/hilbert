@@ -38,6 +38,7 @@ class Loader(ABC):
         self.queue_size = queue_size
         self.verbose = verbose
 
+
     def __iter__(self):
         """
         Yields GPU-loaded shards.  This is the only element of the public
@@ -124,6 +125,7 @@ class MultiLoader(ABC):
         # Loaders will place finished shards (shards loaded into cRAM) onto the
         # result_queue
         self.result_queue = JoinableQueue(maxsize=self.queue_size)
+        self.epoch_queue = JoinableQueue()
 
         # Start the loader processes.
         self.loading_processes = []
@@ -140,9 +142,13 @@ class MultiLoader(ABC):
         interface.  The training loop should treat loader as an iterable, and
         calculate forward, backward passes using the shards yielded.
         """
-        if self.already_iterated:
-            self._start_preloading()
-        self.already_iterated = True
+        #if self.already_iterated:
+        #    self._start_preloading()
+        #self.already_iterated = True
+
+        # Dispatch all the workers to start one epoch
+        for worker_id in range(self.num_loaders):
+            self.epoch_queue.put(True)
 
         # Iterates through preloaded shards, as they become available
         preload_iterator = h.utils.iterate_queue(
@@ -164,9 +170,15 @@ class MultiLoader(ABC):
         everything off the queue (to avoid prematurely closing the queue and
         generating exception in the main process).
         """
-        for preloaded in self._preload_iter(loader_id):
-            self.result_queue.put(preloaded)
-        self.result_queue.put(StopIteration())
+        epoch_iterator = h.utils.iterate_queue(
+            self.epoch_queue, stop_when_empty=False, sentinal=StopIteration,
+            num_sentinals=1
+        )
+        for epoch in epoch_iterator:
+            for preloaded in self._preload_iter(loader_id):
+                self.result_queue.put(preloaded)
+            self.result_queue.put(StopIteration())
+
         self.result_queue.join()
 
 

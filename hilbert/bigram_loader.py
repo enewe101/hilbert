@@ -45,17 +45,20 @@ class BigramLoaderBase():
         bigram / unigram data to load, and what other preparations to do to
         make the shard ready to be fed to the model.
         """
-        #if num_loaders != sector_factor**2:
-        #    raise ValueError(
-        #        "`num_loaders` must equal `sector_factor**2`, so that each "
-        #        "sector can be assigned to one loader."
-        #    )
+        print(num_loaders, sector_factor**2)
+        if num_loaders != sector_factor**2:
+            warnings.warn(
+                "`num_loaders` must equal `sector_factor**2`, so that each "
+                "sector can be assigned to one loader.", DeprecationWarning
+            )
         self.bigram_path = bigram_path
         self.sector_factor = sector_factor
         self.shard_factor = shard_factor
         self.t_clean_undersample = t_clean_undersample
         self.alpha_unigram_smoothing = alpha_unigram_smoothing
         self.device = device
+        self.loaded_sector = None
+        self.bigram_sector = None
 
         super(BigramLoaderBase, self).__init__(
             num_loaders=num_loaders, queue_size=queue_size, verbose=verbose)
@@ -64,22 +67,31 @@ class BigramLoaderBase():
     def _preload_iter(self, loader_id):
 
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
+
+            # Each worker should handle a subset of the sectors
             if i % self.num_loaders != loader_id:
                 continue
 
-            sector_id = sector_id
-            # Read the sector of bigram data into memory, and transform
-            # distributions as desired.
-            bigram_sector = h.bigram.BigramSector.load(
-                self.bigram_path, sector_id)
-            bigram_sector.apply_w2v_undersampling(self.t_clean_undersample)
-            bigram_sector.apply_unigram_smoothing(self.alpha_unigram_smoothing)
+            # If we're doing the same sector as last time, no need to reload it
+            # This is the advantage of having 
+            # num_workers = num_sectors = sector_factor**2, since a given worker
+            # will have a dedicated sector.
+            if self.loaded_sector != sector_id:
+                self.loaded_sector = sector_id
+                # Read the sector of bigram data into memory, and transform
+                # distributions as desired.
+                self.bigram_sector = h.bigram.BigramSector.load(
+                    self.bigram_path, sector_id)
+                self.bigram_sector.apply_w2v_undersampling(
+                    self.t_clean_undersample)
+                self.bigram_sector.apply_unigram_smoothing(
+                    self.alpha_unigram_smoothing)
 
             # Start yielding cRAM-preloaded shards
             for shard_id in h.shards.Shards(self.shard_factor):
-                bigram_data = bigram_sector.load_relative_shard(
+                bigram_data = self.bigram_sector.load_relative_shard(
                     shard=shard_id, device='cpu')
-                unigram_data = bigram_sector.load_relative_unigram_shard(
+                unigram_data = self.bigram_sector.load_relative_unigram_shard(
                     shard=shard_id, device='cpu')
                 yield shard_id * sector_id, bigram_data, unigram_data
 

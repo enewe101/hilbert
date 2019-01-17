@@ -256,6 +256,8 @@ class Unigram(object):
         """
         if not os.path.exists(path):
             os.makedirs(path)
+        if not self.sorted:
+            self.sort()
         with open(os.path.join(path, 'Nx.txt'), 'w') as f_counts:
             f_counts.write('\n'.join([str(count) for count in self.Nx]))
         if save_dictionary:
