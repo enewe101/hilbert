@@ -20,6 +20,7 @@ def run_kl(
         shard_times=1,
         num_loaders=1,
         queue_size=32,
+        loader_policy='parallel',
         seed=1,
         device=None,
     ):
@@ -29,9 +30,8 @@ def run_kl(
         d=d, temperature=temperature, update_density=update_density,
         mask_diagonal=mask_diagonal, learning_rate=learning_rate,
         opt_str=opt_str, shard_factor=shard_factor,
-        sector_factor=sector_factor,
-        num_loaders=num_loaders,
-        queue_size=queue_size,
+        sector_factor=sector_factor, num_loaders=num_loaders,
+        queue_size=queue_size, loader_policy=loader_policy,
         seed=seed, device=device
     )
 

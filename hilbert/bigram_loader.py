@@ -1,7 +1,7 @@
 import time
 import hilbert as h
 from abc import ABC, abstractmethod
-from hilbert.loader import Loader, MultiLoader
+from hilbert.loader import Loader, MultiLoader, BufferedLoader
 import warnings
 try:
     import torch
@@ -132,6 +132,9 @@ class BigramLoader(BigramLoaderBase, Loader):
 
 
 class BigramMultiLoader(BigramLoaderBase, MultiLoader):
+    pass
+
+class BigramBufferedLoader(BigramLoaderBase, BufferedLoader):
     pass
 
 

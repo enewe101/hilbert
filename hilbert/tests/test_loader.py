@@ -81,7 +81,7 @@ class TestMultiLoaderKeep(TestCase):
             '/home', 'ndg', 'projects', 'shared_datasets', 'hilbert',
             'cooccurrence', '5w-dynamic-40k-giga-wiki'
         )
-        loader = h.bigram_loader.BigramMultiLoader(
+        loader = h.bigram_loader.BigramBufferedLoader(
             bigram_path, sector_factor, shard_factor, num_loaders=num_loaders,
             queue_size=32
         )
