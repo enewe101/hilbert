@@ -86,7 +86,10 @@ def construct_glv_solver(
         shard_factor=1,
         seed=1,
         device=None,
+        nobias=False,
     ):
+    if nobias:
+        print('NOTE: running GloVe without biases!')
 
     # repeatability
     np.random.seed(seed)
@@ -105,7 +108,7 @@ def construct_glv_solver(
     # get the solver and we good!
     embsolver = h.autoembedder.HilbertEmbedderSolver(
         sharder, get_opt(opt_str), d=d, learning_rate=learning_rate,
-        init_vecs=init_vecs, shape=None, one_sided=False, learn_bias=True,
+        init_vecs=init_vecs, shape=None, one_sided=False, learn_bias=not nobias,
         shard_factor=shard_factor, seed=seed, device=device,
     )
     return embsolver
