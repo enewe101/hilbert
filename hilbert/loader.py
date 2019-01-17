@@ -206,7 +206,7 @@ class MultiLoader(ABC):
 
 
 
-class BufferedLoader(MultiLoader):
+class BufferedLoader(Loader):
 
     def __init__(self, *args, **kwargs):
         super(BufferedLoader, self).__init__(*args, **kwargs)

@@ -89,7 +89,6 @@ def get_base_argparser():
             "do not affect the loss and gradient."
         )
     )
-
     parser.add_argument(
         '--sector-factor', '-g', type=int, default=1, 
         help='Sharding factor used to generate cooccurrence data files on disk' 

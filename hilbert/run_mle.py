@@ -1,3 +1,4 @@
+import time
 import os
 import hilbert.run_base as hrun
 import hilbert.factories as proletariat
@@ -40,7 +41,9 @@ def run_mle(
     trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
 
     # run it up!
+    start = time.time()
     for epoch in range(1, epochs+1):
+
         print('epoch\t{}'.format(epoch))
         losses = embsolver.cycle(
             epochs=iters_per_epoch, shard_times=shard_times, hold_loss=True)
@@ -50,6 +53,7 @@ def run_mle(
             embsolver, save_embeddings_dir, iters_per_epoch * epoch)
         crt_iter = (epoch - 1) * iters_per_epoch
         hrun.write_trace(trace_path, crt_iter, losses)
+        print('epoch time', time.time() - start)
 
 
 
