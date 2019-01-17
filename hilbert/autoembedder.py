@@ -205,7 +205,7 @@ class HilbertEmbedderSolver(object):
                     self.epoch_loss += loss.item()
 
                     sys.stdout.write(
-                        'shard load time: {}'.format(time.time() - start)
+                        'shard load time: {}'.format(time.time() - start))
                     start = time.time()
                 print('+')
 
