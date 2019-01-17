@@ -98,7 +98,7 @@ def get_base_argparser():
         help='Sharding factor used to generate minibatches from sectors' 
     )
     parser.add_argument(
-        '--shard-times', '-a', type=int, default=1, 
+        '--shard-times', '-H', type=int, default=1, 
         help='Number of update iterations before loading a new shard'
     )
     parser.add_argument(
