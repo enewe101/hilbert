@@ -176,8 +176,9 @@ class GloveLoader(BigramLoaderBase):
         weights = (Nxx / self.X_max).pow(self.alpha)
         weights = torch.clamp(weights, max=1.)
         M = torch.log(Nxx)
-        M[Nxx==0] = 0
-        weights[Nxx==0] = 0
+        Nxx_is_zero = (Nxx==0)
+        M[Nxx_is_zero] = 0
+        weights[Nxx_is_zero] = 0
         weights = weights * 2
         return shard_id, {'M':M, 'weights':weights}
 
