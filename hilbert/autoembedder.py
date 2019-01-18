@@ -25,6 +25,7 @@ class HilbertEmbedderSolver(object):
         learning_rate=1e-6,
         opt_kwargs=None,
         init_vecs=None,
+        dictionary=None,
         shape=None,
         one_sided=False,
         learn_bias=False,
@@ -65,6 +66,7 @@ class HilbertEmbedderSolver(object):
         self.optimizer_constructor = optimizer_constructor
         self.d = d
         self.learning_rate = learning_rate
+        self.dictionary = dictionary
         self.one_sided = one_sided
         self.learn_bias = learn_bias
         self.seed = seed
@@ -170,11 +172,7 @@ class HilbertEmbedderSolver(object):
 
 
     def get_dictionary(self):
-        warnings.warn(
-            "`HilbertEmbedderSolver.get_dictionary()` is Deprecated---not all "
-            "`HilbertEmbedderSolver`s have a `dictionary`.", DeprecationWarning
-        )
-        return self.loader.bigram.dictionary
+        return self.dictionary
 
 
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):

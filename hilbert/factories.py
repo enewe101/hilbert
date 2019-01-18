@@ -75,7 +75,8 @@ def construct_w2v_solver(
 
     # Make the loss.  
     dictionary_path = os.path.join(bigram_path, 'dictionary')
-    vocab = h.dictionary.Dictionary.check_vocab(dictionary_path)
+    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    vocab = len(dictionary)
     loss = h.hilbert_loss.Word2vecLoss(
         keep_prob=update_density, ncomponents=vocab**2, 
         mask_diagonal=mask_diagonal
@@ -95,6 +96,7 @@ def construct_w2v_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
+        dictionary=dictionary,
         shape=shape,
         one_sided=False,
         learn_bias=False,
@@ -147,7 +149,8 @@ def construct_glv_solver(
 
     # Make the loss
     dictionary_path = os.path.join(bigram_path, 'dictionary')
-    vocab = h.dictionary.Dictionary.check_vocab(dictionary_path)
+    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    vocab = len(dictionary)
     loss = h.hilbert_loss.MSELoss(
         keep_prob=update_density, ncomponents=vocab**2, 
         mask_diagonal=mask_diagonal
@@ -167,6 +170,7 @@ def construct_glv_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
+        dictionary=dictionary,
         shape=shape,
         one_sided=False,
         learn_bias=True,
@@ -259,7 +263,8 @@ def _construct_tempered_solver(
 
     # Make the loss
     dictionary_path = os.path.join(bigram_path, 'dictionary')
-    vocab = h.dictionary.Dictionary.check_vocab(dictionary_path)
+    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    vocab = len(dictionary)
     loss = loss_class(
         keep_prob=update_density, ncomponents=vocab**2, 
         mask_diagonal=mask_diagonal, temperature=temperature
@@ -279,6 +284,7 @@ def _construct_tempered_solver(
         d=d,
         learning_rate=learning_rate,
         init_vecs=init_vecs,
+        dictionary=dictionary,
         shape=shape,
         one_sided=False,
         learn_bias=False,

@@ -34,6 +34,8 @@ class TestFactory(TestCase):
         temperature = 5
 
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        expected_bigrams = h.bigram.BigramBase.load(bigram_path)
+        expected_dictionary_tokens = expected_bigrams.dictionary.tokens
         init_embeddings_path = os.path.join(h.CONSTANTS.TEST_DIR, 'init-500')
         d = 350
         t_clean_undersample = 1e-4
@@ -125,6 +127,7 @@ class TestFactory(TestCase):
                 (solver.device, 'cuda:1'),
                 (loader.verbose, verbose),
                 (solver.verbose, verbose),
+                (solver.get_dictionary().tokens, expected_dictionary_tokens)
             ]
             for item1, item2 in common_equalities:
                 self.assertEqual(item1, item2)
