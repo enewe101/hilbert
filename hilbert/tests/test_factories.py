@@ -3,6 +3,8 @@ import shutil
 from unittest import TestCase
 from copy import copy, deepcopy
 import hilbert as h
+import hilbert.run_base
+
 
 try:
     import numpy as np
@@ -10,7 +12,6 @@ try:
 except ImportError:
     np = None
     torch = None
-
 
 
 class TestFactory(TestCase):

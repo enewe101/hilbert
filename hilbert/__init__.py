@@ -14,6 +14,11 @@ import hilbert.msharder
 import hilbert.autoembedder
 import hilbert.factories
 import hilbert.run_base
+import hilbert.run_mle
+import hilbert.run_map
+import hilbert.run_kl
+import hilbert.run_hbt_glv
+import hilbert.run_hbt_w2v
 import hilbert.loader
 import hilbert.bigram_loader
 

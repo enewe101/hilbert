@@ -1,3 +1,4 @@
+
 import os
 import hilbert.run_base as hrun
 import hilbert.factories as proletariat
@@ -20,7 +21,7 @@ def run_map(
         shard_times=1,
         num_loaders=1,
         queue_size=32,
-        loader_policy='parllel',
+        loader_policy='parallel',
         seed=1,
         device=None,
     ):
