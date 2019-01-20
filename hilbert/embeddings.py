@@ -213,7 +213,10 @@ class Embeddings:
         self.sort_by_tokens(other.dictionary.tokens, allow_mismatch)
 
 
-    def sort_by_tokens(self, tokens_or_dictionary, allow_mismatch=False):
+    def sort_by_tokens(
+        self, tokens_or_dictionary, allow_mismatch=False,
+        allow_missed_tokens=False, allow_missed_embeddings=False
+    ):
         """
         Re-orders vectors / covectors, by assigning new indices to 
         tokens according to their position in ``tokens``.  ``tokens`` should
@@ -233,23 +236,37 @@ class Embeddings:
         other_set = set(tokens)
 
         # Check for extraneous tokens.
-        if len(other_set - self_set) > 0:
+        self_coverage = other_set - self_set
+        if len(self_coverage) > 0:
 
-            if allow_mismatch:
+            if allow_mismatch or allow_missed_embeddings:
                 # Drop the extraneous tokens
                 tokens = [token for token in tokens if token in self.dictionary]
 
             else:
+                print('missed:"{}"'.format(list(self_coverage)[0]))
                 raise ValueError(
-                    "The new dictionary has tokens that do not have a "
-                    "corresponding embedding."
+                    'The new dictionary has {} tokens that do not have a '
+                    'corresponding embedding.\n{}"'.format(
+                        len(self_coverage), '"\n"'.join(self_coverage))
                 )
 
         # Check for missing tokens.
-        if not allow_mismatch and len(self_set - other_set):
-            raise ValueError(
-                "The new dictionary is missing entries for some embedded tokens"
-            )
+        dictionary_coverage = self_set - other_set
+        if len(dictionary_coverage) > 0 :
+            if not allow_mismatch and not allow_missed_tokens:
+                raise ValueError(
+                    "The new dictionary is missing {} entries for some "
+                    "embedded tokens.\n{}".format(
+                        len(dictionary_coverage),
+                        '\n'.join(dictionary_coverage)
+                    )
+                )
+            else:
+                print(
+                    'Warning, some embeddings were dropped because they have '
+                    'no corresponding token in the provided dictoinary.'
+                )
 
         sort_ids = [self.dictionary.get_id(token) for token in tokens]
 

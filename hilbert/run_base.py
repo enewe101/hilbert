@@ -111,7 +111,7 @@ def get_base_argparser():
     )
     parser.add_argument(
         '--loader-policy', '-r', default='parallel', 
-        choices=('parallel', 'series', 'buffered'),
+        choices=('parallel', 'series', 'buffered', 'buffered-parallel'),
         help='Base policy for loader'
     )
 

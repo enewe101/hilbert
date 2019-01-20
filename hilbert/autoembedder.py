@@ -202,10 +202,10 @@ class HilbertEmbedderSolver(object):
                     # statistics
                     self.epoch_loss += loss.item()
 
-                    print(
-                        '\tshard load time: {}'.format(time.time() - start))
+                    #print(
+                    #    '\tshard load time: {}'.format(time.time() - start))
                     start = time.time()
-                print('+')
+                #print('+')
 
             if hold_loss:
                 losses.append(self.epoch_loss)

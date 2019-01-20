@@ -10,6 +10,7 @@ def get_base_loader(base_loader_str):
         'parallel': h.loader.MultiLoader,
         'series': h.loader.Loader,
         'buffered': h.loader.BufferedLoader,
+        'buffered-parallel': h.loader.BufferedMultiLoader,
     }[base_loader_str]
 
 

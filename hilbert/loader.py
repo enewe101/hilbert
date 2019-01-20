@@ -234,3 +234,33 @@ class BufferedLoader(Loader):
 
 
 
+class BufferedMultiLoader(MultiLoader):
+
+    def __init__(self, *args, **kwargs):
+        super(BufferedMultiLoader, self).__init__(*args, **kwargs)
+        self.cpu_preloads = None
+
+    def __iter__(self):
+        """
+        Yields GPU-loaded shards.  This is the only element of the public
+        interface.  The training loop should treat loader as an iterable, and
+        calculate forward, backward passes using the shards yielded.
+        """
+
+        if self.cpu_preloads is None:
+            # Dispatch all the workers to start one epoch
+            for worker_id in range(self.num_loaders):
+                self.epoch_queue.put(True)
+
+            # Iterates through preloaded shards, as they become available
+            preload_iterator = h.utils.iterate_queue(
+                self.result_queue, stop_when_empty=False,
+                sentinal=StopIteration, num_sentinals=self.num_loaders,
+                verbose=self.verbose
+            )
+            self.cpu_preloads = [preload for preload in preload_iterator]
+
+        for preloaded in self.cpu_preloads:
+            yield self._load(preloaded)
+            #self.result_queue.task_done()
+
