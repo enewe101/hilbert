@@ -11,3 +11,4 @@ import hilbert.msharder
 import hilbert.autoembedder
 import hilbert.factories
 import hilbert.run_base
+import hilbert.calc_posterior
