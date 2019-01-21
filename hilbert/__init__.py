@@ -1,5 +1,6 @@
 import hilbert.CONSTANTS
 import hilbert.corpus_stats
+import hilbert.calc_posterior
 import hilbert.unigram
 import hilbert.bigram
 #import hilbert.bigram.bigram_mutable

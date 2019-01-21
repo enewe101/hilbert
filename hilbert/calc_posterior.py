@@ -183,10 +183,33 @@ def plot_visible_pmi(bigram):
     return bin_centers, n
 
 
-def calc_visible_pmi_histogram(bigram, out_path=None):
+def calc_visible_pmi_histogram(bigram_or_path, out_path=None, device=None):
+    if isinstance(bigram_or_path, str):
+        print('loading bigram...')
+        bigram_path = bigram_or_path
+        bigram = h.bigram.BigramBase.load(bigram_path, device=device)
+    elif isinstance(bigram_or_path, h.bigram.BigramBase):
+        bigram = bigram_or_path
+    else: raise ValueError(
+        "First to argument to calc_visible_pmi_histogram must be a bigram "
+        "or path to bigram data"
+    )
+
+    print('calculating visible pmi values...')
     visible_pmi = calc_visible_pmi(bigram).reshape(-1)
     n, bins = np.histogram(visible_pmi, bins='auto')
     bin_centers = [ 0.5*(bins[i]+bins[i+1]) for i in range(len(n))]
+    if out_path is None:
+        return bin_centers, n
+
+    print('writing results to disk...')
+    with open(out_path, 'w') as out_file:
+        out_file.write(''.join([
+            '{}\t{}\n'.format(bin_center, n_item) 
+            for bin_center, n_item in zip(bin_centers, n)
+        ]))
+
+
 
 
 
