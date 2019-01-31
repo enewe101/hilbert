@@ -174,13 +174,27 @@ class BayesianPMI:
 
 
 #bigram = h.bigram.Bigram.load(bigram_path)
-def plot_visible_pmi(bigram):
-    visible_pmi = calc_visible_pmi(bigram).reshape(-1)
-    n, bins = np.histogram(visible_pmi, bins='auto')
-    bin_centers = [ 0.5*(bins[i]+bins[i+1]) for i in range(len(n))]
+def plot_visible_pmi(path):
+    bin_centers, n = read_pmi_histogram(path)
     plt.plot(bin_centers, n)
     plt.show()
     return bin_centers, n
+
+
+# Replicated in H.E./analysis/analyze_glove_bias.py
+def read_pmi_histogram(path):
+    bin_centers = []
+    n = []
+    with open(path) as in_file:
+        for line in in_file:
+            line = line.strip()
+            if line == '':
+                continue
+            bin_center_str, n_str = line.split()
+            bin_centers.append(float(bin_center_str))
+            n.append(int(n_str))
+    return bin_centers, n
+
 
 
 def calc_visible_pmi_histogram(bigram_or_path, out_path=None, device=None):
