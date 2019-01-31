@@ -1,8 +1,19 @@
 import os
 import hilbert as h
-import shared
+try:
+    import shared
+except ImportError:
+    shared = None
 from argparse import ArgumentParser
 
+COOCCURRENCE_DIR = (
+    shared.CONSTANTS.COOCCURRENCE_DIR 
+    if shared is not None else h.CONSTANTS.COOCCURRENCE_DIR
+)
+EMBEDDINGS_DIR = (
+    shared.CONSTANTS.EMBEDDINGS_DIR if shared is not None else
+    h.CONSTANTS.EMBEDDINGS_DIR
+)
 
 def init_workspace(embsolver, save_embeddings_dir):
     # Work out the path at which embeddings will be saved.
@@ -37,12 +48,12 @@ def modify_args(args):
     # For convenience, paths are relative to dedicated subdirectories in the
     # hilbert data folder.
     args['save_embeddings_dir'] = os.path.join(
-        shared.CONSTANTS.EMBEDDINGS_DIR, args['save_embeddings_dir'])
+        EMBEDDINGS_DIR, args['save_embeddings_dir'])
     args['bigram_path'] = os.path.join(
-        shared.CONSTANTS.COOCCURRENCE_DIR, args['bigram_path'])
+        COOCCURRENCE_DIR, args['bigram_path'])
     if args['init_embeddings_path'] is not None:
         args['init_embeddings_path'] = os.path.join(
-            shared.CONSTANTS.EMBEDDINGS_DIR, args['init_embeddings_path'])
+            EMBEDDINGS_DIR, args['init_embeddings_path'])
 
 
 def get_base_argparser():
