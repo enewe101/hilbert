@@ -23,7 +23,7 @@ def run_mle(
         queue_size=32,
         loader_policy='parallel',
         seed=1,
-        device=None,
+        device='cuda:1',
     ):
 
     embsolver = proletariat.construct_max_likelihood_solver(
