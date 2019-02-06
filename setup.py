@@ -23,3 +23,8 @@ setuptools.setup(
     ],
     install_requires=['nose2', 'numpy', 'scipy']
 )
+
+print(
+    'Install the appropriate version of pytorch.  Go to '
+    'https://pytorch.org/'
+)
