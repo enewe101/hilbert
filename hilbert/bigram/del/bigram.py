@@ -200,6 +200,24 @@ class Bigram(object):
         return self
 
 
+    def merge(self, other):
+        """
+        Add counts from `other` to `self`, in place, without altering
+        the underlying dictionary or unigram.  `self` and `other` must
+        use completely identical dictionaries (same vocabulary and ordering).
+        """
+
+        if not isinstance(other, Bigram):
+            return NotImplemented
+
+        self.Nxx += other.Nxx
+        self.Nx = np.array(np.sum(self.Nxx, axis=1))
+        self.Nxt = np.array(np.sum(self.Nxx, axis=0))
+        self.N = np.sum(self.Nx)
+
+        return self
+
+
     @property
     def sorted(self):
         # Sorted order is determined by the unigram frequencies.
@@ -233,9 +251,13 @@ class Bigram(object):
             )
 
         # Add counts.
-        self.Nxx[id1, id2] += count
-        self.Nx[id1][0] += count
-        self.Nxt[0][id2] += count
+        self.add_id([id1], [id2], count)
+
+
+    def add_id(self, focal_ids, context_ids, count=1):
+        self.Nxx[focal_ids, context_ids] += np.array([count])
+        self.Nx[focal_ids] += count
+        self.Nxt[0][context_ids] += count
         self.N += count
 
 

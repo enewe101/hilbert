@@ -1,5 +1,6 @@
 import hilbert.CONSTANTS
 import hilbert.corpus_stats
+import hilbert.calc_posterior
 import hilbert.unigram
 import hilbert.bigram
 import hilbert.dictionary
@@ -11,4 +12,11 @@ import hilbert.msharder
 import hilbert.autoembedder
 import hilbert.factories
 import hilbert.run_base
-import hilbert.calc_posterior
+import hilbert.run_mle
+import hilbert.run_map
+import hilbert.run_kl
+import hilbert.run_hbt_glv
+import hilbert.run_hbt_w2v
+import hilbert.loader
+import hilbert.bigram_loader
+import hilbert.bigram

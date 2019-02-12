@@ -1,4 +1,7 @@
 import hilbert as h
+import sys
+from queue import Empty
+from multiprocessing import Queue, JoinableQueue
 
 try:
     from scipy import sparse
@@ -112,4 +115,44 @@ def normalize(array_or_tensor, ord=2, axis=None):
 #    device = device or h.CONSTANTS.MATRIX_DEVICE
 #    sample = torch.rand((num_vecs, d), device=device).mul_(2).sub_(1)
 #    return sample.div_(torch.norm(sample, 2, dim=1,keepdim=True))
+
+
+def iterate_queue(
+    queue, 
+    stop_when_empty=True,
+    sentinal=None,
+    num_sentinals=1,
+    poll_frequency=0.1,
+    verbose=True
+):
+    while True:
+
+        # Try to pull an item from the queue, wait as long as `poll_frequency`.
+        try:
+            item = queue.get(timeout=poll_frequency)
+
+        # If it's empty, either stop iterating, or try again.
+        except Empty:
+            if stop_when_empty:
+                raise StopIteration
+            #else:
+            #    if verbose:
+            #        print('\twaiting for data to load...', file=sys.stderr)
+
+        # If it isn't empty, note any sentinal or yield the item.
+        else:
+            if sentinal is not None and isinstance(item, sentinal):
+                num_sentinals -= 1
+                try:
+                    queue.task_done()
+                except AttributeError:
+                    print('could not mark task done')
+                    pass
+                if num_sentinals == 0:
+                    raise StopIteration
+            else:
+                yield item
+
+
+
 

@@ -2,6 +2,35 @@
 import nose2
 import sys
 import hilbert as h
+import warnings 
+
+
+def insert_test():
+
+    for i in range(1, len(sys.argv)):
+
+        if sys.argv[i].startswith('-'):
+            continue
+
+        test_path = sys.argv[i].split('.')
+        if test_path[0] != 'tests':
+            test_path = ['tests'] + test_path
+        try:
+            if not test_path[1].startswith('test'):
+                test_path[1] = 'test_' + test_path[1]
+            if not test_path[2].startswith('Test'):
+                test_path[2] = 'Test' + test_path[2]
+            if not test_path[3].startswith('Test'):
+                test_path[3] = 'test_' + test_path[3]
+        except IndexError:
+            pass
+
+        sys.argv[i] = '.'.join(test_path)
+        print(sys.argv[i])
+
+        #sys.argv[i] = 'tests.test_' + sys.argv[i]
+
+
 if __name__ == "__main__":
 
     if '--cpu' in sys.argv:
@@ -11,7 +40,24 @@ if __name__ == "__main__":
     else:
         print('\nTESTING DEVICE: CUDA.  Use --cpu to test on cpu.\n')
 
+    if '-W' in sys.argv:
+        print('Treating warnings as errors\n')
+        sys.argv.remove('-W')
+        warnings.filterwarnings('error', category=DeprecationWarning)
+
     if '-v' in sys.argv:
         VERBOSE = True
+
+    # Make it so that, when requesting a specific test module, test case,
+    # and test function, you do not need to write the words 'tests', 'test_' or
+    # 'Test' since these will be inserted wherever needed.
+    #
+    # For Example, teh following are equivalent after insert_test()
+    #
+    #       ./test tests.test_bigram_base.TestBigramBase.test_load_shard
+    #
+    #       ./test bigram_base.BigramBase.load_shard
+    #
+    insert_test()
 
     nose2.discover()

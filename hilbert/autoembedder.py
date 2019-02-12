@@ -1,7 +1,9 @@
+import time
+import sys
 import hilbert as h
 import torch
 import torch.nn as nn
-
+import warnings
 
 class DivergenceError(Exception):
     pass
@@ -16,19 +18,20 @@ class HilbertEmbedderSolver(object):
 
     def __init__(
         self,
-        sharder,
+        loader,
+        loss,
         optimizer_constructor,
         d=300,
         learning_rate=1e-6,
         opt_kwargs=None,
         init_vecs=None,
+        dictionary=None,
         shape=None,
         one_sided=False,
         learn_bias=False,
-        shard_factor=10,
         seed=1917,
-        verbose=True,
-        device=None
+        device=None,
+        verbose=True
     ):
         """
         This is the base class for a Hilbert Embedder model. It uses pytorch's
@@ -38,18 +41,19 @@ class HilbertEmbedderSolver(object):
             (2) the optimizer *constructor* (from torch.optim)
             (3) the dimensionality (an integer for the size of the embeddings)
 
-        :param sharder: an MSharder object that stores the loss
-        :param optimizer_constructor: a constructor from torch.optim that we will build later
+        :param loader: a Loader object that iterates gpu-loaded shards
+        :param optimizer_constructor: a constructor from torch.optim that we 
+                will build later
         :param d: the desired dimensionality
         :param learning_rate: learning rate
-        :param opt_kwargs: dictionary of keyword arguments for optimizer constructor
+        :param opt_kwargs: dictionary of keyword arguments for optimizer 
+                constructor
         :param init_vecs: vectors to initialize with, as an Embeddings object
         :param shape: the desired shape of the vectors, if no initials passed
         :param one_sided: whether to only learn a set of vectors, forcing the
                 covectors to be their transpose
         :param learn_bias: boolean, whether or not to learn bias values for each
                 vector and covector (like GloVe does!)
-        :param shard_factor: how much to shard the model
         :param seed: random seed number to use
         :param verbose: verbose
         :param device: gpu or cpu
@@ -57,13 +61,14 @@ class HilbertEmbedderSolver(object):
         if shape is None and init_vecs is None:
             raise ValueError("Provide `shape` or `init_vecs`.")
 
-        self.sharder = sharder
+        self.loader = loader
+        self.loss = loss
         self.optimizer_constructor = optimizer_constructor
         self.d = d
         self.learning_rate = learning_rate
+        self.dictionary = dictionary
         self.one_sided = one_sided
         self.learn_bias = learn_bias
-        self.shard_factor = shard_factor
         self.seed = seed
         self.verbose = verbose
         self.device = device
@@ -95,17 +100,27 @@ class HilbertEmbedderSolver(object):
         self.optimizer = None
         self.learner = None
         self.restart(resample_vectors=init_vecs is None)
+        self.validate_vectors()
+
+
+    def validate_vectors(self):
+        V_okay = self.V.shape[1] == self.d
+        W_okay = self.one_sided or self.W.shape[1] == self.d
+        if not V_okay or not W_okay:
+            raise ValueError(
+                "Embeddings do not have the requested dimension.  Got {}, but "
+                "you said d={}".format(self.V.shape[1], self.d)
+            )
 
 
     def describe(self):
-        s = 'Sharder: {}\n--'.format(self.sharder.describe())
+        s = 'Sharder: {}\n--'.format(self.loader.describe())
         sfun = lambda strr, value: '\t{} = {}\n'.format(strr, value)
         s += sfun('optimizer', self.optimizer_constructor)
         s += sfun('d', self.d)
         s += sfun('learning_rate', self.learning_rate)
         s += sfun('one_sided', self.one_sided)
         s += sfun('learn_bias', self.learn_bias)
-        s += sfun('shard_factor', self.shard_factor)
         s += sfun('seed', self.seed)
         return s
 
@@ -157,25 +172,26 @@ class HilbertEmbedderSolver(object):
 
 
     def get_dictionary(self):
-        return self.sharder.bigram.dictionary
+        return self.dictionary
 
 
     def cycle(self, epochs=1, shard_times=1, hold_loss=False):
         losses = [] if hold_loss else None
 
+        start = time.time()
         for _ in range(epochs):
             self.epoch_loss = 0
 
             # iterate over the shards we have to do
-            for shard in h.shards.Shards(self.shard_factor):
+            for shard_id, shard_data in self.loader:
                 for _ in range(shard_times):
 
                     # zero out the gradient
                     self.optimizer.zero_grad()
 
-                    # get our mhat for the shard!
-                    M_hat = self.learner(shard)
-                    loss = self.sharder.calc_shard_loss(M_hat, shard)
+                    # Calculate forward pass, M_hat and loss, for this shard!
+                    M_hat = self.learner(shard_id)
+                    loss = self.loss(shard_id, M_hat, shard_data)
 
                     if torch.isnan(loss):
                         raise DivergenceError('Model has completely diverged!')
@@ -185,6 +201,11 @@ class HilbertEmbedderSolver(object):
 
                     # statistics
                     self.epoch_loss += loss.item()
+
+                    #print(
+                    #    '\tshard load time: {}'.format(time.time() - start))
+                    start = time.time()
+                #print('+')
 
             if hold_loss:
                 losses.append(self.epoch_loss)
