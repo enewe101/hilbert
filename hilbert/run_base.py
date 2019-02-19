@@ -1,8 +1,19 @@
 import os
 import hilbert as h
-import shared
+try:
+    import shared
+except ImportError:
+    shared = None
 from argparse import ArgumentParser
 
+COOCCURRENCE_DIR = (
+    shared.CONSTANTS.COOCCURRENCE_DIR 
+    if shared is not None else h.CONSTANTS.COOCCURRENCE_DIR
+)
+EMBEDDINGS_DIR = (
+    shared.CONSTANTS.EMBEDDINGS_DIR if shared is not None else
+    h.CONSTANTS.EMBEDDINGS_DIR
+)
 
 def init_workspace(embsolver, save_embeddings_dir):
     # Work out the path at which embeddings will be saved.
@@ -37,12 +48,12 @@ def modify_args(args):
     # For convenience, paths are relative to dedicated subdirectories in the
     # hilbert data folder.
     args['save_embeddings_dir'] = os.path.join(
-        shared.CONSTANTS.EMBEDDINGS_DIR, args['save_embeddings_dir'])
+        EMBEDDINGS_DIR, args['save_embeddings_dir'])
     args['bigram_path'] = os.path.join(
-        shared.CONSTANTS.COOCCURRENCE_DIR, args['bigram_path'])
+        COOCCURRENCE_DIR, args['bigram_path'])
     if args['init_embeddings_path'] is not None:
         args['init_embeddings_path'] = os.path.join(
-            shared.CONSTANTS.EMBEDDINGS_DIR, args['init_embeddings_path'])
+            EMBEDDINGS_DIR, args['init_embeddings_path'])
 
 
 def get_base_argparser():
@@ -89,4 +100,30 @@ def get_base_argparser():
             "do not affect the loss and gradient."
         )
     )
+    parser.add_argument(
+        '--sector-factor', '-g', type=int, default=1, 
+        help='Sharding factor used to generate cooccurrence data files on disk' 
+    )
+    parser.add_argument(
+        '--shard-factor', '-f', type=int, default=1, 
+        help='Sharding factor used to generate minibatches from sectors' 
+    )
+    parser.add_argument(
+        '--shard-times', '-H', type=int, default=1, 
+        help='Number of update iterations before loading a new shard'
+    )
+    parser.add_argument(
+        '--num-loaders', '-L', type=int, default=1, 
+        help='number of background data loading processes'
+    )
+    parser.add_argument(
+        '--queue-size', '-q', type=int, default=32, 
+        help='number of background data loading processes'
+    )
+    parser.add_argument(
+        '--loader-policy', '-r', default='parallel', 
+        choices=('parallel', 'series', 'buffered', 'buffered-parallel'),
+        help='Base policy for loader'
+    )
+
     return parser

@@ -43,7 +43,8 @@ class Unigram(object):
         self.device = device
         self.verbose = verbose
 
-        self.sorted = self.check_sorted()
+        self.check_sorted()
+        self.smoothed = False
 
 
     def check_sorted(self):
@@ -54,18 +55,22 @@ class Unigram(object):
         last_count = np.inf
         for count in self.Nx:
             if count > last_count:
-                return False
+                self.sorted = False
+                return self.sorted
             last_count = count
-        return True
+        self.sorted = True
+        return self.sorted
 
 
     def apply_smoothing(self, alpha):
         if alpha == 1 or alpha is None:
-            if self.verbose: print('unigram-smoothing:\t1')
             return
+        if self.smoothed:
+            raise ValueError(
+                "Attempting to apply unigram smoothing multiple times!")
+        self.smoothed = True
         self.Nx = [count**alpha for count in self.Nx]
         self.N = sum(self.Nx)
-        if self.verbose: print('unigram-smoothing:\t{}'.format(alpha))
 
 
     #   CHECK
@@ -101,7 +106,7 @@ class Unigram(object):
     #   CHECK
     def __deepcopy__(self, memo):
         result = Unigram(
-            dictionary=deepcopy(self.dictionary),
+            dictionary=deepcopy(self.dictionary, memo),
             Nx=self.Nx,
             verbose=self.verbose
         )
@@ -251,6 +256,8 @@ class Unigram(object):
         """
         if not os.path.exists(path):
             os.makedirs(path)
+        if not self.sorted:
+            self.sort()
         with open(os.path.join(path, 'Nx.txt'), 'w') as f_counts:
             f_counts.write('\n'.join([str(count) for count in self.Nx]))
         if save_dictionary:
@@ -264,6 +271,16 @@ class Unigram(object):
         self.Nx = self.Nx[:k]
         self.N = sum(self.Nx)
         self.dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
+
+
+    def prune(self, min_count):
+        """Drop tokens occurring fewer than `min_count` times."""
+        if not self.sorted:
+            self.sort()
+        for k, count in enumerate(self.Nx):
+            if count < min_count:
+                self.truncate(k)
+                break
 
 
     @staticmethod

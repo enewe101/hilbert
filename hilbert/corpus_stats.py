@@ -1,3 +1,4 @@
+import os
 import time
 import scipy
 import hilbert as h
@@ -18,6 +19,12 @@ except ImportError:
     sparse = None
 
 
+####
+#
+# CONVENIENCE LOADERS FOR GETTING AHOLD OF CORPUS-RELATED TEST DATA STRUCTURES.
+#
+####
+
 def load_test_tokens():
     return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
 
@@ -27,18 +34,70 @@ def load_tokens(path):
         return f.read().split()
 
 
-def get_test_bigram(window_size):
-    bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
-    #bigram.sort()
-    return bigram
-
-
 def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def calc_PMI(bigram):
-    Nxx, Nx, Nxt, N = bigram
+def get_test_bigram_mutable(window_size):
+    bigram = get_bigram_mutable(load_test_tokens(), window_size, verbose=False) 
+    return bigram
+
+
+#def get_test_bigram(window_size):
+#    bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
+#    #bigram.sort()
+#    return bigram
+
+
+def get_test_bigram_base(device=None, verbose=True):
+    """
+    For testing purposes, builds a bigram_base from constituents (not using it's
+    own load function) and returns the bigram_base along with the constituents
+    used to make it.
+    """
+    path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+    unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+    Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
+    bigram_base = h.bigram.BigramBase(
+        unigram, Nxx, device=device, verbose=verbose)
+
+    return bigram_base, unigram, Nxx
+
+
+def get_test_bigram_sector(sector):
+    """
+    For testing purposes, builds a `BigramSector` starting from a `BigramBase`
+    (not using `BigramBase`'s load function) and returns both.
+    """
+    bigram_base = h.bigram.BigramBase.load(
+        os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
+    args = {
+        'unigram':bigram_base.unigram,
+        'Nxx':bigram_base.Nxx[sector],
+        'Nx':bigram_base.Nx,
+        'Nxt':bigram_base.Nxt,
+        'sector':sector
+    }
+    bigram_sector = h.bigram_sector.BigramSector(**args)
+    return bigram_sector, bigram_base
+
+
+
+#############
+#
+# Operations on Corpus Statistics used by models.
+#
+#############
+
+def w2v_prob_keep(uNx, uN, t=1e-5):
+    freqs = uNx / uN
+    drop_probs = torch.clamp((freqs - t)/freqs - torch.sqrt(t/freqs), 0, 1)
+    keep_probs = 1 - drop_probs
+    return keep_probs
+
+
+def calc_PMI(bigram_shard):
+    Nxx, Nx, Nxt, N = bigram_shard
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
@@ -61,7 +120,6 @@ def calc_exp_pmi_stats(bigram):
 
 
 
-
 #############
 #
 #    Stuff below here is scratch used for real-time analysis, but not
@@ -80,8 +138,6 @@ def posterior_pmi_histogram(
     Y = pdf / np.sum(pdf)
     plt.plot(X,Y)
     plt.show()
-
-
 
 
 def get_posterior_numerically(
@@ -116,9 +172,8 @@ def get_posterior_numerically(
     return X, post_pdf, pmi_pdf
 
 
-
-
 def calculate_all_kls(bigram):
+    assert bigram.sector == h.shards.whole, "expecting whole bigram"
     KL = np.zeros((bigram.vocab, bigram.vocab))
     iters = 0
     start = time.time()
@@ -142,9 +197,6 @@ def calculate_all_kls(bigram):
                 MEAN_PMI, PMI_STD, Nij, Ni, Nj, N
             )
 
-
-
-
     
 def get_posterior_kl(
     pmi_mean, pmi_std, Nij, Ni, Nj, N,
@@ -153,7 +205,6 @@ def get_posterior_kl(
     X, posterior, prior = get_posterior_numerically(
         pmi_mean, pmi_std, Nij, Ni, Nj, N, a=a, b=b, delta=delta, plot=plot)
     return kl(posterior, prior)
-
 
 
 def kl(pdf1, pdf2):
@@ -171,9 +222,6 @@ def plot_beta(alpha, beta):
     plt.show()
 
 
-
-
-
 def histogram(values, plot=True):
     values = values.reshape(-1)
 
@@ -184,8 +232,6 @@ def histogram(values, plot=True):
         plt.plot(bin_centers, n)
         plt.show()
     return bin_centers, n
-
-
 
 
 def calc_PMI_smooth(bigram):
@@ -209,24 +255,6 @@ def calc_PMI_smooth(bigram):
     return Nxx_smooth, Nx, Nxt, N
 
 
-    
-
-
-def calc_PMI_sparse(bigram):
-    I, J = bigram.Nxx.nonzero()
-    log_Nxx_nonzero = np.log(np.array(bigram.Nxx.tocsr()[I,J]).reshape(-1))
-    log_Nx_nonzero = np.log(bigram.Nx[I,0])
-    log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
-    log_N = np.log(bigram.N)
-    pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
-
-    # Here, the default (unrepresented value) in our sparse representation
-    # is negative infinity.  scipy sparse matrices only support zero as the
-    # unrepresented value, and this would be ambiguous with actual zeros.
-    # Therefore, keep data in the (data, (I,J)) format (the same as is used
-    # as input to the coo_matrix constructor).
-    return pmi_data, I, J
-
 
 def calc_PMI_star(cooc_stats):
     Nxx, Nx, Nxt, N = cooc_stats
@@ -235,19 +263,28 @@ def calc_PMI_star(cooc_stats):
     return calc_PMI((useNxx, Nx, Nxt, N))
 
 
-#def get_stats(token_list, window_size, verbose=True):
-#    cooc_stats = h.cooc_stats.CoocStats(verbose=verbose)
-#    for i in range(len(token_list)):
-#        focal_word = token_list[i]
-#        for j in range(i-window_size, i +window_size+1):
-#            if i==j or j < 0:
-#                continue
-#            try:
-#                context_word = token_list[j]
-#            except IndexError:
-#                continue
-#            cooc_stats.add(focal_word, context_word)
-#    return cooc_stats
+
+# There should be some code that generates a BigramMutable by sampling text
+# It should exhibit the different samplers too.  For now this stub is a
+# reminder.
+def get_bigram_mutable(token_list, window_size, verbose=True):
+    unigram = h.unigram.Unigram(verbose=verbose)
+    for token in token_list:
+        unigram.add(token)
+    bigram = h.bigram_mutable.BigramMutable(unigram, verbose=verbose)
+    for i in range(len(token_list)):
+        focal_word = token_list[i]
+        for j in range(i-window_size, i +window_size+1):
+            if i==j or j < 0:
+                continue
+            try:
+                context_word = token_list[j]
+            except IndexError:
+                continue
+            bigram.add(focal_word, context_word)
+    return bigram
+
+
 
 
 def get_bigram(token_list, window_size, verbose=True):
@@ -270,4 +307,20 @@ def get_bigram(token_list, window_size, verbose=True):
 
 
 
+
+
+#def calc_PMI_sparse(bigram):
+#    I, J = bigram.Nxx.nonzero()
+#    log_Nxx_nonzero = np.log(np.array(bigram.Nxx.tocsr()[I,J]).reshape(-1))
+#    log_Nx_nonzero = np.log(bigram.Nx[I,0])
+#    log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
+#    log_N = np.log(bigram.N)
+#    pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
+#
+#    # Here, the default (unrepresented value) in our sparse representation
+#    # is negative infinity.  scipy sparse matrices only support zero as the
+#    # unrepresented value, and this would be ambiguous with actual zeros.
+#    # Therefore, keep data in the (data, (I,J)) format (the same as is used
+#    # as input to the coo_matrix constructor).
+#    return pmi_data, I, J
 

@@ -2,6 +2,8 @@ import hilbert as h
 import torch
 import numpy as np
 from scipy import sparse
+from queue import Empty
+import time
 
 
 # base abstract class for the other sharders
@@ -121,7 +123,7 @@ class GloveSharder(MSharder):
 # noinspection PyCallingNonCallable
 class Word2vecSharder(MSharder):
 
-    criterion_class = h.hilbert_loss.W2VLoss
+    criterion_class = h.hilbert_loss.Word2vecLoss
 
     def __init__(
         self, bigram, k=15, update_density=1, mask_diagonal=False, device=None
