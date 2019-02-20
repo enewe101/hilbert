@@ -231,6 +231,17 @@ class Word2vecLoader(BigramLoaderBase):
         return s
 
 
+class TestLoader(BigramLoaderBase):
+    def _load(self, preloaded):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        shard_id, bigram_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        Pxx_data = Nxx / N
+        Pxx_independent = (Nx / N) * (Nxt / N)
+        pmi = torch.log(Pxx_data / (Pxx_independent))
+        return shard_id, {
+            'pmi': pmi
+        }
 
 class MaxLikelihoodLoader(BigramLoaderBase):
     def _load(self, preloaded):

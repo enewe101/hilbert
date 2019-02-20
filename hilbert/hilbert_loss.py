@@ -75,7 +75,6 @@ class Word2vecLoss(HilbertLoss):
         return term1 + term2
 
 
-
 class TemperedLoss(HilbertLoss):
     def __init__(
         self, keep_prob, ncomponents, mask_diagonal=False, temperature=1.
@@ -90,6 +89,10 @@ class TemperedLoss(HilbertLoss):
         raise NotImplementedError("Subclasses must override `_forward_temper`.")
 
 
+class TestLoss(TemperedLoss):
+    def _forward_temper(self, shard_id, M_hat, shard_data):
+        term1 = torch.clamp(shard_data['pmi'],min=-5)
+        return 0.5 * ((term1 - M_hat) ** 2)
 
 class MaxLikelihoodLoss(TemperedLoss):
     def _forward_temper(self, shard_id, M_hat, shard_data):

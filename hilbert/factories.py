@@ -181,7 +181,14 @@ def construct_glv_solver(
     )
     return embsolver
 
-
+def construct_test_solver(*args, verbose=True, **kwargs):
+    solver = _construct_tempered_solver(
+        h.bigram_loader.TestLoader, h.hilbert_loss.TestLoss,
+        *args, verbose=verbose, **kwargs
+    )
+    if verbose:
+        print('finished loading tester bad boi!')
+    return solver
 
 def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     """
@@ -196,6 +203,7 @@ def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     if verbose:
         print('finished loading max-likelihood bad boi!')
     return solver
+
 
 def construct_max_posterior_solver(*args, verbose=True, **kwargs):
     """
