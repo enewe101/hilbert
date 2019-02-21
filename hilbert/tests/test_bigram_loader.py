@@ -178,6 +178,48 @@ class TestConcreteLoaders(TestCase):
                 self.assertTrue(torch.allclose(shard_data['M'], expected_M))
 
 
+
+    def test_diff_loader(self):
+        sector_factor = 3
+        shard_factor = 4
+        num_loaders = 9
+        w = 5
+        bigram_path = "/home/rldata/hilbert-embeddings/cooccurrence/1.2048-5w-dynamic-10k"
+
+        for base_loader in [Loader, MultiLoader, BufferedLoader]:
+            loader = h.bigram_loader.get_loader(
+                h.bigram_loader.DiffLoader, base_loader, bigram_path,
+                sector_factor, shard_factor, num_loaders, w=5,
+                verbose=False
+            )
+            expected_bigram, _, _ = h.corpus_stats.get_test_bigram_small()
+            for shard_id, shard_data in loader:
+                Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id)
+
+                P_j_given_i = (Nxx / N) * (N / Nx)
+
+                newPji = w * P_j_given_i 
+                for i in range(w - 1):
+                    k = i + 2
+                    newPji = newPji + ((w - k + 1) * torch.matrix_power(P_j_given_i, k))
+
+                normalization = 0
+                for i in range(w):
+                    normalization += i + 1
+
+                newPji = newPji / normalization
+
+                stationary = torch.matrix_power(P_j_given_i, 1000)[0]
+                stationary = stationary.view(1,stationary.size()[0])
+
+                Pxx_data = newPji * stationary
+                Pxx_independent = torch.t(stationary) * stationary
+
+                self.assertTrue(torch.allclose(
+                    Pxx_data, shard_data['Pxx_data']))
+                self.assertTrue(torch.allclose(
+                    Pxx_independent, shard_data['Pxx_independent']))
+
     def test_max_likelihood_loader(self):
         sector_factor = 3
         shard_factor = 4

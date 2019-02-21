@@ -243,6 +243,54 @@ class TestLoader(BigramLoaderBase):
             'pmi': pmi
         }
 
+class DiffLoader(BigramLoaderBase):
+    def __init__(
+        self, bigram_path, sector_factor, shard_factor, num_loaders, 
+        t_clean_undersample=None, alpha_unigram_smoothing=None,
+        queue_size=1, device=None, verbose=True, w=5
+    ):
+        super(DiffLoader, self).__init__(
+            self, bigram_path, sector_factor, shard_factor, num_loaders, 
+            t_clean_undersample=t_clean_undersample, alpha_unigram_smoothing=alpha_unigram_smoothing,
+            queue_size=queue_size, device=device, verbose=verbose
+        )
+
+        self.w = w
+
+    def find_stationary(self, trans_mat):
+        eigs = torch.eig(torch.t(trans_mat), True)
+        index = 0
+        for i, evalue in enumerate(eigs[0]):
+            if evalue[0] == 1 and evalue[1] == 0:
+                index = i
+                break
+
+        pi = eigs[1][:,index] / torch.sum(eigs[1][:,index])
+        return pi.view(pi.size()[0], 1)
+
+    def _load(self, preloaded):
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        shard_id, bigram_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        trans_M = Nxx / Nx
+
+        altered = torch.zeros(trans_M.size(), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)
+        denom = 0
+        for i in range(w):
+            term = (w - i)*torch.matrix_power(trans_M, i)
+            altered = altered + term
+            denom += w - i
+
+        altered = altered / denom
+        pi = find_stationary(altered)
+
+        Pxx_data = altered * pi
+        Pxx_independent = torch.mm(pi, torch.t(pi))
+
+        return shard_id, {
+            'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent
+        }
+
 class MaxLikelihoodLoader(BigramLoaderBase):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE

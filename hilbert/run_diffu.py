@@ -11,6 +11,7 @@ def run_mle(
         iters_per_epoch=100,
         init_embeddings_path=None,
         d=300,
+        w=5,
         temperature=1,
         update_density=1.,
         mask_diagonal=False,
@@ -26,17 +27,7 @@ def run_mle(
         device='cuda:1',
     ):
 
-    embsolver = proletariat.construct_max_likelihood_solver(
-        bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
-        d=d, temperature=temperature, update_density=update_density,
-        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
-        opt_str=opt_str, shard_factor=shard_factor,
-        sector_factor=sector_factor, num_loaders=num_loaders,
-        queue_size=queue_size, loader_policy=loader_policy,
-        seed=seed, device=device
-    )
-
-    # embsolver = proletariat.construct_test_solver(
+    # embsolver = proletariat.construct_max_likelihood_solver(
     #     bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
     #     d=d, temperature=temperature, update_density=update_density,
     #     mask_diagonal=mask_diagonal, learning_rate=learning_rate,
@@ -45,6 +36,16 @@ def run_mle(
     #     queue_size=queue_size, loader_policy=loader_policy,
     #     seed=seed, device=device
     # )
+
+    embsolver = proletariat.construct_diffu_solver(
+        bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
+        d=d, temperature=temperature, update_density=update_density,
+        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
+        opt_str=opt_str, shard_factor=shard_factor,
+        sector_factor=sector_factor, num_loaders=num_loaders,
+        queue_size=queue_size, loader_policy=loader_policy,
+        seed=seed, device=device, w=w
+    )
 
     print(embsolver.describe())
     hrun.init_workspace(embsolver, save_embeddings_dir)

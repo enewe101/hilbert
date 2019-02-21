@@ -63,6 +63,17 @@ def get_test_bigram_base(device=None, verbose=True):
 
     return bigram_base, unigram, Nxx
 
+def get_test_bigram_small(device=None, verbose=True):
+    """
+    test bigram takin from the 1/2048 dataset used for diffusion model
+    """
+    path = "/home/rldata/hilbert-embeddings/cooccurrence/1.2048-5w-dynamic-10k"
+    unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+    Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
+    bigram_base = h.bigram.BigramBase(
+        unigram, Nxx, device=device, verbose=verbose)
+
+    return bigram_base, unigram, Nxx
 
 def get_test_bigram_sector(sector):
     """

@@ -189,7 +189,7 @@ def construct_test_solver(*args, verbose=True, **kwargs):
     if verbose:
         print('finished loading tester bad boi!')
     return solver
-
+    
 def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     """
     This factory accepts the same set of arguments as
@@ -234,6 +234,73 @@ def construct_KL_solver(*args, verbose=True, **kwargs):
         print('finished loading KL bad boi!')
     return solver
 
+def construct_diffu_solver(
+    loss_class,
+    bigram_path,
+    init_embeddings_path=None,
+    d=300,
+    w=5,
+    temperature=1,
+    t_clean_undersample=None,
+    alpha_unigram_smoothing=None,
+    update_density=1.,
+    mask_diagonal=False,
+    learning_rate=0.01,
+    opt_str='adam',
+    sector_factor=1,
+    shard_factor=1,
+    num_loaders=1,
+    queue_size=1,
+    loader_policy='parallel',
+    seed=1,
+    device=None,
+    verbose=True
+):
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    # Now make the loader.
+    base_loader_class = get_base_loader(loader_policy)
+    loader = h.bigram_loader.get_loader(
+        DiffLoader, base_loader_class, bigram_path=bigram_path,
+        sector_factor=sector_factor, shard_factor=shard_factor,
+        num_loaders=num_loaders, t_clean_undersample=t_clean_undersample,
+        alpha_unigram_smoothing=alpha_unigram_smoothing, queue_size=queue_size,
+        device=device, verbose=verbose, w=5
+    )
+
+    # Make the loss
+    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    vocab = len(dictionary)
+    loss = loss_class(
+        keep_prob=update_density, ncomponents=vocab**2, 
+        mask_diagonal=mask_diagonal, temperature=temperature
+    )
+
+    # Get initial embeddings.
+    init_vecs = get_init_embs(init_embeddings_path)
+    shape = None
+    if init_vecs is None:
+        shape = (vocab, vocab)
+
+    # Build the main daddyboi!
+    embsolver = h.autoembedder.HilbertEmbedderSolver(
+        loader=loader,
+        loss=loss,
+        optimizer_constructor=get_opt(opt_str),
+        d=d,
+        learning_rate=learning_rate,
+        init_vecs=init_vecs,
+        dictionary=dictionary,
+        shape=shape,
+        one_sided=False,
+        learn_bias=False,
+        seed=seed,
+        device=device,
+        verbose=verbose
+    )
+    return embsolver
 
 def _construct_tempered_solver(
     loader_class,
