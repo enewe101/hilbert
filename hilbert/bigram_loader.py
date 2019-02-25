@@ -59,13 +59,9 @@ class BigramLoaderBase(object):
         self.bigram_sector = None
 
 
-    def _preload_iter(self, loader_id):
+    def _preload_iter(self):
 
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
-
-            # Each worker should handle a subset of the sectors
-            if loader_id != 0:
-                continue
 
             # If we're doing the same sector as last time, no need to reload it
             if self.loaded_sector != sector_id:
