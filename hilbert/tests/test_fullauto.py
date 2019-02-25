@@ -74,7 +74,7 @@ class TestLoss(TestCase):
         # Test for different shard factors to make sure the diagonal elements
         # are always correctly found
         l = h.hilbert_loss
-        L = h.bigram_loader
+        L = h.bigram_preloader
         setups = [
             (L.PPMILoader, l.MSELoss, 1.0), 
             (L.Word2vecLoader, l.Word2vecLoss, 0.1),
@@ -379,7 +379,7 @@ class TestAutoEmbedder(TestCase):
         shard_factor = 4
         num_loaders = 9
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
-        loader = h.bigram_loader.PPMILoader(
+        loader = h.bigram_preloader.PPMILoader(
             bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
         loss = h.hilbert_loss.MSELoss(keep, bigram.vocab**2) 
         opt = torch.optim.SGD
@@ -412,9 +412,9 @@ class TestAutoEmbedder(TestCase):
         shard_factor = 1
         num_loaders = 1
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
-        loader = h.bigram_loader.Word2vecLoader(
+        loader = h.bigram_preloader.Word2vecLoader(
             bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
-        outer_loader = h.bigram_loader.Word2vecLoader(
+        outer_loader = h.bigram_preloader.Word2vecLoader(
             bigram_path, sector_factor, shard_factor, num_loaders, verbose=False)
         loss = h.hilbert_loss.Word2vecLoss(keep, bigram.vocab**2) 
 

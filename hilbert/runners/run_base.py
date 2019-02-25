@@ -1,10 +1,10 @@
 import os
 import hilbert as h
+from argparse import ArgumentParser
 try:
     import shared
 except ImportError:
     shared = None
-from argparse import ArgumentParser
 
 COOCCURRENCE_DIR = (
     shared.CONSTANTS.COOCCURRENCE_DIR 
@@ -16,25 +16,48 @@ EMBEDDINGS_DIR = (
 )
 
 
+# Main thing that is imported
+def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir):
+
+    # special things for initialization.
+    print(embsolver.describe())
+    init_workspace(embsolver, save_embeddings_dir)
+    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
+
+    # iterate over each epoch, afte rwhich we write results
+    for epoch in range(1, epochs+1):
+        print('epoch\t{}'.format(epoch))
+
+        # cycle the solver, this is a big boy that backprops gradients.
+        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times)
+
+        # saving data intermediately
+        save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
+        write_trace(trace_path, (epoch - 1) * iters_per_epoch, losses)
+
+
+# Helper functions.
 def init_workspace(embsolver, save_embeddings_dir):
+
     # Work out the path at which embeddings will be saved.
     if not os.path.exists(save_embeddings_dir):
         os.makedirs(save_embeddings_dir)
 
     # Write a description of this run within the embeddings save directory
-    trace_path = os.path.join(save_embeddings_dir,'trace.txt')
+    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
     with open(trace_path, 'w') as trace_file:
         trace_file.write(embsolver.describe())
 
 
 def save_embeddings(embsolver, save_embeddings_dir, count):
-    # Save a copy of the embeddings.
     embeddings = h.embeddings.Embeddings(
         V=embsolver.V, W=embsolver.W,
         dictionary=embsolver.get_dictionary())
+
     embeddings_save_path = os.path.join(
         save_embeddings_dir,
         'iter-{}'.format(count))
+
     embeddings.save(embeddings_save_path)
 
 
@@ -45,18 +68,21 @@ def write_trace(trace_path, crt_iter, losses):
                 i + crt_iter, loss))
 
 
+# For convenience, paths are relative to dedicated subdirectories in the
+# hilbert data folder.
 def modify_args(args):
-    # For convenience, paths are relative to dedicated subdirectories in the
-    # hilbert data folder.
     args['save_embeddings_dir'] = os.path.join(
         EMBEDDINGS_DIR, args['save_embeddings_dir'])
+
     args['bigram_path'] = os.path.join(
         COOCCURRENCE_DIR, args['bigram_path'])
+
     if args['init_embeddings_path'] is not None:
         args['init_embeddings_path'] = os.path.join(
             EMBEDDINGS_DIR, args['init_embeddings_path'])
 
 
+# Argparser common across everything
 def get_base_argparser():
     parser = ArgumentParser()
     parser.add_argument(

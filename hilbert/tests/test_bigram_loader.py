@@ -25,7 +25,7 @@ class TestBigramLoader(TestCase):
         sector_factor = 3
         shard_factor = 4
         num_loaders = sector_factor**2
-        loader = h.bigram_loader.BigramLoader(
+        loader = h.bigram_preloader.BigramLoader(
             bigram_path, sector_factor, shard_factor, num_loaders,
             t_clean_undersample=t, 
             alpha_unigram_smoothing=alpha
@@ -68,7 +68,7 @@ class TestBigramMultiLoader(TestCase):
         shard_factor = 4
         num_loaders = sector_factor**2
 
-        loader = h.bigram_loader.BigramMultiLoader(
+        loader = h.bigram_preloader.BigramMultiLoader(
             bigram_path, sector_factor, shard_factor, num_loaders,
             t_clean_undersample=t, 
             alpha_unigram_smoothing=alpha
@@ -111,8 +111,8 @@ class TestConcreteLoaders(TestCase):
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
 
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.GloveLoader, base_loader,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.GloveLoader, base_loader,
                 bigram_path, sector_factor, shard_factor, num_loaders, 
                 verbose=False
             )
@@ -145,8 +145,8 @@ class TestConcreteLoaders(TestCase):
 
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.Word2vecLoader, base_loader, bigram_path,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.Word2vecLoader, base_loader, bigram_path,
                 sector_factor, shard_factor, num_loaders, k=10, verbose=False
             )
             expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
@@ -166,8 +166,8 @@ class TestConcreteLoaders(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.PPMILoader, base_loader, bigram_path,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.PPMILoader, base_loader, bigram_path,
                 sector_factor, shard_factor, num_loaders, verbose=False
             )
             expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
@@ -185,8 +185,8 @@ class TestConcreteLoaders(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.MaxLikelihoodLoader, base_loader,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.MaxLikelihoodLoader, base_loader,
                 bigram_path, sector_factor, shard_factor, num_loaders, 
                 verbose=False
             )
@@ -208,8 +208,8 @@ class TestConcreteLoaders(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.MaxPosteriorLoader, base_loader,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.MaxPosteriorLoader, base_loader,
                 bigram_path, sector_factor, shard_factor, num_loaders, 
                 verbose=False
             )
@@ -238,8 +238,8 @@ class TestConcreteLoaders(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
-            loader = h.bigram_loader.get_loader(
-                h.bigram_loader.KLLoader, base_loader, bigram_path,
+            loader = h.bigram_preloader.get_loader(
+                h.bigram_preloader.KLLoader, base_loader, bigram_path,
                 sector_factor, shard_factor, num_loaders, verbose=False
             )
             expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()

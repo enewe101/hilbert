@@ -3,10 +3,7 @@ import hilbert as h
 import numpy as np
 import torch
 import torch.optim as op
-
-def get_base_loader():
-    return h.loader.BufferedLoader
-
+from hilbert.bigram_preloader import BigramPreloader
 
 def get_opt(string):
     s = string.lower()
@@ -25,6 +22,7 @@ def get_init_embs(pth):
     return init_embeddings.V, init_embeddings.W
 
 
+### Word2vec ###
 def construct_w2v_solver(
         bigram_path,
         init_embeddings_path=None,
@@ -44,19 +42,16 @@ def construct_w2v_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-    base_loader_class = get_base_loader()
-
     # Make the loader
-    loader = h.bigram_loader.get_loader(
-        h.bigram_loader.Word2vecLoader, base_loader_class,
-        bigram_path=bigram_path,
-        sector_factor=sector_factor,
-        shard_factor=shard_factor,
+    loader = h.model_loaders.Word2VecLoaderModel(
+        BigramPreloader(
+            bigram_path, sector_factor, shard_factor,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+            device=device
+        ),
+        verbose=verbose,
         k=k,
-        t_clean_undersample=t_clean_undersample,
-        alpha_unigram_smoothing=alpha_unigram_smoothing,
-        device=device,
-        verbose=verbose
     )
 
     # Make the loss.  
@@ -94,6 +89,7 @@ def construct_w2v_solver(
     return embsolver
 
 
+### GLOVE ###
 def construct_glv_solver(
         bigram_path,
         init_embeddings_path=None,
@@ -119,20 +115,17 @@ def construct_glv_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-
     # Make bigram loader
-    base_loader_class = get_base_loader()
-    loader = h.bigram_loader.get_loader(
-        h.bigram_loader.GloveLoader, base_loader_class,
-        bigram_path=bigram_path,
-        sector_factor=sector_factor,
-        shard_factor=shard_factor,
+    loader = h.model_loaders.GloveLoaderModel(
+        BigramPreloader(
+            bigram_path, sector_factor, shard_factor,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+            device=device,
+        ),
+        verbose=verbose,
         X_max=xmax,
         alpha=alpha,
-        t_clean_undersample=t_clean_undersample,
-        alpha_unigram_smoothing=alpha_unigram_smoothing, 
-        device=device,
-        verbose=verbose
     )
 
     # Make the loss
@@ -190,15 +183,13 @@ def _construct_tempered_solver(
     torch.random.manual_seed(seed)
 
     # Now make the loader.
-    base_loader_class = get_base_loader()
-    loader = h.bigram_loader.get_loader(
-        loader_class, base_loader_class,
-        bigram_path=bigram_path,
-        sector_factor=sector_factor,
-        shard_factor=shard_factor,
-        t_clean_undersample=t_clean_undersample,
-        alpha_unigram_smoothing=alpha_unigram_smoothing,
-        device=device,
+    loader = loader_class(
+        BigramPreloader(
+            bigram_path, sector_factor, shard_factor,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+            device=device,
+        ),
         verbose=verbose
     )
 
@@ -244,12 +235,13 @@ def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss,
+        h.model_loaders.MaxLikelihoodLoaderModel, h.hilbert_loss.MaxLikelihoodLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
         print('finished loading max-likelihood bad boi!')
     return solver
+
 
 def construct_max_posterior_solver(*args, verbose=True, **kwargs):
     """
@@ -258,7 +250,7 @@ def construct_max_posterior_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss,
+        h.model_loaders.MaxPosteriorLoaderModel, h.hilbert_loss.MaxPosteriorLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
@@ -273,7 +265,7 @@ def construct_KL_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.KLLoader, h.hilbert_loss.KLLoss,
+        h.model_loaders.KLLoaderModel, h.hilbert_loss.KLLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:

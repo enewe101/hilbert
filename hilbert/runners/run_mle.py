@@ -1,7 +1,5 @@
-import time
-import os
-import hilbert.run_base as hrun
 import hilbert.factories as proletariat
+from hilbert.runners.run_base import init_and_run, modify_args, get_base_argparser
 
 
 def run_mle(
@@ -28,35 +26,14 @@ def run_mle(
         d=d, temperature=temperature, update_density=update_density,
         mask_diagonal=mask_diagonal, learning_rate=learning_rate,
         opt_str=opt_str, shard_factor=shard_factor,
-        sector_factor=sector_factor, num_loaders=num_loaders,
-        queue_size=queue_size, loader_policy=loader_policy,
-        seed=seed, device=device
+        sector_factor=sector_factor, seed=seed, device=device
     )
-
-    print(embsolver.describe())
-    hrun.init_workspace(embsolver, save_embeddings_dir)
-    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
-
-    # run it up!
-    start = time.time()
-    for epoch in range(1, epochs+1):
-
-        print('epoch\t{}'.format(epoch))
-        losses = embsolver.cycle(
-            iters=iters_per_epoch, shard_times=shard_times)
-
-        # saving data
-        hrun.save_embeddings(
-            embsolver, save_embeddings_dir, iters_per_epoch * epoch)
-        crt_iter = (epoch - 1) * iters_per_epoch
-        hrun.write_trace(trace_path, crt_iter, losses)
-        print('epoch time', time.time() - start)
-
+    init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir)
 
 
 if __name__ == '__main__':
 
-    base_parser = hrun.get_base_argparser()
+    base_parser = get_base_argparser()
     base_parser.add_argument(
         '--temperature', '-t', type=float, default=1, dest='temperature',
         help=(
@@ -65,7 +42,7 @@ if __name__ == '__main__':
         )
     )
     all_args = vars(base_parser.parse_args())
-    hrun.modify_args(all_args)
+    modify_args(all_args)
     run_mle(**all_args)
 
 

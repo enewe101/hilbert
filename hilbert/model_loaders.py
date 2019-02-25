@@ -2,36 +2,80 @@ import hilbert as h
 import torch
 
 
-class ShardLoader(object):
-    pass
+class ModelShardLoader(object):
+    """
+    Base class for any LoaderModel that implements the common functionality,
+    being, iteration over the preloaded shards.
+    """
+
+    def __init__(self, bigram_preloader, verbose=True):
+        self.device = bigram_preloader.device
+        self.description = bigram_preloader.describe()
+        self.preloaded_shards = []
+        self.crt_shard_idx = None
+
+        if verbose:
+            print('Preloading all shards...')
+
+        for preload_data in bigram_preloader._preload_iter():
+            self.preloaded_shards.append(preload_data)
+
+        if verbose:
+            print('Preloading complete!')
 
 
+    def __iter__(self):
+        self.crt_shard_idx = -1
+        return self
 
-class PPMILoader(ShardLoader):
+
+    def __next__(self):
+        self.crt_shard_idx += 1
+
+        if self.crt_shard_idx >= len(self.preloaded_shards):
+            raise StopIteration
+
+        return self._load(self.preloaded_shards[self.crt_shard_idx])
+
+
+    def describe(self):
+        return self.description
+
 
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        raise NotImplementedError('Subclasses must extend `_load`!')
+
+
+
+
+### Below we have specific loaders for every model.
+# Each deals with the Nxx data in different ways;
+# e.g., some do PMI, some do PMI - ln k, etc.
+
+class PPMILoaderModel(ModelShardLoader):
+
+    def _load(self, preloaded):
         shard_id, bigram_data, unigram_data = preloaded
-        bigram_data = tuple(tensor.to(device) for tensor in bigram_data)
+        bigram_data = tuple(tensor.to(self.device) for tensor in bigram_data)
         M = h.corpus_stats.calc_PMI(bigram_data)
         M = torch.clamp(M, min=0)
         return shard_id, {'M': M}
 
     def describe(self):
-        return 'PPMI Sharder\n' + super(PPMILoader, self).describe()
+        return 'PPMI Sharder\n' + super(PPMILoaderModel, self).describe()
 
 
 
-class GloveLoader(ShardLoader):
+class GloveLoaderModel(ModelShardLoader):
 
-    def __init__(self, X_max=100.0, alpha=0.75):
+    def __init__(self, bigram_preloader, verbose, X_max=100.0, alpha=0.75):
+        super(GloveLoaderModel, self).__init__(bigram_preloader, verbose)
         self.X_max = float(X_max)
         self.alpha = alpha
 
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
         weights = (Nxx / self.X_max).pow(self.alpha)
         weights = torch.clamp(weights, max=1.)
         M = torch.log(Nxx)
@@ -39,66 +83,62 @@ class GloveLoader(ShardLoader):
         M[Nxx_is_zero] = 0
         weights[Nxx_is_zero] = 0
         weights = weights * 2
-        return shard_id, {'M':M, 'weights':weights}
+        return shard_id, {'M': M, 'weights': weights}
 
     def describe(self):
         s =  'GloVe Sharder\n'
         s += '\tX_max = {}\n'.format(self.X_max)
         s += '\talpha = {}\n'.format(self.alpha)
-        s += super(GloveLoader, self).describe()
+        s += super(GloveLoaderModel, self).describe()
         return s
 
 
 
-class Word2vecLoader(ShardLoader):
+class Word2VecLoaderModel(ModelShardLoader):
 
-    def __init__(self, k=15, device=None):
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        device = device or h.CONSTANTS.MATRIX_DEVICE
-        self.k = torch.tensor(k, device=device, dtype=dtype)
+    def __init__(self, bigram_preloader, verbose, k=15):
+        super(Word2VecLoaderModel, self).__init__(bigram_preloader, verbose)
+        self.k = torch.tensor(k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
 
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
-        uNx, uNxt, uN = tuple(tensor.to(device) for tensor in unigram_data)
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        uNx, uNxt, uN = tuple(tensor.to(self.device) for tensor in unigram_data)
         N_neg = self.negative_sample(Nxx, Nx, uNxt, uN, self.k)
         return shard_id, {'Nxx': Nxx, 'N_neg': N_neg}
 
+    def describe(self):
+        s = 'Word2Vec Sharder\n'
+        s += '\tk = {}\n'.format(self.k)
+        s += super(Word2VecLoaderModel, self).describe()
+        return s
 
     @staticmethod
     def negative_sample(Nxx, Nx, uNxt, uN, k):
         return k * (Nx - Nxx) * (uNxt / uN)
 
 
-    def describe(self):
-        s = 'Word2Vec Sharder\n'
-        s += '\tk = {}\n'.format(self.k)
-        s += super(Word2vecLoader, self).describe()
-        return s
 
+class MaxLikelihoodLoaderModel(ModelShardLoader):
 
-
-class MaxLikelihoodLoader(ShardLoader):
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
         Pxx_data = Nxx / N
         Pxx_independent = (Nx / N) * (Nxt / N)
-        return shard_id, {'Pxx_data':Pxx_data, 'Pxx_independent': Pxx_independent}
+        return shard_id, {'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent}
 
     def describe(self):
         return 'Max Likelihood Sharder\n' + super(
-            MaxLikelihoodLoader, self).describe()
+            MaxLikelihoodLoaderModel, self).describe()
 
 
 
-class MaxPosteriorLoader(ShardLoader):
+class MaxPosteriorLoaderModel(ModelShardLoader):
+
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats((Nxx,Nx,Nxt,N))
         alpha, beta = h.corpus_stats.calc_prior_beta_params(
@@ -112,15 +152,15 @@ class MaxPosteriorLoader(ShardLoader):
 
     def describe(self):
         return 'Max Posterior Probability Sharder\n' + super(
-            MaxPosteriorLoader, self).describe()
+            MaxPosteriorLoaderModel, self).describe()
 
 
 
-class KLLoader(ShardLoader):
+class KLLoaderModel(ModelShardLoader):
+
     def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats((Nxx,Nx,Nxt,N))
         alpha, beta = h.corpus_stats.calc_prior_beta_params(
@@ -136,7 +176,7 @@ class KLLoader(ShardLoader):
         }
 
     def describe(self):
-        return 'KL Sharder\n' + super(KLLoader, self).describe()
+        return 'KL Sharder\n' + super(KLLoaderModel, self).describe()
 
 
 

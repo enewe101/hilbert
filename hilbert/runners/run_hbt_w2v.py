@@ -1,7 +1,5 @@
-import os
-import hilbert.run_base as hrun
 import hilbert.factories as proletariat
-
+from hilbert.runners.run_base import init_and_run, modify_args, get_base_argparser
 
 def run_w2v(
         bigram_path,
@@ -27,34 +25,15 @@ def run_w2v(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, k=k, t_clean_undersample=t_clean_undersample,
         alpha_unigram_smoothing=alpha_smoothing, update_density=update_density,
-        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
-        opt_str=opt_str, shard_factor=shard_factor,
-        sector_factor=sector_factor, num_loaders=num_loaders,
-        queue_size=queue_size, loader_policy=loader_policy,
-        seed=seed, device=device
+        learning_rate=learning_rate, opt_str=opt_str, shard_factor=shard_factor,
+        sector_factor=sector_factor, seed=seed, device=device
     )
-
-    print(embsolver.describe())
-    hrun.init_workspace(embsolver, save_embeddings_dir)
-    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
-
-    # run it up!
-    for epoch in range(1, epochs+1):
-        print('epoch\t{}'.format(epoch))
-        losses = embsolver.cycle(
-            iters=iters_per_epoch, shard_times=shard_times)
-
-        # saving data
-        hrun.save_embeddings(
-            embsolver, save_embeddings_dir, iters_per_epoch * epoch)
-        crt_iter = (epoch - 1) * iters_per_epoch
-        hrun.write_trace(trace_path, crt_iter, losses)
-
+    init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir)
 
 
 if __name__ == '__main__':
 
-    base_parser = hrun.get_base_argparser()
+    base_parser = get_base_argparser()
     base_parser.add_argument(
         '--t-clean', '-t', type=float, default=None, dest='t_clean_undersample',
         help="Post-sampling (clean) Common word undersampling threshold"
@@ -68,7 +47,7 @@ if __name__ == '__main__':
         help='context distribution smoothing of PMI'
     )
     all_args = vars(base_parser.parse_args())
-    hrun.modify_args(all_args)
+    modify_args(all_args)
     run_w2v(**all_args)
 
 

@@ -1,17 +1,7 @@
-import torch
 import hilbert as h
 
 
-def get_loader(loader_class, loader_base_class,
-               *constructor_args, **constructor_kwargs):
-
-    class TheLoader(loader_class, loader_base_class):
-        pass
-
-    return TheLoader(*constructor_args, **constructor_kwargs)
-
-
-class BigramLoaderBase(object):
+class BigramPreloader(object):
 
     def __init__(
         self, bigram_path, sector_factor, shard_factor,
@@ -19,7 +9,6 @@ class BigramLoaderBase(object):
         alpha_unigram_smoothing=None,
         device=None,
     ):
-
         """
         Base class for more specific loaders `BigramLoader` yields tensors 
         representing shards of text cooccurrence data.  Each shard has unigram
@@ -89,14 +78,6 @@ class BigramLoaderBase(object):
 
                 yield shard_id * sector_id, bigram_data, unigram_data
         return
-
-
-    def _load(self, preloaded):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
-        shard_id, bigram_data, unigram_data = preloaded
-        bigram_data = tuple(tensor.to(device) for tensor in bigram_data)
-        unigram_data = tuple(tensor.to(device) for tensor in unigram_data)
-        return shard_id, bigram_data, unigram_data
 
 
     def describe(self):

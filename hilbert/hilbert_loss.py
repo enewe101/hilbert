@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import dropout
 
-
+### Helper functions
 # function for applying the minibatching dropout and then
 # rescaling back so that it doesn't overweight samples
 def keep(tensor, keep_p):
@@ -28,7 +28,7 @@ def temper(loss, Pxx_independent, temperature):
     return loss
 
 
-
+### Base class for losses
 class HilbertLoss(nn.Module):
 
     def __init__(self, keep_prob, ncomponents):
@@ -47,6 +47,22 @@ class HilbertLoss(nn.Module):
 
 
 
+# Special tempered base class for losses that use Pij under independence.
+class TemperedLoss(HilbertLoss):
+    def __init__(self, keep_prob, ncomponents, temperature=1.):
+        self.temperature = temperature
+        super(TemperedLoss, self).__init__(keep_prob, ncomponents)
+
+    def _forward(self, shard_id, M_hat, shard_data):
+        untempered = self._forward_temper(shard_id, M_hat, shard_data)
+        return temper(untempered, shard_data['Pxx_independent'], self.temperature)
+
+    def _forward_temper(self, shard_id, M_hat, shard_data):
+        raise NotImplementedError("Subclasses must override `_forward_temper`.")
+
+
+
+### All specific losses, GloVe uses MSE
 class MSELoss(HilbertLoss):
     def _forward(self, shard_id, M_hat, shard_data):
         weights = shard_data.get('weights', 1)
@@ -61,20 +77,6 @@ class Word2vecLoss(HilbertLoss):
         term1 = shard_data['N_neg'] * logfactor
         term2 = shard_data['Nxx'] * (logfactor - M_hat)
         return term1 + term2
-
-
-
-class TemperedLoss(HilbertLoss):
-    def __init__(self, keep_prob, ncomponents, temperature=1.):
-        self.temperature = temperature
-        super(TemperedLoss, self).__init__(keep_prob, ncomponents)
-
-    def _forward(self, shard_id, M_hat, shard_data):
-        untempered = self._forward_temper(shard_id, M_hat, shard_data)
-        return temper(untempered,shard_data['Pxx_independent'],self.temperature)
-
-    def _forward_temper(self, shard_id, M_hat, shard_data):
-        raise NotImplementedError("Subclasses must override `_forward_temper`.")
 
 
 

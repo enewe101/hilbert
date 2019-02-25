@@ -1,7 +1,5 @@
-import os
-import hilbert.run_base as hrun
 import hilbert.factories as proletariat
-
+from hilbert.runners.run_base import init_and_run, modify_args, get_base_argparser
 
 def run_glv(
         bigram_path,
@@ -26,35 +24,15 @@ def run_glv(
     embsolver = proletariat.construct_glv_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, alpha=alpha, xmax=xmax,update_density=update_density,
-        mask_diagonal=mask_diagonal, learning_rate=learning_rate, 
-        opt_str=opt_str, shard_factor=shard_factor, 
-        sector_factor=sector_factor, num_loaders=num_loaders,
-        queue_size=queue_size, loader_policy=loader_policy, seed=seed,
-        device=device,
-        nobias=nobias,
+        learning_rate=learning_rate, opt_str=opt_str, shard_factor=shard_factor,
+        sector_factor=sector_factor, seed=seed, device=device, nobias=nobias,
     )
-
-    print(embsolver.describe())
-
-    hrun.init_workspace(embsolver, save_embeddings_dir)
-    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
-
-    # run it up!
-    for epoch in range(1, epochs+1):
-        print('epoch\t{}'.format(epoch))
-        losses = embsolver.cycle(
-            iters=iters_per_epoch, shard_times=shard_times)
-
-        # saving data
-        hrun.save_embeddings(
-            embsolver, save_embeddings_dir, iters_per_epoch * epoch)
-        crt_iter = (epoch - 1) * iters_per_epoch
-        hrun.write_trace(trace_path, crt_iter, losses)
+    init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir)
 
 
 if __name__ == '__main__':
 
-    base_parser = hrun.get_base_argparser()
+    base_parser = get_base_argparser()
     base_parser.add_argument(
         '--X-max', '-x', type=float, default=100, dest='xmax',
         help="xmax in glove weighting function"
@@ -68,5 +46,5 @@ if __name__ == '__main__':
         help='set this flag to override GloVe defaults and remove bias learning' 
     )
     all_args = vars(base_parser.parse_args())
-    hrun.modify_args(all_args)
+    modify_args(all_args)
     run_glv(**all_args)

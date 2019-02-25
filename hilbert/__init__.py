@@ -10,7 +10,7 @@ import hilbert.shards
 import hilbert.hilbert_loss
 import hilbert.autoembedder
 import hilbert.factories
-import hilbert.bigram_loader
+import hilbert.bigram_preloader
 import hilbert.bigram
 import hilbert.model_loaders
 import hilbert.runners.run_base
