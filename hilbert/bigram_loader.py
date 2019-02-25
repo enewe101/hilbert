@@ -245,12 +245,12 @@ class TestLoader(BigramLoaderBase):
 
 class DiffLoader(BigramLoaderBase):
     def __init__(
-        self, bigram_path, sector_factor, shard_factor, num_loaders, 
+        self,bigram_path, sector_factor, shard_factor, num_loaders, 
         t_clean_undersample=None, alpha_unigram_smoothing=None,
         queue_size=1, device=None, verbose=True, w=5
     ):
         super(DiffLoader, self).__init__(
-            self, bigram_path, sector_factor, shard_factor, num_loaders, 
+            bigram_path, sector_factor, shard_factor, num_loaders, 
             t_clean_undersample=t_clean_undersample, alpha_unigram_smoothing=alpha_unigram_smoothing,
             queue_size=queue_size, device=device, verbose=verbose
         )
@@ -258,7 +258,9 @@ class DiffLoader(BigramLoaderBase):
         self.w = w
 
     def find_stationary(self, trans_mat):
+        print("trying to find eigenvalues")
         eigs = torch.eig(torch.t(trans_mat), True)
+        print("found eigenvalues")
         index = 0
         for i, evalue in enumerate(eigs[0]):
             if evalue[0] == 1 and evalue[1] == 0:
@@ -273,22 +275,27 @@ class DiffLoader(BigramLoaderBase):
         shard_id, bigram_data, unigram_data = preloaded
         Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
         trans_M = Nxx / Nx
-
+        print("found initial trans matrix")
         altered = torch.zeros(trans_M.size(), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)
         denom = 0
-        for i in range(w):
-            term = (w - i)*torch.matrix_power(trans_M, i)
+        for i in range(self.w):
+            k = i + 1
+            term = (self.w - i)*torch.matrix_power(trans_M, k)
             altered = altered + term
-            denom += w - i
+            denom += self.w - i
 
         altered = altered / denom
-        pi = find_stationary(altered)
-
-        Pxx_data = altered * pi
+        print("found altered")
+        pi = torch.matrix_power(altered, 1000)[0]
+        pi = pi.view(pi.size()[0],1)
+        #pi = self.find_stationary(altered)
+        Pxx_data = torch.mm(altered, pi)
         Pxx_independent = torch.mm(pi, torch.t(pi))
 
         return shard_id, {
-            'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent
+            'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent,
+            'pi': pi, 'altered': altered,
+            'Nxx': Nxx, 'Nx': Nx, 'N': N, 'trans_M' : trans_M
         }
 
 class MaxLikelihoodLoader(BigramLoaderBase):

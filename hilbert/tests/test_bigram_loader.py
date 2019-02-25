@@ -137,11 +137,11 @@ class TestConcreteLoaders(TestCase):
 
 
     def test_word2vec_loader(self):
-        sector_factor = 3
-        shard_factor = 4
+        sector_factor = 1
+        shard_factor = 1
         num_loaders = 9
         k = 10
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        bigram_path = "/home/rldata/hilbert-embeddings/cooccurrence/1.2048-5w-dynamic-10k"
 
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
@@ -149,7 +149,7 @@ class TestConcreteLoaders(TestCase):
                 h.bigram_loader.Word2vecLoader, base_loader, bigram_path,
                 sector_factor, shard_factor, num_loaders, k=10, verbose=False
             )
-            expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+            expected_bigram, _, _ = h.corpus_stats.get_test_bigram_small()
             for shard_id, shard_data in loader:
                 Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id)
                 uNx, uNxt, uN = expected_bigram.load_unigram_shard(shard_id)
@@ -180,9 +180,9 @@ class TestConcreteLoaders(TestCase):
 
 
     def test_diff_loader(self):
-        sector_factor = 3
-        shard_factor = 4
-        num_loaders = 9
+        sector_factor = 1
+        shard_factor = 1
+        num_loaders = 1
         w = 5
         bigram_path = "/home/rldata/hilbert-embeddings/cooccurrence/1.2048-5w-dynamic-10k"
 
@@ -194,9 +194,14 @@ class TestConcreteLoaders(TestCase):
             )
             expected_bigram, _, _ = h.corpus_stats.get_test_bigram_small()
             for shard_id, shard_data in loader:
+                print("loaded shard from loader")
                 Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id)
+                print("loaded shard")
 
                 P_j_given_i = (Nxx / N) * (N / Nx)
+                self.assertTrue(torch.allclose(shard_data['Nxx'], Nxx))
+                self.assertTrue(torch.allclose(shard_data['trans_M'], P_j_given_i))
+                self.assertTrue(torch.allclose(shard_data['N'], N))
 
                 newPji = w * P_j_given_i 
                 for i in range(w - 1):
@@ -210,21 +215,24 @@ class TestConcreteLoaders(TestCase):
                 newPji = newPji / normalization
 
                 stationary = torch.matrix_power(P_j_given_i, 1000)[0]
-                stationary = stationary.view(1,stationary.size()[0])
+                stationary = stationary.view(stationary.size()[0], 1)
 
-                Pxx_data = newPji * stationary
+                Pxx_data = torch.mm(newPji, stationary)
                 Pxx_independent = torch.t(stationary) * stationary
-
+                self.assertTrue(torch.allclose(stationary, shard_data["pi"]))
+                self.assertTrue(torch.allclose(newPji, shard_data["altered"]))
+                print("got pxx's")
                 self.assertTrue(torch.allclose(
                     Pxx_data, shard_data['Pxx_data']))
                 self.assertTrue(torch.allclose(
                     Pxx_independent, shard_data['Pxx_independent']))
+            print("done asserting") 
 
     def test_max_likelihood_loader(self):
-        sector_factor = 3
-        shard_factor = 4
+        sector_factor = 1
+        shard_factor = 1
         num_loaders = 9
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        bigram_path = "/home/rldata/hilbert-embeddings/cooccurrence/1.2048-5w-dynamic-10k"
 
         for base_loader in [Loader, MultiLoader, BufferedLoader]:
             loader = h.bigram_loader.get_loader(
@@ -232,11 +240,13 @@ class TestConcreteLoaders(TestCase):
                 bigram_path, sector_factor, shard_factor, num_loaders, 
                 verbose=False
             )
-            expected_bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+            expected_bigram, _, _ = h.corpus_stats.get_test_bigram_small()
             for shard_id, shard_data in loader:
                 Nxx, Nx, Nxt, N = expected_bigram.load_shard(shard_id )
+                print("loaded shard")
                 Pxx_data = Nxx / N
                 Pxx_independent = (Nx / N) * (Nxt / N)
+                print("got pxx's")
                 self.assertTrue(torch.allclose(
                     Pxx_data, shard_data['Pxx_data']))
                 self.assertTrue(torch.allclose(

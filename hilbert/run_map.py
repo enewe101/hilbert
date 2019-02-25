@@ -23,7 +23,7 @@ def run_map(
         queue_size=32,
         loader_policy='parallel',
         seed=1,
-        device=None,
+        device='cuda:1',
     ):
 
     embsolver = proletariat.construct_max_posterior_solver(

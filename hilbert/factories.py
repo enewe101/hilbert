@@ -262,7 +262,7 @@ def construct_diffu_solver(
     # Now make the loader.
     base_loader_class = get_base_loader(loader_policy)
     loader = h.bigram_loader.get_loader(
-        DiffLoader, base_loader_class, bigram_path=bigram_path,
+        h.bigram_loader.DiffLoader, base_loader_class, bigram_path=bigram_path,
         sector_factor=sector_factor, shard_factor=shard_factor,
         num_loaders=num_loaders, t_clean_undersample=t_clean_undersample,
         alpha_unigram_smoothing=alpha_unigram_smoothing, queue_size=queue_size,
