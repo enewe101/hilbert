@@ -304,7 +304,8 @@ class DiffLoader(BigramLoaderBase):
         print("found altered")
         pi = torch.matrix_power(altered, 1000)[0]
         pi = pi.view(pi.size()[0],1)
-        #pi = self.find_stationary(altered)
+        #pi = self.find_stationary_np(altered)
+        torch.svd(altered)
         Pxx_data = torch.mm(altered, pi)
         Pxx_independent = torch.mm(pi, torch.t(pi))
 

@@ -214,7 +214,7 @@ class TestConcreteLoaders(TestCase):
 
                 newPji = newPji / normalization
 
-                stationary = torch.matrix_power(P_j_given_i, 1000)[0]
+                stationary = torch.matrix_power(newPji, 1000)[0]
                 stationary = stationary.view(stationary.size()[0], 1)
 
                 Pxx_data = torch.mm(newPji, stationary)
