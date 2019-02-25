@@ -2,7 +2,6 @@ import os
 import hilbert as h
 import numpy as np
 import torch
-import time
 import torch.optim as op
 
 def get_base_loader():
@@ -17,13 +16,6 @@ def get_opt(string):
         'adagrad': op.Adagrad,
     }
     return d[s]
-
-
-def get_bigram(pth):
-    start = time.time()
-    bigram = h.bigram.Bigram.load(pth)
-    print('bigrams loading time {}'.format(time.time() - start))
-    return bigram
 
 
 def get_init_embs(pth):
@@ -176,51 +168,6 @@ def construct_glv_solver(
     return embsolver
 
 
-
-def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
-    """
-    This factory accepts the same set of arguments as
-    _construct_tempered_solver, except for sharder_class (which should not be
-    provided here).
-    """
-    solver = _construct_tempered_solver(
-        h.bigram_loader.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss, 
-        *args, verbose=verbose, **kwargs
-    )
-    if verbose:
-        print('finished loading max-likelihood bad boi!')
-    return solver
-
-def construct_max_posterior_solver(*args, verbose=True, **kwargs):
-    """
-    This factory accepts the same set of arguments as
-    _construct_tempered_solver, except for sharder_class (which should not be
-    provided here).
-    """
-    solver = _construct_tempered_solver(
-        h.bigram_loader.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss, 
-        *args, verbose=verbose, **kwargs
-    )
-    if verbose:
-        print('finished loading max-posterior bad boi!')
-    return solver
-
-
-def construct_KL_solver(*args, verbose=True, **kwargs):
-    """
-    This factory accepts the same set of arguments as
-    _construct_tempered_solver, except for sharder_class (which should not be
-    provided here).
-    """
-    solver = _construct_tempered_solver(
-        h.bigram_loader.KLLoader, h.hilbert_loss.KLLoss, 
-        *args, verbose=verbose, **kwargs
-    )
-    if verbose:
-        print('finished loading KL bad boi!')
-    return solver
-
-
 def _construct_tempered_solver(
     loader_class,
     loss_class,
@@ -289,3 +236,46 @@ def _construct_tempered_solver(
     )
     return embsolver
 
+
+def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
+    """
+    This factory accepts the same set of arguments as
+    _construct_tempered_solver, except for sharder_class (which should not be
+    provided here).
+    """
+    solver = _construct_tempered_solver(
+        h.model_loaders.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss,
+        *args, verbose=verbose, **kwargs
+    )
+    if verbose:
+        print('finished loading max-likelihood bad boi!')
+    return solver
+
+def construct_max_posterior_solver(*args, verbose=True, **kwargs):
+    """
+    This factory accepts the same set of arguments as
+    _construct_tempered_solver, except for sharder_class (which should not be
+    provided here).
+    """
+    solver = _construct_tempered_solver(
+        h.model_loaders.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss,
+        *args, verbose=verbose, **kwargs
+    )
+    if verbose:
+        print('finished loading max-posterior bad boi!')
+    return solver
+
+
+def construct_KL_solver(*args, verbose=True, **kwargs):
+    """
+    This factory accepts the same set of arguments as
+    _construct_tempered_solver, except for sharder_class (which should not be
+    provided here).
+    """
+    solver = _construct_tempered_solver(
+        h.model_loaders.KLLoader, h.hilbert_loss.KLLoss,
+        *args, verbose=verbose, **kwargs
+    )
+    if verbose:
+        print('finished loading KL bad boi!')
+    return solver

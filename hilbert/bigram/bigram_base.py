@@ -1,20 +1,9 @@
-import os
-from copy import deepcopy
-from collections import Counter
-import warnings
-
-try:
-    import numpy as np
-    from scipy import sparse, stats
-    import torch
-except ImportError:
-    np = None
-    sparse = None
-    stats = None
-    torch = None
-
-
 import hilbert as h
+import os
+import warnings
+import numpy as np
+import torch
+from scipy import sparse
 
 
 class BigramBase(object):
@@ -26,7 +15,7 @@ class BigramBase(object):
         device=None,
         verbose=True
     ):
-        '''
+        """
         Keeps track of token cooccurrences, and saves/loads from disk.  
         Providing only unigram data will create an empty instance.
 
@@ -39,7 +28,7 @@ class BigramBase(object):
             the number of cooccurrences for words having IDs i and j.
 
         Cooccurence statistics are represented as a scipy.sparse.lil_matrix.
-        '''
+        """
 
         if not unigram.sorted:
             raise ValueError(
@@ -298,39 +287,6 @@ class BigramBase(object):
         self.uNxt = torch.tensor(
             self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
         self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
-
-
-
-    # TODO: figure out if this causes significant errors to targets.
-    def apply_w2v_undersampling_sector(self, t):
-        """
-        Simulate undersampling of common words, like how is done in word2vec.
-        However, when applied here (as opposed to within the corpus sampler,
-        we are taking expectation values cooccurrence statistics under 
-        undersampling, and undersampling is applied in the "clean" way which
-        does not alter the effective size of the sample window.
-        """
-
-        # For each pair of words, calculate the probability that a given 
-        # cooccurrence would still be observed given undersampling.
-
-        # First calculate probability of dropping row-word.
-        p_i = h.corpus_stats.w2v_prob_keep(self._uNx, self.uN, t)
-        p_j = h.corpus_stats.w2v_prob_keep(self._uNxt, self.uN, t)
-
-        # This approximates the effect of undersampling on marginal counts
-        # without actually having to re-sum marginals (since a sector does not
-        # possess the necessary cooccurrence data to do that)
-        self._Nx = self._Nx * p_i * torch.sum(self._uNxt / self.uN * p_j)
-        self._Nxt = self._Nxt * p_j * torch.sum(self._uNx / self.uN * p_i)
-        self.N = torch.sum(self._Nx)
-
-        # Calculate the expectation cooccurrence counts given undersampling.
-        # This needs to be estimated in a different way.
-        self.sector = h.shards.whole
-        p_i = sparse.lil_matrix(p_i[self.sector[0]])
-        p_j = sparse.lil_matrix(p_j[:,self.sector[1]])
-        self.Nxx = self.Nxx.multiply(p_i).multiply(p_j).tolil()
 
 
     def get_sector(self, sector, device=None, verbose=None):

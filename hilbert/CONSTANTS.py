@@ -1,8 +1,5 @@
+import torch
 from os import path
-try:
-    import torch
-except ImportError:
-    torch = None
 
 MATRIX_DEVICE = 'cuda'
 MEMORY_DEVICE = 'cpu'

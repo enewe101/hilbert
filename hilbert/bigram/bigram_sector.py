@@ -4,22 +4,17 @@ import numpy as np
 import torch
 import hilbert as h
 from scipy import sparse
-from .bigram_base import BigramBase
 
 
 
-class BigramSector(BigramBase):
-    """Represents cooccurrence statistics."""
+class BigramSector(object):
 
-    def __init__(
-        self, unigram, Nxx, Nx, Nxt, sector,
-        device=None,
-        verbose=True
-    ):
-        '''
+    def __init__(self, unigram, Nxx, Nx, Nxt, sector, device=None, verbose=True):
+        """
         BigramSector represents a subset of the bigram data coming from a 
-        corpus.
-        '''
+        corpus. That is, after the corpus Nxx data is divided by bigram_mutable
+        .sectorize(), this deals with those sectors in a useful way.
+        """
 
         if not unigram.sorted:
             raise ValueError(
@@ -58,6 +53,29 @@ class BigramSector(BigramBase):
         self.validate_shape()
         self.undersampled = False
 
+
+    @staticmethod
+    def load(path, sector, device=None, verbose=True):
+        """
+        Load the token-ID mapping and cooccurrence data previously saved in
+        the directory at `path`.
+        """
+        # Read Unigram
+        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+
+        # Read Nxx, Nx, and Nxt.
+        if sector == h.shards.whole:
+            Nxx_fname = 'Nxx.npz'
+        else:
+            Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
+        Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
+        Nx = np.load(os.path.join(path, 'Nx.npy'))
+        Nxt = np.load(os.path.join(path, 'Nxt.npy'))
+
+        return BigramSector(
+            unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector,
+            device=device, verbose=verbose
+        )
 
 
     @property
@@ -138,30 +156,6 @@ class BigramSector(BigramBase):
         id1 = self.row_dictionary.get_id(token1)
         id2 = self.column_dictionary.get_id(token2)
         return self.Nxx[id1, id2]
-
-
-    @staticmethod
-    def load(path, sector, device=None, verbose=True):
-        """
-        Load the token-ID mapping and cooccurrence data previously saved in
-        the directory at `path`.
-        """
-        # Read Unigram
-        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
-
-        # Read Nxx, Nx, and Nxt.
-        if sector == h.shards.whole:
-            Nxx_fname = 'Nxx.npz'
-        else:
-            Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
-        Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
-        Nx = np.load(os.path.join(path, 'Nx.npy'))
-        Nxt = np.load(os.path.join(path, 'Nxt.npy'))
-
-        return BigramSector(
-            unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector,
-            device=device, verbose=verbose
-        )
 
 
     def load_shard(self, shard=None, device=None):
@@ -347,5 +341,20 @@ class BigramSector(BigramBase):
 
     def get_sector(self, *args):
         raise NotImplementedError("`BigramSector`s cannot `get_sector`.")
+
+
+    def validate_undersampling(self):
+        # Performing undersampling multiple times is a mistake.
+        if self.undersampled:
+            raise ValueError(
+                "Undersampling was already done.  Cannot perform "
+                "undersampling multiple times."
+            )
+        # Undersampling using a smoothed unigram would give wrong results.
+        if self.unigram.smoothed:
+            raise ValueError(
+                "Cannot perform undersampling based on smoothed unigram "
+                "frequencies.  Perform undersampling before smoothing"
+            )
 
 

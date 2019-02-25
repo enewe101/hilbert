@@ -90,68 +90,6 @@ class BigramMutable(BigramBase):
         return result
 
 
-    #
-    #   Only the functionality of self.merge(), provided by BigramBase is needed
-    #   and it is much simpler!
-    #
-    #def __add__(self, other):
-    #    """
-    #    Create a new BigramMutable that has counts from both operands.
-    #    """
-    #    if not isinstance(other, BigramMutable):
-    #        return NotImplemented
-
-    #    result = deepcopy(self)
-    #    result.__iadd__(other)
-    #    return result
-
-
-    #def __iadd__(self, other):
-    #    """
-    #    Add counts from `other` to `self`, in place.
-    #    """
-
-    #    # It seems tricky to adapt this to the case where we only have a sector
-    #    # loaded, because we will need to consider the row vocabulary separately
-    #    # from the column vocabulary.  For now this isn't implemented for 
-    #    # BigramMutable objects that are sectors.
-    #    if not isinstance(other, BigramMutable):
-    #        return NotImplemented
-
-    #    # Find a shared ordering that matches other's ordering, with any words
-    #    # unique to self's vocab placed at the end.
-    #    token_order = list(other.dictionary.tokens)
-    #    other_vocab = len(other)
-    #    self_vocab = len(self)
-    #    remaining_tokens = set(self.dictionary.tokens)-set(token_order)
-    #    token_order += remaining_tokens
-
-    #    # Use a temporary dictionary based on current vocabulary to provide
-    #    # the ordering to be used
-    #    ordering_dict = deepcopy(self.dictionary)
-    #    idx_order = [ordering_dict.add_token(token) for token in token_order]
-
-    #    # Copy self's counts into a large enough matrix
-    #    new_Nxx = sparse.lil_matrix((len(idx_order), len(idx_order)))
-    #    new_Nxx[:self_vocab,:self_vocab] += self.Nxx
-    #    self.Nxx = new_Nxx
-
-    #    # Adopt the shared ordering and add others counts
-    #    self.Nxx = self.Nxx[idx_order][:,idx_order]
-    #    self.Nxx[:other_vocab,:other_vocab] += other.Nxx
-
-    #    # Add unigrams, and adopt the shared ordering there too.
-    #    self.unigram += other.unigram
-    #    self.unigram.sort_by_tokens(token_order)
-
-    #    # Compile tallies.
-    #    self.Nx = np.array(np.sum(self.Nxx, axis=1))
-    #    self.Nxt = np.array(np.sum(self.Nxx, axis=0))
-    #    self.N = np.sum(self.Nx)
-
-    #    return self
-
-
     def add(self, token1, token2, count=1, skip_unk=False):
 
         # Get token idxs.

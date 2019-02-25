@@ -28,29 +28,17 @@ def temper(loss, Pxx_independent, temperature):
     return loss
 
 
-def mask_diagonal(tensor):
-    """
-    Multiplies the main diagonal of `tensor` by zero.  This prevents updates
-    to parameters that would result due to their influence on the main diagonal.
-    """
-    # When viewing the tensor as a 1D list, the entries corresponding to
-    # diagonals happen every row_length + 1 elements.
-    tensor.view(-1)[::tensor.shape[1]+1] *= 0
-
 
 class HilbertLoss(nn.Module):
 
-    def __init__(self, keep_prob, ncomponents, mask_diagonal=False):
+    def __init__(self, keep_prob, ncomponents):
         super(HilbertLoss, self).__init__()
         self.keep_prob = keep_prob
-        self.mask_diagonal = mask_diagonal
         self.rescale = float(keep_prob * ncomponents)
 
     def forward(self, shard_id, M_hat, shard_data, *args, **kwargs):
         elementwise_loss = self._forward(
             shard_id, M_hat, shard_data, *args, **kwargs)
-        if self.mask_diagonal and h.shards.on_diag(shard_id):
-            mask_diagonal(elementwise_loss)
         minibatched_loss = keep(elementwise_loss, self.keep_prob)
         return torch.sum(minibatched_loss) / self.rescale
 
@@ -75,18 +63,19 @@ class Word2vecLoss(HilbertLoss):
         return term1 + term2
 
 
+
 class TemperedLoss(HilbertLoss):
-    def __init__(
-        self, keep_prob, ncomponents, mask_diagonal=False, temperature=1.
-    ):
+    def __init__(self, keep_prob, ncomponents, temperature=1.):
         self.temperature = temperature
-        super(TemperedLoss, self).__init__(
-            keep_prob, ncomponents, mask_diagonal=mask_diagonal)
+        super(TemperedLoss, self).__init__(keep_prob, ncomponents)
+
     def _forward(self, shard_id, M_hat, shard_data):
         untempered = self._forward_temper(shard_id, M_hat, shard_data)
         return temper(untempered,shard_data['Pxx_independent'],self.temperature)
+
     def _forward_temper(self, shard_id, M_hat, shard_data):
         raise NotImplementedError("Subclasses must override `_forward_temper`.")
+
 
 
 class MaxLikelihoodLoss(TemperedLoss):

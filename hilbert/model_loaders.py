@@ -2,9 +2,12 @@ import hilbert as h
 import torch
 
 
+class ShardLoader(object):
+    pass
 
 
-class PPMILoader(BigramLoaderBase):
+
+class PPMILoader(ShardLoader):
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
@@ -12,28 +15,18 @@ class PPMILoader(BigramLoaderBase):
         bigram_data = tuple(tensor.to(device) for tensor in bigram_data)
         M = h.corpus_stats.calc_PMI(bigram_data)
         M = torch.clamp(M, min=0)
-        return shard_id, {'M':M}
+        return shard_id, {'M': M}
 
     def describe(self):
         return 'PPMI Sharder\n' + super(PPMILoader, self).describe()
 
 
 
-class GloveLoader(BigramLoaderBase):
+class GloveLoader(ShardLoader):
 
-    def __init__(
-        self, bigram_path, sector_factor, shard_factor, num_loaders,
-        X_max=100.0, alpha=0.75, t_clean_undersample=None,
-        alpha_unigram_smoothing=None, queue_size=1, device=None, verbose=True
-    ):
+    def __init__(self, X_max=100.0, alpha=0.75):
         self.X_max = float(X_max)
         self.alpha = alpha
-        super(GloveLoader, self).__init__(
-            bigram_path, sector_factor, shard_factor, num_loaders,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-            queue_size=queue_size, device=device, verbose=verbose
-        )
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
@@ -56,19 +49,10 @@ class GloveLoader(BigramLoaderBase):
         return s
 
 
-class Word2vecLoader(BigramLoaderBase):
 
-    def __init__(
-        self, bigram_path, sector_factor, shard_factor, num_loaders, k=15,
-        t_clean_undersample=None, alpha_unigram_smoothing=None, queue_size=1,
-        device=None, verbose=True
-    ):
-        super(Word2vecLoader, self).__init__(
-            bigram_path, sector_factor, shard_factor, num_loaders,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-            queue_size=queue_size, device=device, verbose=verbose
-        )
+class Word2vecLoader(ShardLoader):
+
+    def __init__(self, k=15, device=None):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         device = device or h.CONSTANTS.MATRIX_DEVICE
         self.k = torch.tensor(k, device=device, dtype=dtype)
@@ -79,7 +63,7 @@ class Word2vecLoader(BigramLoaderBase):
         Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
         uNx, uNxt, uN = tuple(tensor.to(device) for tensor in unigram_data)
         N_neg = self.negative_sample(Nxx, Nx, uNxt, uN, self.k)
-        return shard_id, {'Nxx':Nxx, 'N_neg': N_neg}
+        return shard_id, {'Nxx': Nxx, 'N_neg': N_neg}
 
 
     @staticmethod
@@ -95,15 +79,14 @@ class Word2vecLoader(BigramLoaderBase):
 
 
 
-class MaxLikelihoodLoader(BigramLoaderBase):
+class MaxLikelihoodLoader(ShardLoader):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
         Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
         Pxx_data = Nxx / N
         Pxx_independent = (Nx / N) * (Nxt / N)
-        return shard_id, {
-            'Pxx_data':Pxx_data, 'Pxx_independent':Pxx_independent}
+        return shard_id, {'Pxx_data':Pxx_data, 'Pxx_independent': Pxx_independent}
 
     def describe(self):
         return 'Max Likelihood Sharder\n' + super(
@@ -111,8 +94,7 @@ class MaxLikelihoodLoader(BigramLoaderBase):
 
 
 
-
-class MaxPosteriorLoader(BigramLoaderBase):
+class MaxPosteriorLoader(ShardLoader):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -124,7 +106,7 @@ class MaxPosteriorLoader(BigramLoaderBase):
         N_posterior = N + alpha + beta - 1
         Pxx_posterior = (Nxx + alpha) / N_posterior
         return shard_id, {
-            'N':N, 'N_posterior':N_posterior, 'Pxx_posterior': Pxx_posterior,
+            'N': N, 'N_posterior': N_posterior, 'Pxx_posterior': Pxx_posterior,
             'Pxx_independent': Pxx_independent
         }
 
@@ -133,7 +115,8 @@ class MaxPosteriorLoader(BigramLoaderBase):
             MaxPosteriorLoader, self).describe()
 
 
-class KLLoader(BigramLoaderBase):
+
+class KLLoader(ShardLoader):
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
@@ -148,8 +131,8 @@ class KLLoader(BigramLoaderBase):
         digamma_a = torch.digamma(a) - torch.digamma(a+b)
         digamma_b = torch.digamma(b) - torch.digamma(a+b)
         return shard_id, {
-                'digamma_a': digamma_a, 'digamma_b': digamma_b, 'N':N,
-                'N_posterior':N_posterior, 'Pxx_independent': Pxx_independent,
+                'digamma_a': digamma_a, 'digamma_b': digamma_b, 'N': N,
+                'N_posterior': N_posterior, 'Pxx_independent': Pxx_independent,
         }
 
     def describe(self):

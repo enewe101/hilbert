@@ -1,8 +1,14 @@
-import warnings
-import hilbert as h
 import torch
-from hilbert.loader import BufferedLoader
+import hilbert as h
 
+
+def get_loader(loader_class, loader_base_class,
+               *constructor_args, **constructor_kwargs):
+
+    class TheLoader(loader_class, loader_base_class):
+        pass
+
+    return TheLoader(*constructor_args, **constructor_kwargs)
 
 
 class BigramLoaderBase(object):
@@ -12,7 +18,6 @@ class BigramLoaderBase(object):
         t_clean_undersample=None,
         alpha_unigram_smoothing=None,
         device=None,
-        verbose=True
     ):
 
         """
@@ -53,21 +58,16 @@ class BigramLoaderBase(object):
         self.loaded_sector = None
         self.bigram_sector = None
 
-        super(BigramLoaderBase, self).__init__(verbose=verbose)
-
 
     def _preload_iter(self, loader_id):
 
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
 
             # Each worker should handle a subset of the sectors
-            if i % self.num_loaders != loader_id:
+            if loader_id != 0:
                 continue
 
             # If we're doing the same sector as last time, no need to reload it
-            # This is the advantage of having 
-            # num_workers = num_sectors = sector_factor**2, since a given worker
-            # will have a dedicated sector.
             if self.loaded_sector != sector_id:
                 self.loaded_sector = sector_id
 
@@ -92,6 +92,7 @@ class BigramLoaderBase(object):
                     shard=shard_id, device='cpu')
 
                 yield shard_id * sector_id, bigram_data, unigram_data
+        return
 
 
     def _load(self, preloaded):
@@ -113,9 +114,5 @@ class BigramLoaderBase(object):
         s += '\tverbose = {}\n'.format(self.verbose)
         return s
 
-
-
-class BigramBufferedLoader(BigramLoaderBase, BufferedLoader):
-    pass
 
 

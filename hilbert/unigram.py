@@ -7,7 +7,6 @@ except ImportError:
 import hilbert as h
 
 
-#TODO: ensure the dtype is float32 not float64
 class Unigram(object):
     """Represents unigram statistics."""
 
@@ -18,7 +17,7 @@ class Unigram(object):
         device=None,
         verbose=True
     ):
-        '''
+        """
         ``dictionary`` -- A hilbert.dictionary.Dictionary instance mapping token
             strings from/to integer IDs; 
         ``Nx`` -- A 1D array-like instance (e.g. numpy.ndarray,
@@ -28,7 +27,7 @@ class Unigram(object):
         Unigram Keeps track of token occurrence counts, and saves/loads from
         disk.  Provide no arguments to create an empty instance, useful for 
         accumulating counts while reading through a corpus.
-        '''
+        """
 
         self.validate_args(dictionary, Nx)
         self.dictionary = dictionary or h.dictionary.Dictionary()
@@ -73,13 +72,10 @@ class Unigram(object):
         self.N = sum(self.Nx)
 
 
-    #   CHECK
     def __getitem__(self, shard):
         return self.load_shard(shard)
 
         
-    # TODO: test sharding
-    #   CHECK
     def load_shard(self, shard=None, device=None):
 
         if shard is None:
@@ -95,15 +91,15 @@ class Unigram(object):
 
         return loaded_Nx, loaded_Nxt, loaded_N
 
+
     def __len__(self):
         return len(self.Nx)
 
-    #   CHECK
+
     def __copy__(self):
         return deepcopy(self)
 
 
-    #   CHECK
     def __deepcopy__(self, memo):
         result = Unigram(
             dictionary=deepcopy(self.dictionary, memo),
@@ -114,7 +110,6 @@ class Unigram(object):
         return result
 
 
-    #   CHECK
     def __iter__(self):
         """
         Returns (Nx, N). So that the Unigram instance easily unpacks
@@ -123,7 +118,6 @@ class Unigram(object):
         return iter(self[h.shards.whole])
 
     
-    #   CHECK
     def __add__(self, other):
         """
         Create a new Unigram that has counts from both operands.
@@ -137,7 +131,6 @@ class Unigram(object):
         return result
 
 
-    #   CHECK
     def __iadd__(self, other):
         """
         Add counts from `other` to `self`, in place.
@@ -167,7 +160,6 @@ class Unigram(object):
             )
 
 
-    # TODO: TEST
     def count(self, token):
         token_id = self.dictionary.get_id(token)
         return self.Nx[token_id]

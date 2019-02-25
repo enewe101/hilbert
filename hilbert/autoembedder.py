@@ -209,7 +209,6 @@ class HilbertEmbedderSolver(object):
                     start = time.time()
 
             losses.append(self.epoch_loss)
-
             if self.verbose:
                 print('loss\t{}'.format(self.epoch_loss))
 
