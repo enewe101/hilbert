@@ -11,6 +11,7 @@ def get_base_loader(base_loader_str):
         'series': h.loader.Loader,
         'buffered': h.loader.BufferedLoader,
         'buffered-parallel': h.loader.BufferedMultiLoader,
+        'buffered-gpu': h.loader.BufferedLoaderGPU
     }[base_loader_str]
 
 

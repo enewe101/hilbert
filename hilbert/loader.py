@@ -205,6 +205,21 @@ class MultiLoader(ABC):
         pass
 
 
+class BufferedLoaderGPU(Loader):
+    def __init__(self, *args, **kwargs):
+        super(BufferedLoaderGPU, self).__init__(*args, **kwargs)
+        self.gpu_preloaded= None
+
+    def __iter__(self):
+        if self.gpu_preloaded = None:
+            self.gpu_preloaded = [
+                self._load(preload) for loader_id in range(self.num_loaders)
+                for cpu_preloads in self._preload_iter(loader_id)
+                for preload in self.cpu_preloads
+            ]
+
+        for preload in self.gpu_preloaded:
+            yield preload
 
 class BufferedLoader(Loader):
 
