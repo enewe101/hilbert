@@ -258,7 +258,7 @@ class DiffLoader(BigramLoaderBase):
 
         self.w = w
 
-    def find_stationary(self, trans_mat):
+    def find_stationary_eig(self, trans_mat):
         print("trying to find eigenvalues")
         eigs = torch.eig(torch.t(trans_mat), True)
         print("found eigenvalues")
@@ -285,6 +285,22 @@ class DiffLoader(BigramLoaderBase):
         stationary = np.linalg.lstsq(a,b)[0]
 
         return torch.from_numpy(stationary)
+
+    def find_stationary_svd(self, trans_mat):
+        """
+        Finds the stationary distribution by solving xTrans_mat - x = 0
+        With the added constraint that sum(pi) = 1
+        Returns pi as a n x 1 tensor
+        """
+
+        n = trans_mat.size()[0]
+        a = torch.eye(4) - trans_mat
+        a = torch.cat((torch.t(a), torch.ones((1,4)))) #Adding the sum(pi) = 1 constraint
+        b = torch.cat((torch.zeros((n,1)), torch.ones(1,1)))
+
+        stationary, _ = torch.gels(b,a)
+
+        return stationary
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
