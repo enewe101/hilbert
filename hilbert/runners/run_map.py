@@ -1,9 +1,10 @@
+
 import os
 import hilbert.run_base as hrun
 import hilbert.factories as proletariat
 
 
-def run_kl(
+def run_map(
         bigram_path,
         save_embeddings_dir,
         epochs=100,
@@ -18,14 +19,11 @@ def run_kl(
         sector_factor=1,
         shard_factor=1,
         shard_times=1,
-        num_loaders=1,
-        queue_size=32,
-        loader_policy='parallel',
         seed=1,
         device=None,
     ):
 
-    embsolver = proletariat.construct_KL_solver(
+    embsolver = proletariat.construct_max_posterior_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, temperature=temperature, update_density=update_density,
         mask_diagonal=mask_diagonal, learning_rate=learning_rate,
@@ -43,7 +41,7 @@ def run_kl(
     for epoch in range(1, epochs+1):
         print('epoch\t{}'.format(epoch))
         losses = embsolver.cycle(
-            epochs=iters_per_epoch, shard_times=shard_times, hold_loss=True)
+            iters=iters_per_epoch, shard_times=shard_times)
 
         # saving data
         hrun.save_embeddings(
@@ -65,13 +63,13 @@ if __name__ == '__main__':
     )
     all_args = vars(base_parser.parse_args())
     hrun.modify_args(all_args)
-    run_kl(**all_args)
+    run_map(**all_args)
 
 
 """
 Example command:
-python run_kl.py -u 1.0 -l 0.01 -s adam -I 100 --init
+python run_map.py -u 1.0 -l 0.01 -s adam -I 100 --init
     std-w2v-s1-t1-v10k-iter5/vectors-init --epochs 150 --seed 1 --bigram
-    5w-dynamic-10k/thresh1 -t 1 -o testkl
+    5w-dynamic-10k/thresh1 -t 1 -o testmap
 """
 

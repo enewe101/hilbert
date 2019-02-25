@@ -1,19 +1,12 @@
 import os
 import warnings
-from collections import Counter
-
-try:
-    import numpy as np
-    from scipy import sparse, stats
-    import torch
-except ImportError:
-    np = None
-    sparse = None
-    stats = None
-    torch = None
-
+import numpy as np
+import torch
 import hilbert as h
+from scipy import sparse
 from .bigram_base import BigramBase
+
+
 
 class BigramSector(BigramBase):
     """Represents cooccurrence statistics."""

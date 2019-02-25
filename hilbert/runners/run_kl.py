@@ -3,15 +3,14 @@ import hilbert.run_base as hrun
 import hilbert.factories as proletariat
 
 
-def run_glv(
+def run_kl(
         bigram_path,
         save_embeddings_dir,
         epochs=100,
         iters_per_epoch=100,
         init_embeddings_path=None,
         d=300,
-        xmax=100,
-        alpha=0.75,
+        temperature=1,
         update_density=1.,
         mask_diagonal=False,
         learning_rate=0.01,
@@ -19,27 +18,21 @@ def run_glv(
         sector_factor=1,
         shard_factor=1,
         shard_times=1,
-        num_loaders=1,
-        queue_size=32,
-        loader_policy='parallel',
         seed=1,
         device=None,
-        nobias=False,
     ):
 
-    embsolver = proletariat.construct_glv_solver(
+    embsolver = proletariat.construct_KL_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
-        d=d, alpha=alpha, xmax=xmax,update_density=update_density,
-        mask_diagonal=mask_diagonal, learning_rate=learning_rate, 
-        opt_str=opt_str, shard_factor=shard_factor, 
+        d=d, temperature=temperature, update_density=update_density,
+        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
+        opt_str=opt_str, shard_factor=shard_factor,
         sector_factor=sector_factor, num_loaders=num_loaders,
-        queue_size=queue_size, loader_policy=loader_policy, seed=seed,
-        device=device,
-        nobias=nobias,
+        queue_size=queue_size, loader_policy=loader_policy,
+        seed=seed, device=device
     )
 
     print(embsolver.describe())
-
     hrun.init_workspace(embsolver, save_embeddings_dir)
     trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
 
@@ -47,7 +40,7 @@ def run_glv(
     for epoch in range(1, epochs+1):
         print('epoch\t{}'.format(epoch))
         losses = embsolver.cycle(
-            epochs=iters_per_epoch, shard_times=shard_times, hold_loss=True)
+            iters=iters_per_epoch, shard_times=shard_times)
 
         # saving data
         hrun.save_embeddings(
@@ -56,21 +49,26 @@ def run_glv(
         hrun.write_trace(trace_path, crt_iter, losses)
 
 
+
 if __name__ == '__main__':
 
     base_parser = hrun.get_base_argparser()
     base_parser.add_argument(
-        '--X-max', '-x', type=float, default=100, dest='xmax',
-        help="xmax in glove weighting function"
-    )
-    base_parser.add_argument(
-        '--alpha', '-a', type=float, default=3/4,
-        help="exponent in the weighting function for glove"
-    )
-    base_parser.add_argument(
-        '--nobias', action='store_true',
-        help='set this flag to override GloVe defaults and remove bias learning' 
+        '--temperature', '-t', type=float, default=1, dest='temperature',
+        help=(
+            "equalizes weighting for loss from individual token pairs.  "
+            "Use temperature > 1 for more equal weights."
+        )
     )
     all_args = vars(base_parser.parse_args())
     hrun.modify_args(all_args)
-    run_glv(**all_args)
+    run_kl(**all_args)
+
+
+"""
+Example command:
+python run_kl.py -u 1.0 -l 0.01 -s adam -I 100 --init
+    std-w2v-s1-t1-v10k-iter5/vectors-init --epochs 150 --seed 1 --bigram
+    5w-dynamic-10k/thresh1 -t 1 -o testkl
+"""
+

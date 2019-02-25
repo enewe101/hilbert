@@ -175,11 +175,11 @@ class HilbertEmbedderSolver(object):
         return self.dictionary
 
 
-    def cycle(self, epochs=1, shard_times=1, hold_loss=False):
-        losses = [] if hold_loss else None
+    def cycle(self, iters=1, shard_times=1, very_verbose=False):
+        losses = []
 
         start = time.time()
-        for _ in range(epochs):
+        for _ in range(iters):
             self.epoch_loss = 0
 
             # iterate over the shards we have to do
@@ -202,13 +202,13 @@ class HilbertEmbedderSolver(object):
                     # statistics
                     self.epoch_loss += loss.item()
 
-                    #print(
-                    #    '\tshard load time: {}'.format(time.time() - start))
+                    if very_verbose:
+                        print('\tshard load time: {}'.format(
+                            time.time() - start)
+                        )
                     start = time.time()
-                #print('+')
 
-            if hold_loss:
-                losses.append(self.epoch_loss)
+            losses.append(self.epoch_loss)
 
             if self.verbose:
                 print('loss\t{}'.format(self.epoch_loss))

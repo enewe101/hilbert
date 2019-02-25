@@ -399,7 +399,7 @@ class TestAutoEmbedder(TestCase):
 
         # The high learning rate causes `nan`s, which should raise an error.
         with self.assertRaises(h.autoembedder.DivergenceError):
-            solver.cycle(epochs=1, shard_times=100, hold_loss=True)
+            solver.cycle(iters=1, shard_times=100, hold_loss=True)
 
 
     def test_w2v_solver(self):

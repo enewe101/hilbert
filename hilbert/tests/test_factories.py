@@ -140,7 +140,7 @@ class TestFactory(TestCase):
         self.assertTrue(torch.allclose(solver.W, init_embeddings.W))
 
         # finally, run the solver for a couple steps
-        solver.cycle(epochs=2,shard_times=2)
+        solver.cycle(iters=2, shard_times=2)
 
 
 

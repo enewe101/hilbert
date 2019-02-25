@@ -5,13 +5,8 @@ import torch
 import time
 import torch.optim as op
 
-def get_base_loader(base_loader_str):
-    return {
-        'parallel': h.loader.MultiLoader,
-        'series': h.loader.Loader,
-        'buffered': h.loader.BufferedLoader,
-        'buffered-parallel': h.loader.BufferedMultiLoader,
-    }[base_loader_str]
+def get_base_loader():
+    return h.loader.BufferedLoader
 
 
 def get_opt(string):
@@ -27,8 +22,7 @@ def get_opt(string):
 def get_bigram(pth):
     start = time.time()
     bigram = h.bigram.Bigram.load(pth)
-    if verbose:
-        print('bigrams loading time {}'.format(time.time() - start))
+    print('bigrams loading time {}'.format(time.time() - start))
     return bigram
 
 
@@ -47,14 +41,10 @@ def construct_w2v_solver(
         t_clean_undersample=None,
         alpha_unigram_smoothing=0.75,
         update_density=1.,
-        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         sector_factor=1,
         shard_factor=1,
-        num_loaders=1,
-        queue_size=1,
-        loader_policy='parallel',
         seed=1,
         device=None,
         verbose=True
@@ -62,16 +52,19 @@ def construct_w2v_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-    base_loader_class = get_base_loader(loader_policy)
+    base_loader_class = get_base_loader()
 
     # Make the loader
     loader = h.bigram_loader.get_loader(
         h.bigram_loader.Word2vecLoader, base_loader_class,
-        bigram_path=bigram_path, sector_factor=sector_factor,
-        shard_factor=shard_factor, num_loaders=num_loaders,
-        k=k, t_clean_undersample=t_clean_undersample,
+        bigram_path=bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        k=k,
+        t_clean_undersample=t_clean_undersample,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
-        queue_size=queue_size, device=device, verbose=verbose
+        device=device,
+        verbose=verbose
     )
 
     # Make the loss.  
@@ -80,7 +73,6 @@ def construct_w2v_solver(
     vocab = len(dictionary)
     loss = h.hilbert_loss.Word2vecLoss(
         keep_prob=update_density, ncomponents=vocab**2, 
-        mask_diagonal=mask_diagonal
     )
 
     # get initial embeddings (if any)
@@ -119,14 +111,10 @@ def construct_glv_solver(
         t_clean_undersample=None,
         alpha_unigram_smoothing=None,
         update_density=1.,
-        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         sector_factor=1,
         shard_factor=1,
-        num_loaders=1,
-        queue_size=1,
-        loader_policy='parallel',
         seed=1,
         device=None,
         nobias=False,
@@ -141,14 +129,18 @@ def construct_glv_solver(
 
 
     # Make bigram loader
-    base_loader_class = get_base_loader(loader_policy)
+    base_loader_class = get_base_loader()
     loader = h.bigram_loader.get_loader(
         h.bigram_loader.GloveLoader, base_loader_class,
-        bigram_path=bigram_path, sector_factor=sector_factor, 
-        shard_factor=shard_factor, num_loaders=num_loaders,
-        X_max=xmax, alpha=alpha, t_clean_undersample=t_clean_undersample,
+        bigram_path=bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        X_max=xmax,
+        alpha=alpha,
+        t_clean_undersample=t_clean_undersample,
         alpha_unigram_smoothing=alpha_unigram_smoothing, 
-        queue_size=queue_size, device=device, verbose=verbose
+        device=device,
+        verbose=verbose
     )
 
     # Make the loss
@@ -157,7 +149,6 @@ def construct_glv_solver(
     vocab = len(dictionary)
     loss = h.hilbert_loss.MSELoss(
         keep_prob=update_density, ncomponents=vocab**2, 
-        mask_diagonal=mask_diagonal
     )
 
     # initialize the vectors
@@ -240,14 +231,10 @@ def _construct_tempered_solver(
     t_clean_undersample=None,
     alpha_unigram_smoothing=None,
     update_density=1.,
-    mask_diagonal=False,
     learning_rate=0.01,
     opt_str='adam',
     sector_factor=1,
     shard_factor=1,
-    num_loaders=1,
-    queue_size=1,
-    loader_policy='parallel',
     seed=1,
     device=None,
     verbose=True
@@ -256,13 +243,16 @@ def _construct_tempered_solver(
     torch.random.manual_seed(seed)
 
     # Now make the loader.
-    base_loader_class = get_base_loader(loader_policy)
+    base_loader_class = get_base_loader()
     loader = h.bigram_loader.get_loader(
-        loader_class, base_loader_class, bigram_path=bigram_path,
-        sector_factor=sector_factor, shard_factor=shard_factor,
-        num_loaders=num_loaders, t_clean_undersample=t_clean_undersample,
-        alpha_unigram_smoothing=alpha_unigram_smoothing, queue_size=queue_size,
-        device=device, verbose=verbose
+        loader_class, base_loader_class,
+        bigram_path=bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        t_clean_undersample=t_clean_undersample,
+        alpha_unigram_smoothing=alpha_unigram_smoothing,
+        device=device,
+        verbose=verbose
     )
 
     # Make the loss
@@ -270,8 +260,9 @@ def _construct_tempered_solver(
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     vocab = len(dictionary)
     loss = loss_class(
-        keep_prob=update_density, ncomponents=vocab**2, 
-        mask_diagonal=mask_diagonal, temperature=temperature
+        keep_prob=update_density,
+        ncomponents=vocab**2,
+        temperature=temperature
     )
 
     # Get initial embeddings.

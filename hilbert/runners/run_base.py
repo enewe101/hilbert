@@ -15,6 +15,7 @@ EMBEDDINGS_DIR = (
     h.CONSTANTS.EMBEDDINGS_DIR
 )
 
+
 def init_workspace(embsolver, save_embeddings_dir):
     # Work out the path at which embeddings will be saved.
     if not os.path.exists(save_embeddings_dir):
@@ -67,6 +68,10 @@ def get_base_argparser():
         help="Name of embeddings subdirectory in which to store embeddings"
     )
     parser.add_argument(
+        '--gpu', default=0,
+        help="Index of the GPU we want to use (default is 0)"
+    )
+    parser.add_argument(
         '--init', '-i', dest="init_embeddings_path", default=None,
         help="Name of embeddings subdirectory to use as initialization"
     )
@@ -74,7 +79,7 @@ def get_base_argparser():
         '--seed', '-S', type=int, required=True, help="Random seed"
     )
     parser.add_argument(
-        '--solver', '-s', default='sgd', help="Type of solver to use",
+        '--solver', '-s', default='adam', help="Type of solver to use",
         dest='opt_str'
     )
     parser.add_argument(
@@ -94,13 +99,6 @@ def get_base_argparser():
         help="proportion of samples to keep at each iteration (minibatching)"
     )
     parser.add_argument(
-        '--mask-diagonal', '-m', action='store_true',
-        help=(
-            "whether to mask diagonal elements of the M-matrix so that they "
-            "do not affect the loss and gradient."
-        )
-    )
-    parser.add_argument(
         '--sector-factor', '-g', type=int, default=1, 
         help='Sharding factor used to generate cooccurrence data files on disk' 
     )
@@ -111,19 +109,6 @@ def get_base_argparser():
     parser.add_argument(
         '--shard-times', '-H', type=int, default=1, 
         help='Number of update iterations before loading a new shard'
-    )
-    parser.add_argument(
-        '--num-loaders', '-L', type=int, default=1, 
-        help='number of background data loading processes'
-    )
-    parser.add_argument(
-        '--queue-size', '-q', type=int, default=32, 
-        help='number of background data loading processes'
-    )
-    parser.add_argument(
-        '--loader-policy', '-r', default='parallel', 
-        choices=('parallel', 'series', 'buffered', 'buffered-parallel'),
-        help='Base policy for loader'
     )
 
     return parser
