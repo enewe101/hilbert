@@ -4,7 +4,7 @@ import hilbert.run_base as hrun
 import hilbert.factories as proletariat
 
 
-def run_mle(
+def run_diff(
         bigram_path,
         save_embeddings_dir,
         epochs=100,
@@ -80,7 +80,7 @@ if __name__ == '__main__':
     )
     all_args = vars(base_parser.parse_args())
     hrun.modify_args(all_args)
-    run_mle(**all_args)
+    run_diff(**all_args)
 
 
 """

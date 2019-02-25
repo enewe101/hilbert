@@ -292,15 +292,15 @@ class DiffLoader(BigramLoaderBase):
         With the added constraint that sum(pi) = 1
         Returns pi as a n x 1 tensor
         """
-
+        device = self.device or h.CONSTANTS.MATRIX_DEVICE
         n = trans_mat.size()[0]
-        a = torch.eye(4) - trans_mat
-        a = torch.cat((torch.t(a), torch.ones((1,4)))) #Adding the sum(pi) = 1 constraint
-        b = torch.cat((torch.zeros((n,1)), torch.ones(1,1)))
+        a = torch.eye(n, dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device) - trans_mat
+        a = torch.cat((torch.t(a), torch.ones((1,n), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device))) #Adding the sum(pi) = 1 constraint
+        b = torch.cat((torch.zeros((n,1), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device), torch.ones((1,1), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)))
 
         stationary, _ = torch.gels(b,a)
 
-        return stationary
+        return stationary[:n]
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
@@ -317,18 +317,14 @@ class DiffLoader(BigramLoaderBase):
             denom += self.w - i
 
         altered = altered / denom
-        print("found altered")
-        pi = torch.matrix_power(altered, 1000)[0]
-        pi = pi.view(pi.size()[0],1)
-        #pi = self.find_stationary_np(altered)
-        torch.svd(altered)
+        #pi = torch.matrix_power(altered, 1000)[0]
+        #pi = pi.view(pi.size()[0],1)
+        pi = self.find_stationary_svd(altered)
         Pxx_data = torch.mm(altered, pi)
         Pxx_independent = torch.mm(pi, torch.t(pi))
 
         return shard_id, {
-            'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent,
-            'pi': pi, 'altered': altered,
-            'Nxx': Nxx, 'Nx': Nx, 'N': N, 'trans_M' : trans_M
+            'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent
         }
 
 class MaxLikelihoodLoader(BigramLoaderBase):

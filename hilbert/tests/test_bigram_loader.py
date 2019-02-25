@@ -199,9 +199,6 @@ class TestConcreteLoaders(TestCase):
                 print("loaded shard")
 
                 P_j_given_i = (Nxx / N) * (N / Nx)
-                self.assertTrue(torch.allclose(shard_data['Nxx'], Nxx))
-                self.assertTrue(torch.allclose(shard_data['trans_M'], P_j_given_i))
-                self.assertTrue(torch.allclose(shard_data['N'], N))
 
                 newPji = w * P_j_given_i 
                 for i in range(w - 1):
@@ -214,14 +211,18 @@ class TestConcreteLoaders(TestCase):
 
                 newPji = newPji / normalization
 
-                stationary = torch.matrix_power(newPji, 1000)[0]
+                stationary = torch.matrix_power(newPji, 10000)[0]
                 stationary = stationary.view(stationary.size()[0], 1)
+                stationary2 = torch.matrix_power(newPji, 10)[0]
+                stationary2 = stationary2.view(stationary2.size()[0], 1)
+                stationary3 = torch.matrix_power(newPji, 1000)[0]
+                stationary3 = stationary3.view(stationary3.size()[0], 1)
+          
 
                 Pxx_data = torch.mm(newPji, stationary)
                 Pxx_independent = torch.t(stationary) * stationary
-                self.assertTrue(torch.allclose(stationary, shard_data["pi"]))
-                self.assertTrue(torch.allclose(newPji, shard_data["altered"]))
-                print("got pxx's")
+                torch.save((Nx / N), "/home/rldata/hilbert-embeddings/embeddings/diffusion-hilbert/pi")
+            
                 self.assertTrue(torch.allclose(
                     Pxx_data, shard_data['Pxx_data']))
                 self.assertTrue(torch.allclose(
