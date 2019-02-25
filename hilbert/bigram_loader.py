@@ -2,6 +2,7 @@ import time
 import hilbert as h
 from abc import ABC, abstractmethod
 from hilbert.loader import Loader, MultiLoader, BufferedLoader
+import numpy as np
 import warnings
 try:
     import torch
@@ -269,6 +270,21 @@ class DiffLoader(BigramLoaderBase):
 
         pi = eigs[1][:,index] / torch.sum(eigs[1][:,index])
         return pi.view(pi.size()[0], 1)
+
+    def find_stationary_np(self, trans_mat):
+        """
+        Finding the stationary distribution by solving x - xTrans_mat= 0
+        Returns pi as a n x 1 tensor
+        """
+        t_mat = trans_mat.numpy()
+
+        n = A.shape[0]
+        a = np.eye(n) - t_mat
+        a = np.vstack((a.T, np.ones(n)))
+        b = np.matrix( [0] * n + [1]).T
+        stationary = np.linalg.lstsq(a,b)[0]
+
+        return torch.from_numpy(stationary)
 
     def _load(self, preloaded):
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
