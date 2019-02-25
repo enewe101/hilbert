@@ -235,7 +235,6 @@ def construct_KL_solver(*args, verbose=True, **kwargs):
     return solver
 
 def construct_diffu_solver(
-    loss_class,
     bigram_path,
     init_embeddings_path=None,
     d=300,
@@ -273,7 +272,7 @@ def construct_diffu_solver(
     dictionary_path = os.path.join(bigram_path, 'dictionary')
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     vocab = len(dictionary)
-    loss = loss_class(
+    loss = h.hilbert_loss.MaxLikelihoodLoss(
         keep_prob=update_density, ncomponents=vocab**2, 
         mask_diagonal=mask_diagonal, temperature=temperature
     )
