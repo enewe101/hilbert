@@ -24,7 +24,7 @@ def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embedding
     init_workspace(embsolver, save_embeddings_dir)
     trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
 
-    # iterate over each epoch, afte rwhich we write results
+    # iterate over each epoch, after which we write results
     for epoch in range(1, epochs+1):
         print('epoch\t{}'.format(epoch))
 
@@ -94,8 +94,8 @@ def get_base_argparser():
         help="Name of embeddings subdirectory in which to store embeddings"
     )
     parser.add_argument(
-        '--gpu', default=0,
-        help="Index of the GPU we want to use (default is 0)"
+        '--device', default='cuda:0', dest='device',
+        help="Index of the GPU we want to use (default is cuda:0)"
     )
     parser.add_argument(
         '--init', '-i', dest="init_embeddings_path", default=None,

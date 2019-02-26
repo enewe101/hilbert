@@ -195,7 +195,7 @@ class BigramSector(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
+        device = device or self.device
 
         loaded_Nxx = h.utils.load_shard(
             self.Nxx, shard, device=device)
@@ -245,7 +245,7 @@ class BigramSector(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
+        device = device or self.device
 
         loaded_uNx = h.utils.load_shard(
             self.uNx, shard[0], device=device)

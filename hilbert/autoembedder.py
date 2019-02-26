@@ -1,9 +1,7 @@
 import time
-import sys
 import hilbert as h
 import torch
 import torch.nn as nn
-import warnings
 
 class DivergenceError(Exception):
     pass
@@ -114,7 +112,7 @@ class HilbertEmbedderSolver(object):
 
 
     def describe(self):
-        s = 'Sharder: {}\n--'.format(self.loader.describe())
+        s = 'self.loader: {}\n--'.format(self.loader.describe())
         sfun = lambda strr, value: '\t{} = {}\n'.format(strr, value)
         s += sfun('optimizer', self.optimizer_constructor)
         s += sfun('d', self.d)
@@ -122,6 +120,7 @@ class HilbertEmbedderSolver(object):
         s += sfun('one_sided', self.one_sided)
         s += sfun('learn_bias', self.learn_bias)
         s += sfun('seed', self.seed)
+        s += sfun('device', self.device)
         return s
 
 
@@ -140,7 +139,7 @@ class HilbertEmbedderSolver(object):
 
 
     def restart(self, resample_vectors=True):
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        device = self.device
         torch.random.manual_seed(self.seed)
 
         # set the vectors

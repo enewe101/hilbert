@@ -8,7 +8,7 @@ def run_glv(
         iters_per_epoch=100,
         init_embeddings_path=None,
         d=300,
-        xmax=100,
+        X_max=100,
         alpha=0.75,
         update_density=1.,
         learning_rate=0.01,
@@ -23,7 +23,7 @@ def run_glv(
 
     embsolver = proletariat.construct_glv_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
-        d=d, alpha=alpha, xmax=xmax,update_density=update_density,
+        d=d, alpha=alpha, X_max=X_max,update_density=update_density,
         learning_rate=learning_rate, opt_str=opt_str, shard_factor=shard_factor,
         sector_factor=sector_factor, seed=seed, device=device, nobias=nobias,
     )
@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
     base_parser = get_base_argparser()
     base_parser.add_argument(
-        '--X-max', '-x', type=float, default=100, dest='xmax',
+        '--X-max', '-x', type=float, default=100, dest='X_max',
         help="xmax in glove weighting function"
     )
     base_parser.add_argument(

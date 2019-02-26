@@ -9,7 +9,7 @@ def run_w2v(
         init_embeddings_path=None,
         d=300,
         k=15,
-        t_clean_undersample=None,
+        t_clean_undersample=2.45e-5,
         alpha_smoothing=0.75,
         update_density=1.,
         learning_rate=0.01,
@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     base_parser = get_base_argparser()
     base_parser.add_argument(
-        '--t-clean', '-t', type=float, default=None, dest='t_clean_undersample',
+        '--t-clean', '-t', type=float, default=2.45e-5, dest='t_clean_undersample',
         help="Post-sampling (clean) Common word undersampling threshold"
     )
     base_parser.add_argument(

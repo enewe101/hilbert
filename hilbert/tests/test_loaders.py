@@ -31,22 +31,21 @@ class LoaderTest(TestCase):
 
         # things we will be testing over
         test_combos = list(product(
+            [1, 3], # sector factors
             [1, 2, 3, 4], # shard factors
             [None, 1e-6, 1e-4], # t_clean_undersample
             [None, 0.25, 0.75], # alpha_unigram_smoothing
-            [None, 'cpu'] # device
         ))
 
         # iterate over each combo
-        for sf, t, al, dev in test_combos:
+        for sef, shf, t, al in test_combos:
             preloader = BigramPreloader(
-                BIGRAM_PATH, SECTOR_FACTOR, sf,
+                BIGRAM_PATH, sef, shf,
                 t_clean_undersample=t,
                 alpha_unigram_smoothing=al,
-                device=dev,
             )
 
-            n_expected_iters = (SECTOR_FACTOR ** 2) * (sf ** 2)
+            n_expected_iters = (sef ** 2) * (shf ** 2)
             all_shard_ids = []
             for shard, bigram, unigram in preloader.preload_iter():
                 all_shard_ids.append((shard.i, shard.j))
@@ -70,8 +69,9 @@ class LoaderTest(TestCase):
         for constructor, mname in model_constructors:
             model_loader = constructor(
                 BigramPreloader(BIGRAM_PATH, SECTOR_FACTOR, shard_factor,
-                                None, None, 'cpu'),
-                verbose=False
+                                None, None),
+                verbose=False,
+                device='cpu'
             )
 
             # double checking that the construction fills it up!

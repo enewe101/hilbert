@@ -11,7 +11,6 @@ def run_mle(
         d=300,
         temperature=1.,
         update_density=1.,
-        mask_diagonal=False,
         learning_rate=0.01,
         opt_str='adam',
         sector_factor=1,
@@ -24,8 +23,7 @@ def run_mle(
     embsolver = proletariat.construct_max_likelihood_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, temperature=temperature, update_density=update_density,
-        mask_diagonal=mask_diagonal, learning_rate=learning_rate,
-        opt_str=opt_str, shard_factor=shard_factor,
+        learning_rate=learning_rate, opt_str=opt_str, shard_factor=shard_factor,
         sector_factor=sector_factor, seed=seed, device=device
     )
     init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir)

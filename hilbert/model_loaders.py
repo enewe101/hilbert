@@ -8,10 +8,10 @@ class ModelShardLoader(object):
     being, iteration over the preloaded shards.
     """
 
-    def __init__(self, bigram_preloader, verbose=True):
+    def __init__(self, bigram_preloader, verbose=True, device=None):
         self.preloader = bigram_preloader
-        self.device = bigram_preloader.device
         self.verbose = verbose
+        self.device = device
 
         # these Nones are utilized in the iterator pattern
         self.preloaded_shards = None
@@ -75,8 +75,8 @@ class PPMILoaderModel(ModelShardLoader):
 
 class GloveLoaderModel(ModelShardLoader):
 
-    def __init__(self, bigram_preloader, verbose, X_max=100.0, alpha=0.75):
-        super(GloveLoaderModel, self).__init__(bigram_preloader, verbose)
+    def __init__(self, bigram_preloader, X_max=100.0, alpha=0.75, **kwargs):
+        super(GloveLoaderModel, self).__init__(bigram_preloader, **kwargs)
         self.X_max = float(X_max)
         self.alpha = alpha
 
@@ -103,8 +103,8 @@ class GloveLoaderModel(ModelShardLoader):
 
 class Word2VecLoaderModel(ModelShardLoader):
 
-    def __init__(self, bigram_preloader, verbose, k=15):
-        super(Word2VecLoaderModel, self).__init__(bigram_preloader, verbose)
+    def __init__(self, bigram_preloader, k=15, **kwargs):
+        super(Word2VecLoaderModel, self).__init__(bigram_preloader, **kwargs)
         self.k = torch.tensor(k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
 
     def _load(self, preloaded):

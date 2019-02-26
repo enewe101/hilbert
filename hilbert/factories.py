@@ -49,9 +49,9 @@ def construct_w2v_solver(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
-            device=device
         ),
         verbose=verbose,
+        device=device,
         k=k,
     )
 
@@ -96,7 +96,7 @@ def construct_glv_solver(
         init_embeddings_path=None,
         d=300,
         alpha=0.75,
-        xmax=100,
+        X_max=100,
         t_clean_undersample=None,
         alpha_unigram_smoothing=None,
         update_density=1.,
@@ -122,10 +122,10 @@ def construct_glv_solver(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
-            device=device,
         ),
         verbose=verbose,
-        X_max=xmax,
+        device=device,
+        X_max=X_max,
         alpha=alpha,
     )
 
@@ -189,9 +189,9 @@ def _construct_tempered_solver(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
-            device=device,
         ),
-        verbose=verbose
+        verbose=verbose,
+        device=device,
     )
 
     # Make the loss

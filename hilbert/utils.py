@@ -8,9 +8,7 @@ def load_shard(
     source,
     shard=None,
     dtype=h.CONSTANTS.DEFAULT_DTYPE,
-    device=None
-):
-    device = device or h.CONSTANTS.MATRIX_DEVICE
+    device=None):
 
     # Handle Scipy sparse matrix types
     if isinstance(source, (sparse.csr_matrix, sparse.lil_matrix)):

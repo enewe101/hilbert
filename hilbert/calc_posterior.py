@@ -61,11 +61,7 @@ class BayesianPMI:
         )
 
     def posterior_pij_pdf(self, X_pij, i, j, plot=False, device=None):
-        device = (
-            device if device is not None else 
-            self.device if self.device is not None else 
-            h.CONSTANTS.MATRIX_DEVICE
-        )
+        device = device or self.device
         post_alpha, post_beta = self.posterior_beta_params(i,j)
 
         # TODO: Double check the derivation, in addition to testing the

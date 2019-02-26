@@ -81,7 +81,7 @@ class Unigram(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device or h.CONSTANTS.MATRIX_DEVICE
+        device = device or self.device
 
         loaded_Nx = h.utils.load_shard(
             self.Nx, shard[0], device=device).view(-1,1)

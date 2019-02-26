@@ -83,7 +83,6 @@ class Embeddings:
 
         # Store the choice of device, use (but don't save) default if needed.
         self.device = device
-        device = device or h.CONSTANTS.MATRIX_DEVICE
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Own the provided tensors (note, this copies)
@@ -303,7 +302,7 @@ class Embeddings:
         Returns ``True`` if vectors and covectors have unit norm.  
         Sets ``self.normed``
         """
-        device = self.device or h.CONSTANTS.MATRIX_DEVICE
+        device = self.device
         ones = torch.ones(self.V.shape[0], device=device)
         V_normed = torch.allclose(h.utils.norm(self.V, axis=1), ones)
         if self.W is None:

@@ -7,7 +7,6 @@ class BigramPreloader(object):
         self, bigram_path, sector_factor, shard_factor,
         t_clean_undersample=None,
         alpha_unigram_smoothing=None,
-        device=None,
     ):
         """
         Base class for more specific loaders `BigramLoader` yields tensors 
@@ -39,7 +38,6 @@ class BigramPreloader(object):
         self.shard_factor = shard_factor
         self.t_clean_undersample = t_clean_undersample
         self.alpha_unigram_smoothing = alpha_unigram_smoothing
-        self.device = device
         self.bigram_sector = None
 
 
@@ -78,8 +76,6 @@ class BigramPreloader(object):
         s += '\tt_clean_undersample = {}\n'.format(self.t_clean_undersample)
         s += '\talpha_unigram_smoothing = {}\n'.format(
             self.alpha_unigram_smoothing)
-        s += '\tdevice = {}\n'.format(self.device)
-        s += '\tverbose = {}\n'.format(self.verbose)
         return s
 
 
