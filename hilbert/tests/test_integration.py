@@ -1,4 +1,6 @@
 import hilbert as h
+import sys
+import os
 from unittest import TestCase, main
 
 
@@ -44,9 +46,14 @@ class IntegrationTests(TestCase):
             (h.runners.run_mle, temp_kwargs),
             (h.runners.run_kl, temp_kwargs),
         ]
+
+        # supress printing for the runners
+        sys.stdout = open(os.devnull, "w")
         for run, kwargs in runners_args:
             run(**kwargs)
+        sys.stdout = sys.__stdout__
 
+        # pro unit testing
         self.assertTrue(True)
 
 

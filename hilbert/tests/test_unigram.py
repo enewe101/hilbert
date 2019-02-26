@@ -103,7 +103,7 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram()
+        unigram = h.unigram.Unigram(device=device)
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
 
@@ -178,7 +178,7 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram()
+        unigram = h.unigram.Unigram(device=device)
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
 

@@ -59,11 +59,11 @@ class LoaderTest(TestCase):
         n_expected_iters = (SECTOR_FACTOR ** 2) * (shard_factor ** 2)
 
         model_constructors = [
-            (ml.GloveLoaderModel, 'glv'),
-            (ml.Word2VecLoaderModel, 'w2v'),
-            (ml.MaxLikelihoodLoaderModel, 'mle'),
-            (ml.MaxPosteriorLoaderModel, 'map'),
-            (ml.KLLoaderModel, 'kl')
+            (ml.GloveLoader, 'glv'),
+            (ml.Word2vecLoader, 'w2v'),
+            (ml.MaxLikelihoodLoader, 'mle'),
+            (ml.MaxPosteriorLoader, 'map'),
+            (ml.KLLoader, 'kl')
         ]
 
         for constructor, mname in model_constructors:

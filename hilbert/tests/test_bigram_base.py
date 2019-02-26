@@ -110,7 +110,7 @@ class TestBigramBase(TestCase):
         shards = h.shards.Shards(3)
 
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.BigramBase(unigram, Nxx, verbose=False)
+        bigram = h.bigram.BigramBase(unigram, Nxx, verbose=False, device=device)
 
         Nxx = torch.tensor(Nxx, device=device, dtype=dtype)
         Nx = torch.sum(Nxx, dim=1, keepdim=True)

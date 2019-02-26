@@ -59,7 +59,7 @@ class ModelShardLoader(object):
 # Each deals with the Nxx data in different ways;
 # e.g., some do PMI, some do PMI - ln k, etc.
 
-class PPMILoaderModel(ModelShardLoader):
+class PPMILoader(ModelShardLoader):
 
     def _load(self, preloaded):
         shard_id, bigram_data, unigram_data = preloaded
@@ -69,14 +69,14 @@ class PPMILoaderModel(ModelShardLoader):
         return shard_id, {'M': M}
 
     def describe(self):
-        return 'PPMI Sharder\n' + super(PPMILoaderModel, self).describe()
+        return 'PPMI Sharder\n' + super(PPMILoader, self).describe()
 
 
 
-class GloveLoaderModel(ModelShardLoader):
+class GloveLoader(ModelShardLoader):
 
     def __init__(self, bigram_preloader, X_max=100.0, alpha=0.75, **kwargs):
-        super(GloveLoaderModel, self).__init__(bigram_preloader, **kwargs)
+        super(GloveLoader, self).__init__(bigram_preloader, **kwargs)
         self.X_max = float(X_max)
         self.alpha = alpha
 
@@ -96,15 +96,15 @@ class GloveLoaderModel(ModelShardLoader):
         s =  'GloVe Sharder\n'
         s += '\tX_max = {}\n'.format(self.X_max)
         s += '\talpha = {}\n'.format(self.alpha)
-        s += super(GloveLoaderModel, self).describe()
+        s += super(GloveLoader, self).describe()
         return s
 
 
 
-class Word2VecLoaderModel(ModelShardLoader):
+class Word2vecLoader(ModelShardLoader):
 
     def __init__(self, bigram_preloader, k=15, **kwargs):
-        super(Word2VecLoaderModel, self).__init__(bigram_preloader, **kwargs)
+        super(Word2vecLoader, self).__init__(bigram_preloader, **kwargs)
         self.k = torch.tensor(k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
 
     def _load(self, preloaded):
@@ -117,7 +117,7 @@ class Word2VecLoaderModel(ModelShardLoader):
     def describe(self):
         s = 'Word2Vec Sharder\n'
         s += '\tk = {}\n'.format(self.k)
-        s += super(Word2VecLoaderModel, self).describe()
+        s += super(Word2vecLoader, self).describe()
         return s
 
     @staticmethod
@@ -126,7 +126,7 @@ class Word2VecLoaderModel(ModelShardLoader):
 
 
 
-class MaxLikelihoodLoaderModel(ModelShardLoader):
+class MaxLikelihoodLoader(ModelShardLoader):
 
     def _load(self, preloaded):
         shard_id, bigram_data, unigram_data = preloaded
@@ -137,11 +137,11 @@ class MaxLikelihoodLoaderModel(ModelShardLoader):
 
     def describe(self):
         return 'Max Likelihood Sharder\n' + super(
-            MaxLikelihoodLoaderModel, self).describe()
+            MaxLikelihoodLoader, self).describe()
 
 
 
-class MaxPosteriorLoaderModel(ModelShardLoader):
+class MaxPosteriorLoader(ModelShardLoader):
 
     def _load(self, preloaded):
         shard_id, bigram_data, unigram_data = preloaded
@@ -159,11 +159,11 @@ class MaxPosteriorLoaderModel(ModelShardLoader):
 
     def describe(self):
         return 'Max Posterior Probability Sharder\n' + super(
-            MaxPosteriorLoaderModel, self).describe()
+            MaxPosteriorLoader, self).describe()
 
 
 
-class KLLoaderModel(ModelShardLoader):
+class KLLoader(ModelShardLoader):
 
     def _load(self, preloaded):
         shard_id, bigram_data, unigram_data = preloaded
@@ -183,7 +183,7 @@ class KLLoaderModel(ModelShardLoader):
         }
 
     def describe(self):
-        return 'KL Sharder\n' + super(KLLoaderModel, self).describe()
+        return 'KL Sharder\n' + super(KLLoader, self).describe()
 
 
 

@@ -136,5 +136,9 @@ def get_base_argparser():
         '--shard-times', '-H', type=int, default=1, 
         help='Number of update iterations before loading a new shard'
     )
+    parser.add_argument(
+        '--dimensions', '-d', type=int, default=300,
+        help='desired dimensionality of the embeddings being produced'
+    )
 
     return parser

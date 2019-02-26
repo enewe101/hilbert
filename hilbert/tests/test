@@ -39,6 +39,7 @@ if __name__ == "__main__":
         h.CONSTANTS.MATRIX_DEVICE = 'cpu'
     else:
         print('\nTESTING DEVICE: CUDA.  Use --cpu to test on cpu.\n')
+        h.CONSTANTS.MATRIX_DEVICE = 'cuda:0'
 
     if '-W' in sys.argv:
         print('Treating warnings as errors\n')

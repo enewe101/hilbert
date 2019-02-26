@@ -44,7 +44,7 @@ def construct_w2v_solver(
     torch.random.manual_seed(seed)
 
     # Make the loader
-    loader = h.model_loaders.Word2VecLoaderModel(
+    loader = h.model_loaders.Word2vecLoader(
         BigramPreloader(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
@@ -117,7 +117,7 @@ def construct_glv_solver(
     torch.random.manual_seed(seed)
 
     # Make bigram loader
-    loader = h.model_loaders.GloveLoaderModel(
+    loader = h.model_loaders.GloveLoader(
         BigramPreloader(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
@@ -236,7 +236,7 @@ def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxLikelihoodLoaderModel, h.hilbert_loss.MaxLikelihoodLoss,
+        h.model_loaders.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
@@ -251,7 +251,7 @@ def construct_max_posterior_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxPosteriorLoaderModel, h.hilbert_loss.MaxPosteriorLoss,
+        h.model_loaders.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
@@ -266,7 +266,7 @@ def construct_KL_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.KLLoaderModel, h.hilbert_loss.KLLoss,
+        h.model_loaders.KLLoader, h.hilbert_loss.KLLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:

@@ -103,21 +103,21 @@ class TestUtils(TestCase):
         source = np.arange(100).reshape(10,10)
         expected = torch.tensor(
             [[0,5],[50,55]], device=device, dtype=dtype)
-        found = h.utils.load_shard(source, shards[0])
+        found = h.utils.load_shard(source, shards[0], device=device)
         self.assertTrue(torch.allclose(found, expected))
 
         # Handles Scipy CSR sparse matrices properly.
         source = sparse.random(10,10,0.3).tocsr()
         expected = torch.tensor(
             source.toarray()[shards[0]], device=device, dtype=dtype)
-        found = h.utils.load_shard(source, shards[0])
+        found = h.utils.load_shard(source, shards[0], device=device)
         self.assertTrue(torch.allclose(found, expected))
 
         # Handles Numpy matrices properly.
         source = np.matrix(range(100)).reshape(10,10)
         expected = torch.tensor(
             np.asarray(source)[shards[0]], device=device, dtype=dtype)
-        found = h.utils.load_shard(source, shards[0])
+        found = h.utils.load_shard(source, shards[0], device=device)
         self.assertTrue(torch.allclose(found, expected))
 
 
