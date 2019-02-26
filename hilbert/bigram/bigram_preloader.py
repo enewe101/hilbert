@@ -32,10 +32,6 @@ class BigramPreloader(object):
             Note: Due to unigram-smoothing (e.g. in w2v), uNxt may not equal
             uNx.  In w2v, one gets smoothed, the other is left unchanged (both
             are needed).
-
-        Subclasses can override `_load`, to more specifically choose what
-        bigram / unigram data to load, and what other preparations to do to
-        make the shard ready to be fed to the model.
         """
 
         self.bigram_path = bigram_path
@@ -44,28 +40,23 @@ class BigramPreloader(object):
         self.t_clean_undersample = t_clean_undersample
         self.alpha_unigram_smoothing = alpha_unigram_smoothing
         self.device = device
-        self.loaded_sector = None
         self.bigram_sector = None
 
 
-    def _preload_iter(self):
+    def preload_iter(self):
 
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
 
-            # If we're doing the same sector as last time, no need to reload it
-            if self.loaded_sector != sector_id:
-                self.loaded_sector = sector_id
+            # Read the sector of bigram data into memory, and transform
+            # distributions as desired.
+            self.bigram_sector = h.bigram.BigramSector.load(
+                self.bigram_path, sector_id)
 
-                # Read the sector of bigram data into memory, and transform
-                # distributions as desired.
-                self.bigram_sector = h.bigram.BigramSector.load(
-                    self.bigram_path, sector_id)
+            self.bigram_sector.apply_w2v_undersampling(
+                self.t_clean_undersample)
 
-                self.bigram_sector.apply_w2v_undersampling(
-                    self.t_clean_undersample)
-
-                self.bigram_sector.apply_unigram_smoothing(
-                    self.alpha_unigram_smoothing)
+            self.bigram_sector.apply_unigram_smoothing(
+                self.alpha_unigram_smoothing)
 
             # Start yielding cRAM-preloaded shards
             for shard_id in h.shards.Shards(self.shard_factor):

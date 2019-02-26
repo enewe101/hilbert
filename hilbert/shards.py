@@ -1,6 +1,3 @@
-import hilbert as h
-
-
 
 def absolutize(self, base_shard):
     """
@@ -41,10 +38,6 @@ def relativize(absolute_shard, base_shard):
         rel_shard_slices.append(relativize_slice(abs_slice, base_slice))
 
     rel_shard = Shard(rel_shard_slices)
-
-    #    relativize_slice(abs_slice, base_slice) 
-    #    for abs_slice, base_slice in zip(absolute_shard, base_shard)
-    #))
 
     return rel_shard
 

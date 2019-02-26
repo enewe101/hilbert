@@ -9,19 +9,14 @@ class ModelShardLoader(object):
     """
 
     def __init__(self, bigram_preloader, verbose=True):
+        self.preloader = bigram_preloader
         self.device = bigram_preloader.device
-        self.description = bigram_preloader.describe()
-        self.preloaded_shards = []
+        self.verbose = verbose
+
+        # these Nones are utilized in the iterator pattern
+        self.preloaded_shards = None
         self.crt_shard_idx = None
-
-        if verbose:
-            print('Preloading all shards...')
-
-        for preload_data in bigram_preloader._preload_iter():
-            self.preloaded_shards.append(preload_data)
-
-        if verbose:
-            print('Preloading complete!')
+        self.preload_all_shards() # fill 'er up!
 
 
     def __iter__(self):
@@ -39,12 +34,24 @@ class ModelShardLoader(object):
 
 
     def describe(self):
-        return self.description
+        return self.preloader.describe()
+
+
+    def preload_all_shards(self):
+        self.preloaded_shards = []
+
+        if self.verbose:
+            print('Preloading all shards...')
+
+        for preload_data in self.preloader.preload_iter():
+            self.preloaded_shards.append(preload_data)
+
+        if self.verbose:
+            print('Preloading complete!')
 
 
     def _load(self, preloaded):
         raise NotImplementedError('Subclasses must extend `_load`!')
-
 
 
 

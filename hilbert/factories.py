@@ -1,9 +1,10 @@
 import os
-import hilbert as h
 import numpy as np
 import torch
 import torch.optim as op
-from hilbert.bigram_preloader import BigramPreloader
+import hilbert as h
+from hilbert.bigram import BigramPreloader
+
 
 def get_opt(string):
     s = string.lower()
