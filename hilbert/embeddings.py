@@ -345,14 +345,15 @@ class Embeddings:
         return iter((self.V, self.W, self.dictionary))
 
 
-    def greatest_product(self, key):
+    def greatest_product(self, key, covecs=False):
         """
         Given an index or word, list all other indices or words from 
         highest to lowest inner product with the given one.
         """
         query_vec = self[key]
         query_id = self._as_id(key)
-        inner_products = self.V @ query_vec
+        mat = self.W if covecs else self.V
+        inner_products = mat @ query_vec
         top_indices = np.argsort(-inner_products)
         if isinstance(key, str):
             return [self.dictionary.get_token(idx) for idx in top_indices
@@ -372,15 +373,16 @@ class Embeddings:
         return self.greatest_product(key)[0]
 
 
-    def greatest_cosine(self, key):
+    def greatest_cosine(self, key, covecs=False):
         """
         Given an index or word, list all other indices or words from 
         highest to lowest cosine similarity with the given one.
         """
+        mat = self.W if covecs else self.V
         if not self.normed:
-            normed_V = h.utils.normalize(self.V, axis=1)
+            normed_V = h.utils.normalize(mat, axis=1)
         else:
-            normed_V = self.V
+            normed_V = mat
 
         normed_query_vec = h.utils.normalize(self[key], axis=0)
         query_id = self._as_id(key)
