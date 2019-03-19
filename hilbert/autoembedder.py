@@ -141,6 +141,7 @@ class HilbertEmbedderSolver(object):
     def restart(self, resample_vectors=True):
         device = self.device
         torch.random.manual_seed(self.seed)
+        self.opt_kwargs['lr'] = self.learning_rate
 
         # set the vectors
         vshape = (self.shape[0], self.d)

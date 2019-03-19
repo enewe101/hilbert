@@ -109,7 +109,7 @@ def get_base_argparser():
         dest='opt_str'
     )
     parser.add_argument(
-        '--learning-rate', '-l', type=float, required=True, 
+        '--learning-rate', '-l', type=float, default=0.01,
         help="Learning rate",
     )
     parser.add_argument(
