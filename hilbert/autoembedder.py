@@ -193,6 +193,8 @@ class HilbertEmbedderSolver(object):
                     loss = self.loss(shard_id, M_hat, shard_data)
 
                     if torch.isnan(loss):
+                        del M_hat
+                        del loss
                         raise DivergenceError('Model has completely diverged!')
 
                     loss.backward()
