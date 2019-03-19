@@ -95,7 +95,7 @@ def get_base_argparser():
     )
     parser.add_argument(
         '--device', default='cuda:0', dest='device',
-        help="Index of the GPU we want to use (default is cuda:0)"
+        help="Name of the processor we want to use for math (default is cuda:0)"
     )
     parser.add_argument(
         '--init', '-i', dest="init_embeddings_path", default=None,
@@ -137,7 +137,7 @@ def get_base_argparser():
         help='Number of update iterations before loading a new shard'
     )
     parser.add_argument(
-        '--dimensions', '-d', type=int, default=300,
+        '--dimensions', '-d', type=int, default=300, dest='d',
         help='desired dimensionality of the embeddings being produced'
     )
 

@@ -27,7 +27,7 @@ class IntegrationTests(TestCase):
             'shard_factor': 1,
             'shard_times': 1,
             'seed': 1,
-            'device': 'cpu',
+            'device': h.CONSTANTS.MATRIX_DEVICE,
         }
 
         # combine common with the special kwargs
@@ -48,9 +48,10 @@ class IntegrationTests(TestCase):
         ]
 
         # supress printing for the runners
-        sys.stdout = open(os.devnull, "w")
-        for run, kwargs in runners_args:
-            run(**kwargs)
+        with open(os.devnull, "w") as supressed:
+            sys.stdout = supressed
+            for run, kwargs in runners_args:
+                run(**kwargs)
         sys.stdout = sys.__stdout__
 
         # pro unit testing
