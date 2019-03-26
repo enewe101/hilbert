@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.optim as op
 import hilbert as h
-from hilbert.bigram import BigramPreloader
+from hilbert.bigram import DenseShardPreloader
 
 
 def get_opt(string):
@@ -45,7 +45,7 @@ def construct_w2v_solver(
 
     # Make the loader
     loader = h.model_loaders.Word2vecLoader(
-        BigramPreloader(
+        DenseShardPreloader(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -70,7 +70,7 @@ def construct_w2v_solver(
         shape = (vocab, vocab)
 
     # build the main daddyboy
-    embsolver = h.autoembedder.HilbertEmbedderSolver(
+    embsolver = h.embedder.HilbertEmbedderSolver(
         loader=loader,
         loss=loss,
         optimizer_constructor=get_opt(opt_str),
@@ -118,7 +118,7 @@ def construct_glv_solver(
 
     # Make bigram loader
     loader = h.model_loaders.GloveLoader(
-        BigramPreloader(
+        DenseShardPreloader(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -144,7 +144,7 @@ def construct_glv_solver(
         shape = (vocab, vocab)
 
     # get the solver and we good!
-    embsolver = h.autoembedder.HilbertEmbedderSolver(
+    embsolver = h.embedder.HilbertEmbedderSolver(
         loader=loader,
         loss=loss,
         optimizer_constructor=get_opt(opt_str),
@@ -185,7 +185,7 @@ def _construct_tempered_solver(
 
     # Now make the loader.
     loader = loader_class(
-        BigramPreloader(
+        DenseShardPreloader(
             bigram_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -211,7 +211,7 @@ def _construct_tempered_solver(
         shape = (vocab, vocab)
 
     # Build the main daddyboi!
-    embsolver = h.autoembedder.HilbertEmbedderSolver(
+    embsolver = h.embedder.HilbertEmbedderSolver(
         loader=loader,
         loss=loss,
         optimizer_constructor=get_opt(opt_str),

@@ -1,7 +1,7 @@
 import torch
 import hilbert.factories as proletariat
 from hilbert.runners import get_base_argparser
-from hilbert.autoembedder import DivergenceError
+from hilbert.embedder import DivergenceError
 from progress.bar import IncrementalBar
 from math import log10, floor
 

@@ -3,8 +3,8 @@ import numpy as np
 import hilbert as h
 import hilbert.model_loaders as ml
 import torch
-from hilbert.bigram import BigramPreloader
-from unittest import TestCase
+from hilbert.bigram import DenseShardPreloader, SparsePreloader
+from unittest import TestCase, main
 
 VERBOSE = False
 
@@ -24,7 +24,6 @@ class TestLoss(TestCase):
         uNx, uNxt, uN = bigram.unigram.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE) 
         ncomponents = np.prod(Nxx.shape)
-        shard_id = None
 
         sigmoid = lambda a: 1/(1+torch.exp(-a))
         N_neg = h.model_loaders.Word2vecLoader.negative_sample(Nxx, Nx, uNxt, uN, k)
@@ -42,7 +41,7 @@ class TestLoss(TestCase):
 
             torch.manual_seed(0)
             loss_obj = h.hilbert_loss.Word2vecLoss(keep_prob, ncomponents)
-            found_loss = loss_obj(shard_id, M_hat, {'Nxx':Nxx, 'N_neg':N_neg})
+            found_loss = loss_obj(M_hat, {'Nxx':Nxx, 'N_neg':N_neg})
 
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -63,13 +62,12 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
         loss_array = loss_term1 + loss_term2
 
-        shard_id = None
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
             expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
             loss_class = h.hilbert_loss.MaxLikelihoodLoss(
                 keep_prob, ncomponents, temperature=temperature)
-            found_loss = loss_class(shard_id, M_hat, {
+            found_loss = loss_class(M_hat, {
                 'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
@@ -95,13 +93,12 @@ class TestLoss(TestCase):
         loss_term2 = (1-Pxx_posterior) * torch.log(1 - Pxx_model)
         scaled_loss = (N_posterior / N) * (loss_term1 + loss_term2)
 
-        shard_id = None
         for temperature in [1, 10]:
             tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
             expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
             loss_class = h.hilbert_loss.MaxPosteriorLoss(
                 keep_prob, ncomponents, temperature=temperature)
-            found_loss = loss_class(shard_id, M_hat, {
+            found_loss = loss_class(M_hat, {
                 'N': N, 'N_posterior': N_posterior, 
                 'Pxx_posterior': Pxx_posterior,
                 'Pxx_independent': Pxx_independent
@@ -137,13 +134,12 @@ class TestLoss(TestCase):
             a_hat + b_hat)
         KL = (lbeta - a_hat * digamma_a - b_hat * digamma_b) / N
 
-        shard_id = None
         for temperature in [1, 10]:
             tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
             expected_loss = torch.sum(tempered_KL) / float(ncomponents)
             loss_obj = h.hilbert_loss.KLLoss(
                 keep_prob, ncomponents, temperature=temperature)
-            found_loss = loss_obj(shard_id, M_hat, {
+            found_loss = loss_obj(M_hat, {
                 'N': N, 'N_posterior': N_posterior, 
                 'Pxx_independent': Pxx_independent, 
                 'digamma_a': digamma_a, 'digamma_b': digamma_b, 
@@ -164,25 +160,89 @@ class TestAutoEmbedder(TestCase):
         wbias = torch.rand(contexts)
 
         # make the expected results
-        exp_no_w_bias = V @ V.t()
         exp_no_bias = W @ V.t()
-        exp_no_w = (V @ V.t()) + vbias.reshape(1, -1) + vbias.reshape(-1, 1)
         exp_all = (W @ V.t()) + vbias.reshape(1, -1) + wbias.reshape(-1, 1)
 
         options = [
-            ({}, exp_no_w_bias) ,
             ({'W': W}, exp_no_bias),
-            ({'v_bias': vbias}, exp_no_w),
             ({'W': W, 'v_bias': vbias, 'w_bias': wbias}, exp_all)
         ]
         for kwargs, expected_M in options:
-            ae = h.autoembedder.AutoEmbedder(V, **kwargs)
+            ae = h.embedder.DenseLearner(V, **kwargs)
             got_M = ae(shard)
             self.assertTrue(torch.allclose(got_M, expected_M))
 
+    def test_sparse_emb_solver_functionality(self):
+        print('TESTING SPARSE EMB SOLVER')
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+        keep_prob = 1
+        opt = torch.optim.Adam
+        shape = bigram.Nxx.shape
 
-    def test_emb_solver_functionality(self):
+        loaders_losses = [
+            (ml.PPMILoader, h.hilbert_loss.MSELoss),
+            (ml.GloveLoader, h.hilbert_loss.MSELoss),
+            (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
+            (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
+            (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
+            (ml.KLLoader, h.hilbert_loss.KLLoss),
+        ]
+        lbs = [True, False]
 
+        from itertools import product
+        options = product(loaders_losses, lbs)
+
+        for (loader_class, loss_class), learn_bias in options:
+            is_w2v = loader_class == ml.Word2vecLoader
+            vprint('\n', loader_class)
+            vprint('learn_bias =', learn_bias)
+            loader = loader_class(
+                SparsePreloader(bigram_path, device='cpu',
+                                include_unigram_data=is_w2v),
+                verbose=False,
+                device=h.CONSTANTS.MATRIX_DEVICE,
+            )
+            loss = loss_class(keep_prob, bigram.vocab ** 2)
+
+            solver = h.embedder.HilbertEmbedderSolver(
+                loader, loss, opt, d=300, learning_rate=0.001,
+                shape=shape,
+                one_sided=False, learn_bias=learn_bias, verbose=True,
+                device=h.CONSTANTS.MATRIX_DEVICE,
+                learner='sparse'
+            )
+
+            # check to make sure we get the same loss after resetting
+            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=False)
+            solver.restart()
+            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=False)
+            solver.restart()
+            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=False)
+            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=False)
+            self.assertTrue(np.allclose(l1, l2))
+            self.assertTrue(np.allclose(l1, l3))
+            solver.restart()
+
+            # here we're ensuring that the equality between the solver
+            # parameters and the torch module parameters are always the same,
+            # before and after learning
+            for _ in range(3):
+                V, W, vb, wb = solver.get_params()
+                aV, aW, avb, awb = (
+                    solver.learner.V, solver.learner.W,
+                    solver.learner.v_bias, solver.learner.w_bias
+                )
+                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+                    if t1 is None and t2 is None:
+                        continue
+                    self.assertTrue(torch.allclose(t1, t2))
+
+                solver.cycle(1)
+
+
+
+    def test_dense_emb_solver_functionality(self):
         bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         sector_factor = 3
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
@@ -199,7 +259,7 @@ class TestAutoEmbedder(TestCase):
             (ml.KLLoader, h.hilbert_loss.KLLoss),
         ]
         shard_fs = [1, 3]
-        oss = [True, False]
+        oss = [False]
         lbs = [True, False]
 
         from itertools import product
@@ -212,17 +272,18 @@ class TestAutoEmbedder(TestCase):
                    'shard_factor =', sf)
 
             loader = loader_class(
-                BigramPreloader(bigram_path, sector_factor, sf),
+                DenseShardPreloader(bigram_path, sector_factor, sf),
                 verbose=False,
                 device=h.CONSTANTS.MATRIX_DEVICE,
             )
             loss = loss_class(keep_prob, bigram.vocab**2)
 
-            solver = h.autoembedder.HilbertEmbedderSolver(
+            solver = h.embedder.HilbertEmbedderSolver(
                 loader, loss, opt, d=300, learning_rate=0.001,
                 shape=shape if not one_sided else (shape[0],),
                 one_sided=one_sided, learn_bias=learn_bias, verbose=False,
-                device=h.CONSTANTS.MATRIX_DEVICE
+                device=h.CONSTANTS.MATRIX_DEVICE,
+                learner='dense'
             )
 
             # check to make sure we get the same loss after resetting
@@ -262,7 +323,7 @@ class TestAutoEmbedder(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         loader = h.model_loaders.PPMILoader(
-            BigramPreloader(
+            DenseShardPreloader(
                 bigram_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
                 alpha_unigram_smoothing=None,
@@ -274,7 +335,7 @@ class TestAutoEmbedder(TestCase):
         loss = h.hilbert_loss.MSELoss(keep, bigram.vocab**2) 
         opt = torch.optim.SGD
         shape = bigram.Nxx.shape
-        solver = h.autoembedder.HilbertEmbedderSolver(
+        solver = h.embedder.HilbertEmbedderSolver(
             loader=loader, 
             loss=loss, 
             optimizer_constructor=opt, 
@@ -288,7 +349,7 @@ class TestAutoEmbedder(TestCase):
         )
 
         # The high learning rate causes `nan`s, which should raise an error.
-        with self.assertRaises(h.autoembedder.DivergenceError):
+        with self.assertRaises(h.embedder.DivergenceError):
             solver.cycle(iters=1, shard_times=100)
 
 
@@ -304,7 +365,7 @@ class TestAutoEmbedder(TestCase):
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
 
         loader = h.model_loaders.Word2vecLoader(
-            BigramPreloader(
+            DenseShardPreloader(
                 bigram_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
                 alpha_unigram_smoothing=0.75,
@@ -315,7 +376,7 @@ class TestAutoEmbedder(TestCase):
         )
 
         outer_loader = h.model_loaders.Word2vecLoader(
-            BigramPreloader(
+            DenseShardPreloader(
                 bigram_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
                 alpha_unigram_smoothing=0.75,
@@ -327,7 +388,7 @@ class TestAutoEmbedder(TestCase):
 
         loss = h.hilbert_loss.Word2vecLoss(keep, bigram.vocab**2) 
 
-        solver = h.autoembedder.HilbertEmbedderSolver(
+        solver = h.embedder.HilbertEmbedderSolver(
             loader=loader, 
             loss=loss,
             optimizer_constructor=torch.optim.SGD, 
@@ -368,3 +429,5 @@ class TestAutoEmbedder(TestCase):
             self.assertTrue(torch.allclose(found_W, expected_W))
 
 
+if __name__ == '__main__':
+    main()

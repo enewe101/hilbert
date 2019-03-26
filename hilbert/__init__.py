@@ -1,5 +1,5 @@
 import hilbert.CONSTANTS
-import hilbert.autoembedder
+import hilbert.embedder
 import hilbert.bigram
 import hilbert.calc_posterior
 import hilbert.corpus_stats
@@ -12,3 +12,4 @@ import hilbert.shards
 import hilbert.unigram
 import hilbert.utils
 import hilbert.runners
+import hilbert.generic_interfaces

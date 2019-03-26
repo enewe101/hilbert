@@ -29,6 +29,7 @@ class HilbertEmbedderSolver(object):
         learn_bias=False,
         seed=1917,
         device=None,
+        learner='dense',
         verbose=True
     ):
         """
@@ -70,6 +71,7 @@ class HilbertEmbedderSolver(object):
         self.seed = seed
         self.verbose = verbose
         self.device = device
+        self.learner_class = DenseLearner if learner=='dense' else SparseLearner
 
         opt_kwargs = {} if opt_kwargs is None else opt_kwargs
         self.opt_kwargs = {**{'lr': learning_rate}, **opt_kwargs}
@@ -159,7 +161,7 @@ class HilbertEmbedderSolver(object):
                 self.wb = xavier((1, wshape[0]), device).squeeze()
 
         # now build the auto-embedder
-        self.learner = AutoEmbedder(self.V, self.W, self.vb, self.wb).to(device)
+        self.learner = self.learner_class(self.V, self.W, self.vb, self.wb).to(device)
 
         self.optimizer = self.optimizer_constructor(
             self.learner.parameters(),
@@ -183,15 +185,15 @@ class HilbertEmbedderSolver(object):
             self.epoch_loss = 0
 
             # iterate over the shards we have to do
-            for shard_id, shard_data in self.loader:
+            for batch_id, batch_data in self.loader:
                 for _ in range(shard_times):
 
                     # zero out the gradient
                     self.optimizer.zero_grad()
 
                     # Calculate forward pass, M_hat and loss, for this shard!
-                    M_hat = self.learner(shard_id)
-                    loss = self.loss(shard_id, M_hat, shard_data)
+                    M_hat = self.learner(batch_id)
+                    loss = self.loss(M_hat, batch_data)
 
                     if torch.isnan(loss):
                         del M_hat
@@ -205,10 +207,10 @@ class HilbertEmbedderSolver(object):
                     self.epoch_loss += loss.item()
 
                     if very_verbose:
-                        print('\tshard load time: {}'.format(
+                        print('\tbatch load time: {}'.format(
                             time.time() - start)
                         )
-                    start = time.time()
+                        start = time.time()
 
             losses.append(self.epoch_loss)
             if self.verbose:
@@ -217,30 +219,31 @@ class HilbertEmbedderSolver(object):
         return losses
 
 
-
-#### Main class that integrates with Pytorch Autodiff API.
-class AutoEmbedder(nn.Module):
-
-    def __init__(self, V, W=None, v_bias=None, w_bias=None):
-        super(AutoEmbedder, self).__init__()
-        self.learn_w = W is not None
-        self.learn_bias = v_bias is not None
-        wb = self.learn_w and self.learn_bias
-
-        # annoying initialization
+####
+####
+#### Main classes that integrates with Pytorch Autodiff API.
+####
+####
+class EmbeddingLearner(nn.Module):
+    def __init__(self, V, W, v_bias=None, w_bias=None):
+        super(EmbeddingLearner, self).__init__()
+        self.learn_bias = v_bias is not None and w_bias is not None
         self.V = nn.Parameter(V)
-        self.W = nn.Parameter(W) if self.learn_w else None
+        self.W = nn.Parameter(W)
         self.v_bias = nn.Parameter(v_bias) if self.learn_bias else None
-        self.w_bias = nn.Parameter(w_bias) if wb else None
+        self.w_bias = nn.Parameter(w_bias) if self.learn_bias else None
 
+    def forward(self, *input):
+        raise NotImplementedError('Not implemented!')
+
+
+
+#### Dense, pure MF-based learner
+class DenseLearner(EmbeddingLearner):
 
     def forward(self, shard):
         V = self.V[shard[1]].squeeze()
-
-        if self.learn_w:
-            W = self.W[shard[0]].squeeze()
-        else:
-            W = self.V[shard[0]].squeeze()
+        W = self.W[shard[0]].squeeze()
 
         # W is of shape C x d, V is of shape T x d
         # so M_hat is of shape C x T
@@ -250,11 +253,30 @@ class AutoEmbedder(nn.Module):
         # while the wbias vector is add to each column
         if self.learn_bias:
             M_hat += self.v_bias[shard[1]].view(1, -1)
-
-            if self.learn_w:
-                M_hat += self.w_bias[shard[0]].view(-1, 1)
-            else:
-                M_hat += self.v_bias[shard[0]].view(-1, 1)
+            M_hat += self.w_bias[shard[0]].view(-1, 1)
 
         # andddd that's all folks!
         return M_hat
+
+
+
+### A learning based on using a sparse-implementation
+# TODO: consider integrating with symmetry.
+class SparseLearner(EmbeddingLearner):
+
+    def forward(self, batch_id, symmetric=False):
+        row_id, col_ids = batch_id
+        v_vec = self.V[row_id]
+        W_vecs = self.W[col_ids]
+
+        # v_vec.t() is of shape d x 1, W_vecs is of shape len(js) x d
+        # so tc_hat is of shape len(js) x 1
+        tc_hat = W_vecs @ v_vec
+
+        if self.learn_bias:
+            tc_hat += self.v_bias[row_id]
+            tc_hat += self.w_bias[col_ids]
+
+        # andddd that's all folks!
+        return tc_hat
+
