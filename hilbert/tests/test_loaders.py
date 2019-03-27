@@ -2,6 +2,7 @@ from hilbert.bigram import DenseShardPreloader, SparsePreloader
 from unittest import TestCase, main
 from itertools import product
 import hilbert.model_loaders as ml
+import torch
 
 BIGRAM_PATH = 'test-data/bigram-sectors/'
 SPARSE_BIGRAM_PATH = 'test-data/bigram'
@@ -30,23 +31,50 @@ class LoaderTest(TestCase):
 
 
     def test_sparse_preload_functionality(self):
+        device = torch.device('cpu')
+        filter_repeats = False
+        zk = 100
+
         preloader = SparsePreloader(
-            SPARSE_BIGRAM_PATH, None, None
+            SPARSE_BIGRAM_PATH,
+            zk=zk,
+            filter_repeats=filter_repeats,
+            device=device,
         )
 
         all_batches = []
-        for preloaded in preloader.preload_iter():
-            batch_id, bigram_data, unigram_data = preloader.prepare(preloaded)
+        for i in preloader.preload_iter():
+            torch.manual_seed(i)
+            batch_id, bigram_data, unigram_data = preloader.prepare(i)
             all_batches.append(batch_id[0])
 
             self.assertEqual(len(bigram_data), 4)
-
             nijs, ni, njs, n = bigram_data
 
             # check that it's going correctly
             self.assertEqual(len(nijs), len(njs))
             self.assertEqual(len(ni.shape), 0) # constant
             self.assertEqual(len(n.shape), 0) # constant
+
+            if not filter_repeats:
+                i, all_js = batch_id
+                a_nijs = preloader.sparse_nxx[i][1] # values
+
+                # these are z-samples we will draw, given that we hardcode the seed
+                torch.manual_seed(i)
+                expected_zs = torch.unique(
+                    torch.randint(preloader.n_batches,
+                                  device=device,
+                                  size=(min(len(a_nijs), zk,),)
+                                  ).sort()[0],
+                    sorted=True,
+                )
+                got_z_nijs = nijs[-len(expected_zs):]
+                self.assertEqual(len(expected_zs), len(got_z_nijs))
+
+                n_zeds = len(expected_zs)
+                self.assertEqual(len(a_nijs) + n_zeds, len(nijs))
+                self.assertEqual(sum(nijs[-n_zeds:]), 0)
 
         self.assertEqual(len(all_batches), preloader.n_batches)
 
@@ -62,7 +90,10 @@ class LoaderTest(TestCase):
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                SparsePreloader(SPARSE_BIGRAM_PATH, None, None, device='cpu',
+                SparsePreloader(SPARSE_BIGRAM_PATH,
+                                zk=1000,
+                                filter_repeats=True,
+                                device='cpu',
                                 include_unigram_data=mname=='w2v'),
                 verbose=False,
                 device='cpu'

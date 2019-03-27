@@ -262,6 +262,7 @@ class DenseLearner(EmbeddingLearner):
 
 ### A learning based on using a sparse-implementation
 # TODO: consider integrating with symmetry.
+
 class SparseLearner(EmbeddingLearner):
 
     def forward(self, batch_id, symmetric=False):

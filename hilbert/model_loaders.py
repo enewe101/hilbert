@@ -32,7 +32,8 @@ class ModelBatchLoader(Describable):
             raise StopIteration
 
         preloaded = self.preloaded_batches[self.crt_batch_id]
-        return self._load(self.preloader.prepare(preloaded))
+        prepared = self.preloader.prepare(preloaded)
+        return self._load(prepared)
 
 
     def describe(self):
