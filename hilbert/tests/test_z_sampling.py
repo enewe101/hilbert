@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from hilbert.bigram.bigram_preloader import ZedSampler
 from unittest import TestCase, main
+from .test_fullauto import vprint
 
 
 class TestZedSampler(TestCase):
@@ -45,10 +46,10 @@ class TestZedSampler(TestCase):
                 zset = set(z_samples.numpy())
                 self.assertEqual(len(aset.intersection(zset)), 0)
 
-        print('Time averages:')
+        vprint('Time averages:')
         for i, times in enumerate(timers):
             mean = np.mean(times)
-            print('\talpha={}: {:4f}'.format(i, mean))
+            vprint('\talpha={}: {:4f}'.format(i, mean))
 
 
 

@@ -173,7 +173,7 @@ class TestAutoEmbedder(TestCase):
             self.assertTrue(torch.allclose(got_M, expected_M))
 
     def test_sparse_emb_solver_functionality(self):
-        print('TESTING SPARSE EMB SOLVER')
+        vprint('TESTING SPARSE EMB SOLVER')
         bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
         keep_prob = 1
@@ -208,7 +208,7 @@ class TestAutoEmbedder(TestCase):
             solver = h.embedder.HilbertEmbedderSolver(
                 loader, loss, opt, d=300, learning_rate=0.001,
                 shape=shape,
-                one_sided=False, learn_bias=learn_bias, verbose=True,
+                one_sided=False, learn_bias=learn_bias, verbose=False,
                 device=h.CONSTANTS.MATRIX_DEVICE,
                 learner='sparse'
             )

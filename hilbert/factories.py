@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.optim as op
 import hilbert as h
-from hilbert.bigram import DenseShardPreloader
+from hilbert.bigram import DenseShardPreloader, SparsePreloader
 
 
 def get_opt(string):
@@ -23,6 +23,34 @@ def get_init_embs(pth):
     return init_embeddings.V, init_embeddings.W
 
 
+def build_preloader(
+        bigram_path,
+        sector_factor=1,
+        shard_factor=1,
+        t_clean_undersample=None,
+        alpha_unigram_smoothing=None,
+        sparse=False,
+        is_w2v=False,
+        device=None
+    ):
+    if sparse:
+        preloader = SparsePreloader(
+            bigram_path, zk=1000,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+            filter_repeats=False,
+            include_unigram_data=is_w2v,
+            device=device,
+        )
+    else:
+        preloader = DenseShardPreloader(
+            bigram_path, sector_factor, shard_factor,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+        )
+    return preloader
+
+
 ### Word2vec ###
 def construct_w2v_solver(
         bigram_path,
@@ -37,19 +65,28 @@ def construct_w2v_solver(
         sector_factor=1,
         shard_factor=1,
         seed=1,
+        sparse=False,
         device=None,
         verbose=True
     ):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+    # make the preloader
+    preloader = build_preloader(
+        bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        alpha_unigram_smoothing=alpha_unigram_smoothing,
+        t_clean_undersample=t_clean_undersample,
+        sparse=sparse,
+        is_w2v=True,
+        device=device
+    )
+
     # Make the loader
     loader = h.model_loaders.Word2vecLoader(
-        DenseShardPreloader(
-            bigram_path, sector_factor, shard_factor,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-        ),
+        preloader,
         verbose=verbose,
         device=device,
         k=k,
@@ -83,6 +120,7 @@ def construct_w2v_solver(
         learn_bias=False,
         seed=seed,
         verbose=verbose,
+        learner='sparse' if sparse else 'dense',
         device=device
     )
     if verbose:
@@ -107,6 +145,7 @@ def construct_glv_solver(
         seed=1,
         device=None,
         nobias=False,
+        sparse=False,
         verbose=True
     ):
     if nobias:
@@ -116,13 +155,21 @@ def construct_glv_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+    # make the preloader
+    preloader = build_preloader(
+        bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        alpha_unigram_smoothing=alpha_unigram_smoothing,
+        t_clean_undersample=t_clean_undersample,
+        sparse=sparse,
+        is_w2v=False,
+        device=device
+    )
+
     # Make bigram loader
     loader = h.model_loaders.GloveLoader(
-        DenseShardPreloader(
-            bigram_path, sector_factor, shard_factor,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-        ),
+        preloader,
         verbose=verbose,
         device=device,
         X_max=X_max,
@@ -157,6 +204,7 @@ def construct_glv_solver(
         learn_bias=not nobias,
         seed=seed,
         device=device,
+        learner='sparse' if sparse else 'dense',
         verbose=verbose
     )
     return embsolver
@@ -178,18 +226,27 @@ def _construct_tempered_solver(
     shard_factor=1,
     seed=1,
     device=None,
+    sparse=False,
     verbose=True
 ):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+    # make the preloader
+    preloader = build_preloader(
+        bigram_path,
+        sector_factor=sector_factor,
+        shard_factor=shard_factor,
+        alpha_unigram_smoothing=alpha_unigram_smoothing,
+        t_clean_undersample=t_clean_undersample,
+        sparse=sparse,
+        is_w2v=False,
+        device=device
+    )
+
     # Now make the loader.
     loader = loader_class(
-        DenseShardPreloader(
-            bigram_path, sector_factor, shard_factor,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-        ),
+        preloader,
         verbose=verbose,
         device=device,
     )
@@ -224,6 +281,7 @@ def _construct_tempered_solver(
         learn_bias=False,
         seed=seed,
         device=device,
+        learner='sparse' if sparse else 'dense',
         verbose=verbose
     )
     return embsolver

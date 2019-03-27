@@ -110,6 +110,7 @@ class DenseShardPreloader(BatchPreloader):
 
     def describe(self):
         s = super(DenseShardPreloader, self).describe()
+        s += 'Dense Preloader\n'
         s += '\tsector_factor = {}\n'.format(self.sector_factor)
         s += '\tshard_factor = {}\n'.format(self.shard_factor)
         return s
@@ -119,8 +120,6 @@ class DenseShardPreloader(BatchPreloader):
 """
 Class for smart compressed data loading & iteration.
 """
-# TODO: must integrate Nij=0, Z-sampling!
-
 class SparsePreloader(BatchPreloader):
 
     def __init__(self, bigram_path,
@@ -128,7 +127,7 @@ class SparsePreloader(BatchPreloader):
                  t_clean_undersample=None,
                  alpha_unigram_smoothing=None,
                  include_unigram_data=False,
-                 filter_repeats=True,
+                 filter_repeats=False,
                  device=None):
         """
 
@@ -228,7 +227,11 @@ class SparsePreloader(BatchPreloader):
 
     def describe(self):
         s = super(SparsePreloader, self).describe()
-        return 'Sparse preloader\n' + s
+        s += 'Sparse preloader\n'
+        s += '\tzk = {}\n'.format(self.zk)
+        s += '\tfilter repeats = {}\n'.format(self.filter_repeats)
+        s += '\tinclude unigram data = {}\n'.format(self.include_unigram_data)
+        return s
 
 
 
