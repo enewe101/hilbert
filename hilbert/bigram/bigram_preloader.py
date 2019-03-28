@@ -177,12 +177,12 @@ class SparsePreloader(BatchPreloader):
         self.sparse_nxx = []
 
         # iterate over each row in the sparse matrix and get marginals
-        self.Nx = torch.zeros((self.n_batches,))
-        self.Nxt = torch.zeros((self.n_batches,))
+        self.Nx = torch.zeros((self.n_batches,), device=self.device)
+        self.Nxt = torch.zeros((self.n_batches,), device=self.device)
 
         for i in range(len(bigram.Nxx.data)):
-            js_tensor = torch.LongTensor(bigram.Nxx.rows[i])
-            nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i])
+            js_tensor = torch.LongTensor(bigram.Nxx.rows[i]).to(self.device)
+            nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i]).to(self.device)
 
             # put in the marginal sums!
             self.Nx[i] = nijs_tensor.sum()
@@ -190,14 +190,11 @@ class SparsePreloader(BatchPreloader):
 
             # store the implicit sparse matrix as a series
             # of tuples, J-indexes, then Nij values.
-            self.sparse_nxx.append(
-                ( js_tensor.to(self.device),
-                  nijs_tensor.to(self.device), )
-            )
+            self.sparse_nxx.append((js_tensor, nijs_tensor,))
+            bigram.Nxx.rows[i].clear()
+            bigram.Nxx.data[i].clear()
 
         # now we need to store the other statistics
-        self.Nx = self.Nx.to(self.device)
-        self.Nxt = self.Nxt.to(self.device)
         self.N = self.Nx.sum().to(self.device)
 
         if self.include_unigram_data:
@@ -255,7 +252,6 @@ class ZedSampler(object):
         # need to make this number on the GPU so that we do uniform sampling
         # directly on the GPU, otherwise we will do very slow transfers
         self.upper_limit = torch.FloatTensor([upper_limit])[0].to(device)
-        self.sampler = dist.Uniform(0, self.upper_limit)
 
 
     def z_sample(self, a_samples, filter_repeats=False):
@@ -286,10 +282,12 @@ class ZedSampler(object):
         samples = torch.randint(self.upper_limit.int().item(),
                                 device=self.upper_limit.device,
                                 size=(min(len(a_samples), self.max_z_samples),),
-                                ).sort()[0]
+                                ).long()
 
         if not filter_repeats:
             return samples
+        else:
+            samples = samples.sort()[0]
 
         # filter so we don't have repeats, taking advantage of the fact
         # that both sets are sorted.
