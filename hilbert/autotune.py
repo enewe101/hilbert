@@ -1,7 +1,7 @@
 import torch
 import hilbert.factories as proletariat
 from hilbert.runners import get_base_argparser
-from hilbert.autoembedder import DivergenceError
+from hilbert.embedder import DivergenceError
 from progress.bar import IncrementalBar
 from math import log10, floor
 
@@ -153,7 +153,6 @@ def main():
         '--X-max', '-x', type=float, default=100, dest='X_max',
         help="xmax in glove weighting function"
     )
-
     base_parser.add_argument(
         '--alpha', '-a', type=float, default=3 / 4,
         help="exponent in the weighting function for glove"

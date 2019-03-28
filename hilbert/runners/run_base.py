@@ -15,6 +15,25 @@ EMBEDDINGS_DIR = (
     h.CONSTANTS.EMBEDDINGS_DIR
 )
 
+COMMON_KWARGS = {
+    'epochs': 100,
+    'iters_per_epoch': 100,
+    'init_embeddings_path': None,
+    'd': 300,
+    'update_density': 1.,
+    'learning_rate': 0.01,
+    'opt_str': 'adam',
+    'sector_factor': 1,
+    'shard_factor': 1,
+    'shard_times': 1,
+    'seed': 1,
+    'device': None,
+    'sparse': False,
+}
+
+def kw_filter(kwargs):
+    ignore = {'epochs', 'iters_per_epoch', 'shard_times'}
+    return {k: v for k, v in kwargs.items() if k not in ignore}
 
 # Main thing that is imported
 def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir):
@@ -139,6 +158,10 @@ def get_base_argparser():
     parser.add_argument(
         '--dimensions', '-d', type=int, default=300, dest='d',
         help='desired dimensionality of the embeddings being produced'
+    )
+    parser.add_argument(
+        '--sparse', action='store_true', dest='sparse',
+        help='do sparse implementation instead of explicit MF'
     )
 
     return parser
