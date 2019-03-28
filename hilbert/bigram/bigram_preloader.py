@@ -186,7 +186,7 @@ class SparsePreloader(BatchPreloader):
 
             # put in the marginal sums!
             Nx[i] = nijs_tensor.sum()
-            Nxt += nijs_tensor
+            Nxt[js_tensor] += nijs_tensor
 
             # store the implicit sparse matrix as a series
             # of tuples, J-indexes, then Nij values.
@@ -196,8 +196,8 @@ class SparsePreloader(BatchPreloader):
             )
 
         # now we need to store the other statistics
-        self.Nx = Nx.flatten().to(self.device)
-        self.Nxt = Nxt.flatten().to(self.device)
+        self.Nx = Nx.to(self.device)
+        self.Nxt = Nxt.to(self.device)
         self.N = self.Nx.sum().to(self.device)
 
         if self.include_unigram_data:
