@@ -48,7 +48,8 @@ def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embedding
         print('epoch\t{}'.format(epoch))
 
         # cycle the solver, this is a big boy that backprops gradients.
-        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times)
+        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times,
+                                 very_verbose=False)
 
         # saving data intermediately
         save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)

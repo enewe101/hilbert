@@ -2,6 +2,7 @@ import time
 import hilbert as h
 import torch
 import torch.nn as nn
+from progress.bar import ChargingBar
 
 class DivergenceError(Exception):
     pass
@@ -177,12 +178,14 @@ class HilbertEmbedderSolver(object):
         return self.dictionary
 
 
-    def cycle(self, iters=1, shard_times=1, very_verbose=False):
+    def cycle(self, iters=1, shard_times=1, very_verbose=True):
         losses = []
 
-        start = time.time()
-        for _ in range(iters):
+        for it in range(iters):
             self.epoch_loss = 0
+
+            if very_verbose:
+                bar = ChargingBar('Epoch: {:6}'.format(it), max=len(self.loader))
 
             # iterate over the shards we have to do
             for batch_id, batch_data in self.loader:
@@ -207,10 +210,7 @@ class HilbertEmbedderSolver(object):
                     self.epoch_loss += loss.item()
 
                     if very_verbose:
-                        print('\tbatch load time: {}'.format(
-                            time.time() - start)
-                        )
-                        start = time.time()
+                        bar.update()
 
             losses.append(self.epoch_loss)
             if self.verbose:

@@ -36,6 +36,10 @@ class ModelBatchLoader(Describable):
         return self._load(prepared)
 
 
+    def __len__(self):
+        return len(self.preloaded_batches)
+
+
     def describe(self):
         return self.preloader.describe()
 
