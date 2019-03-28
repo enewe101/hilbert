@@ -164,7 +164,7 @@ class SparsePreloader(BatchPreloader):
     def preload_iter(self, *args, **kwargs):
         super(SparsePreloader, self).preload_iter(*args, **kwargs)
 
-        bigram = h.bigram.BigramBase.load(self.bigram_path)
+        bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
 
         # number of nonzero elements
         self.n_nonzeros = bigram.Nxx.nnz
@@ -176,11 +176,17 @@ class SparsePreloader(BatchPreloader):
         # iterate over each row index in the sparse matrix
         self.sparse_nxx = []
 
-        # iterate over each row in the sparse matrix
-        # very unfortunate that we have to store idx as Longs :(
+        # iterate over each row in the sparse matrix and get marginals
+        Nx = torch.zeros((self.n_batches,))
+        Nxt = torch.zeros((self.n_batches,))
+
         for i in range(len(bigram.Nxx.data)):
             js_tensor = torch.LongTensor(bigram.Nxx.rows[i])
             nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i])
+
+            # put in the marginal sums!
+            Nx[i] = nijs_tensor.sum()
+            Nxt += nijs_tensor
 
             # store the implicit sparse matrix as a series
             # of tuples, J-indexes, then Nij values.
@@ -190,9 +196,9 @@ class SparsePreloader(BatchPreloader):
             )
 
         # now we need to store the other statistics
-        self.Nx = bigram.Nx.flatten().to(self.device)
-        self.Nxt = bigram.Nxt.flatten().to(self.device)
-        self.N = bigram.N.to(self.device)
+        self.Nx = Nx.flatten().to(self.device)
+        self.Nxt = Nxt.flatten().to(self.device)
+        self.N = self.Nx.sum().to(self.device)
 
         if self.include_unigram_data:
             self.uNx = bigram.uNx.flatten().to(self.device)

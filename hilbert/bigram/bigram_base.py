@@ -13,6 +13,7 @@ class BigramBase(object):
         unigram,
         Nxx,
         device=None,
+        marginalize=True,
         verbose=True
     ):
         """
@@ -52,11 +53,13 @@ class BigramBase(object):
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
-        self.Nx = torch.tensor(
-            self.Nxx.sum(axis=1), dtype=dtype, device=mem_device)
-        self.Nxt = torch.tensor(
-            self.Nxx.sum(axis=0), dtype=dtype, device=mem_device)
-        self.N = torch.sum(self.Nx)
+
+        if marginalize:
+            self.Nx = torch.tensor(
+                self.Nxx.sum(axis=1), dtype=dtype, device=mem_device)
+            self.Nxt = torch.tensor(
+                self.Nxx.sum(axis=0), dtype=dtype, device=mem_device)
+            self.N = torch.sum(self.Nx)
 
         self.validate_shape()
         self.undersampled = False
@@ -86,14 +89,14 @@ class BigramBase(object):
 
 
     @staticmethod
-    def load(path, device=None, verbose=True):
+    def load(path, device=None, verbose=True, marginalize=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
         unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-        return BigramBase(unigram, Nxx, device=device, verbose=verbose)
+        return BigramBase(unigram, Nxx, device=device, verbose=verbose, marginalize=marginalize)
 
 
     @property
