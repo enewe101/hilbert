@@ -4,14 +4,15 @@ import hilbert.run_base as hrun
 import hilbert.factories as proletariat
 
 
-def run_diff(
+def run_addiff(
         bigram_path,
+        bigram_path2,
         save_embeddings_dir,
         epochs=100,
         iters_per_epoch=100,
         init_embeddings_path=None,
         d=300,
-        w=5,
+        diff=5,
         temperature=1,
         update_density=1.,
         mask_diagonal=False,
@@ -27,14 +28,14 @@ def run_diff(
         device='cuda:1',
     ):
 
-    embsolver = proletariat.construct_diffu_solver(
-        bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
+    embsolver = proletariat.construct_addiff_solver(
+        bigram_path=bigram_path, bigram_path2=bigram_path2, init_embeddings_path=init_embeddings_path,
         d=d, temperature=temperature, update_density=update_density,
         mask_diagonal=mask_diagonal, learning_rate=learning_rate,
         opt_str=opt_str, shard_factor=shard_factor,
         sector_factor=sector_factor, num_loaders=num_loaders,
         queue_size=queue_size, loader_policy=loader_policy,
-        seed=seed, device=device, w=w
+        seed=seed, device=device, diff=diff
     )
 
     print(embsolver.describe())
@@ -71,6 +72,10 @@ if __name__ == '__main__':
     base_parser.add_argument(
         '--word-window', '-w', type=int, default=5, dest='w',
         help=("Steps of diffusion to do"))
+    base_parser.add_argument(
+        '--bigram-path2', '-B' type=str, default=None, dest='bigram-path 2',
+        help=("Second bigram to load, to be used for the window size. First bigram path should be window 1 bigram"))
+    
     all_args = vars(base_parser.parse_args())
     hrun.modify_args(all_args)
     run_diff(**all_args)
