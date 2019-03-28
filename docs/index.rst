@@ -6,6 +6,134 @@
 Hilbert --- simple embedder for deep learning.
 ==============================================
 
+Installation
+~~~~~~~~~~~~
+Hilbert uses Pytorch; you'll need that installed first.
+Then do
+
+.. code-block:: python
+
+    pip install hilbert
+
+
+
+Make Embeddings
+~~~~~~~~~~~~~~~
+
+You'll need to run two scripts to make embeddings.  The first extracts bigram
+statistics from your corpus, and stores them in a format that is efficient for
+training:
+
+.. code-block:: python
+    
+    python extract.py etc...
+
+The second one uses the bigram statistics to train embeddings
+according to your choice of model, and writes the embeddings to disk.  Once
+you've extracted bigram data once, you can use it to train many different
+models.
+
+Read on for more details about the two commands.
+
+
+Extract Corpus Statistics:
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+The corpus file needs to be space-tokenized, and each newline creates a new
+*cooccurrence context*.  Usually, this means you'll format the corpus to have
+each *document* on its own line, whatever "document" means to you.  Whith that
+formatting, only words *within* a document can be considered as cooccurring (if
+they are less than ``--window-size`` number of words appart.  Another option
+would be to put each *sentence* on its own line, in which case two in different
+adjacent sentences would not be considered as cooccurring even if they were
+fewer than ``--window-size`` words appart.
+
+Explain the basic options, and then point to 
+
+To learn about the other options run ``python run_mle.py -h``.
+
+
+Train Embeddings:
+^^^^^^^^^^^^^^^^^
+
+Hilbert can make embeddings using currently three models: Hilbert-MLE,
+Hilbert-SGNS, and Hilert-GloVe.  Usually, you'll make embeddings by invoking
+one of the runner scripts found in ``hilbert/hilbert/runners/``.
+
+The minimal commands for running Hilbert-MLE file is:
+
+.. code-block:: bash
+
+    python run_hbt_w2v.py \
+        --bigram /path/to/bigram-statistics/
+        --out-dir /path/to/vectors \
+        --learning-rate 0.025 \
+        --epochs 100 \
+        --dimensions 300
+
+Where ``/path/to/bigram-statistics`` should point to the directory created by
+running the bigram statistics extraction script.  The script will create
+embeddings and save them in the directory ``path/to/vectors``.  Some of the 
+key parameters for the run are shown.  There are a lot of other options, 
+which you can learn about by running ``python run_mle.py -h``.
+
+Running Hilbert-SGNS and Hilbert-GloVe is similar.  Here is a command 
+that uses good defaults for Hilbert-SGNS:
+
+.. code-block:: bash
+
+    python run_hbt_w2v.py \
+        --bigram /path/to/bigram-statistics/
+        --out-dir /path/to/vectors \
+        --learning-rate 0.025 \
+        --epochs 100 \
+        --dimensions 300
+
+Finally, a command that runs Hilbert-GloVe with good defaults:
+
+.. code-block:: bash
+
+    python run_hbt_w2v.py \
+        --bigram /path/to/bigram-statistics/
+        --out-dir /path/to/vectors \
+        --learning-rate 0.025 \
+        --epochs 100 \
+        --dimensions 300
+
+The runtime depends on the vocabulary size.  Training the top 50k most frequent
+words in a concatenation of Gigaword and a Wikipedia 2018 dump takes about
+3hrs for each of the models.
+
+.. todo::
+
+    does the output dir need to exist?
+    are the defaults generally good numbers?
+
+
+.. todo::
+
+    What kinds of encodings are supported?  Are there any "bad" inputs that
+    should not appear in the corpus?
+
+
+
+
+
+
+
+
+Use Embeddings
+~~~~~~~~~~~~~~
+
+Use a Custom Model
+~~~~~~~~~~~~~~~~~~
+
+
+Reference
+~~~~~~~~~
+
+
+
+
 Embeddings
 ~~~~~~~~~~
 
