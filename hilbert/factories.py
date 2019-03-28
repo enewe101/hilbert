@@ -266,7 +266,7 @@ def construct_diffu_solver(
         sector_factor=sector_factor, shard_factor=shard_factor,
         num_loaders=num_loaders, t_clean_undersample=t_clean_undersample,
         alpha_unigram_smoothing=alpha_unigram_smoothing, queue_size=queue_size,
-        device=device, verbose=verbose, w=5
+        device=device, verbose=verbose, w=w
     )
 
     # Make the loss

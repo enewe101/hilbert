@@ -36,7 +36,7 @@ def run_diff(
     #     queue_size=queue_size, loader_policy=loader_policy,
     #     seed=seed, device=device
     # )
-
+    print("word: ", w)
     embsolver = proletariat.construct_diffu_solver(
         bigram_path=bigram_path, init_embeddings_path=init_embeddings_path,
         d=d, temperature=temperature, update_density=update_density,
@@ -78,6 +78,9 @@ if __name__ == '__main__':
             "Use temperature > 1 for more equal weights."
         )
     )
+    base_parser.add_argument(
+        '--word-window', '-w', type=int, default=5, dest='w',
+        help=("Steps of diffusion to do"))
     all_args = vars(base_parser.parse_args())
     hrun.modify_args(all_args)
     run_diff(**all_args)

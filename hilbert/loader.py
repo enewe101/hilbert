@@ -211,11 +211,10 @@ class BufferedLoaderGPU(Loader):
         self.gpu_preloaded= None
 
     def __iter__(self):
-        if self.gpu_preloaded = None:
+        if self.gpu_preloaded == None:
             self.gpu_preloaded = [
-                self._load(preload) for loader_id in range(self.num_loaders)
-                for cpu_preloads in self._preload_iter(loader_id)
-                for preload in self.cpu_preloads
+                self._load(cpu_preload) for loader_id in range(self.num_loaders)
+                for cpu_preload in self._preload_iter(loader_id)
             ]
 
         for preload in self.gpu_preloaded:

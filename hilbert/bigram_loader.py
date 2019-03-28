@@ -303,11 +303,11 @@ class DiffLoader(BigramLoaderBase):
         return stationary[:n]
 
     def _load(self, preloaded):
+        print("diffusion window:", self.w)
         device = self.device or h.CONSTANTS.MATRIX_DEVICE
         shard_id, bigram_data, unigram_data = preloaded
         Nxx, Nx, Nxt, N = tuple(tensor.to(device) for tensor in bigram_data)
         trans_M = Nxx / Nx
-        print("found initial trans matrix")
         altered = torch.zeros(trans_M.size(), dtype=h.CONSTANTS.DEFAULT_DTYPE, device=device)
         denom = 0
         for i in range(self.w):
@@ -320,9 +320,8 @@ class DiffLoader(BigramLoaderBase):
         #pi = torch.matrix_power(altered, 1000)[0]
         #pi = pi.view(pi.size()[0],1)
         pi = self.find_stationary_svd(altered)
-        Pxx_data = torch.mm(altered, pi)
+        Pxx_data = altered * pi
         Pxx_independent = torch.mm(pi, torch.t(pi))
-
         return shard_id, {
             'Pxx_data' : Pxx_data, 'Pxx_independent' : Pxx_independent
         }

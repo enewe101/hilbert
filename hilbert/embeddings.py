@@ -78,7 +78,7 @@ class Embeddings:
 
     def __init__(
         self, V, W=None, v_bias=None, w_bias=None, dictionary=None,
-        device=None, normalize=False
+        device='cuda:2', normalize=False
     ):
 
         # Store the choice of device, use (but don't save) default if needed.
