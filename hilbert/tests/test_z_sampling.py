@@ -3,8 +3,12 @@ import torch
 import numpy as np
 from hilbert.bigram.bigram_preloader import ZedSampler
 from unittest import TestCase, main
-from .test_fullauto import vprint
 
+VERBOSE = False
+
+def vprint(*args):
+    if VERBOSE:
+        print(*args)
 
 class TestZedSampler(TestCase):
 

@@ -62,13 +62,10 @@ class LoaderTest(TestCase):
 
                 # these are z-samples we will draw, given that we hardcode the seed
                 torch.manual_seed(i)
-                expected_zs = torch.unique(
-                    torch.randint(preloader.n_batches,
-                                  device=device,
-                                  size=(min(len(a_nijs), zk,),)
-                                  ).sort()[0],
-                    sorted=True,
-                )
+                expected_zs = torch.randint(preloader.n_batches,
+                                            device=device,
+                                            size=(min(len(a_nijs), zk,),)).sort()[0]
+
                 got_z_nijs = nijs[-len(expected_zs):]
                 self.assertEqual(len(expected_zs), len(got_z_nijs))
 

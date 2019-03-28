@@ -177,16 +177,16 @@ class SparsePreloader(BatchPreloader):
         self.sparse_nxx = []
 
         # iterate over each row in the sparse matrix and get marginals
-        Nx = torch.zeros((self.n_batches,))
-        Nxt = torch.zeros((self.n_batches,))
+        self.Nx = torch.zeros((self.n_batches,))
+        self.Nxt = torch.zeros((self.n_batches,))
 
         for i in range(len(bigram.Nxx.data)):
             js_tensor = torch.LongTensor(bigram.Nxx.rows[i])
             nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i])
 
             # put in the marginal sums!
-            Nx[i] = nijs_tensor.sum()
-            Nxt[js_tensor] += nijs_tensor
+            self.Nx[i] = nijs_tensor.sum()
+            self.Nxt[js_tensor] += nijs_tensor
 
             # store the implicit sparse matrix as a series
             # of tuples, J-indexes, then Nij values.
@@ -196,8 +196,8 @@ class SparsePreloader(BatchPreloader):
             )
 
         # now we need to store the other statistics
-        self.Nx = Nx.to(self.device)
-        self.Nxt = Nxt.to(self.device)
+        self.Nx = self.Nx.to(self.device)
+        self.Nxt = self.Nxt.to(self.device)
         self.N = self.Nx.sum().to(self.device)
 
         if self.include_unigram_data:
@@ -283,13 +283,10 @@ class ZedSampler(object):
         """
 
         # sort the samples and grab the values, [0] (args are in [1]
-        samples = torch.unique(
-            torch.randint(self.upper_limit.int().item(),
-                          device=self.upper_limit.device,
-                          size=(min(len(a_samples), self.max_z_samples),)
-                          ).sort()[0],
-            sorted=True,
-        )
+        samples = torch.randint(self.upper_limit.int().item(),
+                                device=self.upper_limit.device,
+                                size=(min(len(a_samples), self.max_z_samples),),
+                                ).sort()[0]
 
         if not filter_repeats:
             return samples
@@ -300,6 +297,7 @@ class ZedSampler(object):
         a_idx = 0 # torch.LongTensor([0], device=samples.device)[0]
         s_idx = 0 # torch.LongTensor([0], device=samples.device)[0]
 
+        # TODO: fix algorithm so that it properly handles when the same value is repeated.
         try:
             while True:
 
