@@ -19,12 +19,15 @@ class BatchPreloader(Describable):
         self.t_clean_undersample = t_clean_undersample
         self.alpha_unigram_smoothing = alpha_unigram_smoothing
 
+
     @abc.abstractmethod
     def preload_iter(self, *args, **kwargs):
         return
 
+
     def prepare(self, preloaded):
         return preloaded
+
 
     @abc.abstractmethod
     def describe(self):

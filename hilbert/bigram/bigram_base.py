@@ -47,14 +47,15 @@ class BigramBase(object):
             self.unigram.Nx, dtype=dtype, device=mem_device).view(-1, 1)
         self.uNxt = torch.tensor(
             self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+        self.uN = torch.tensor(
+            self.unigram.N, dtype=dtype, device=mem_device)
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
         self.Nx = torch.tensor(
-            np.sum(self.Nxx, axis=1), dtype=dtype, device=mem_device)
+            self.Nxx.sum(axis=1), dtype=dtype, device=mem_device)
         self.Nxt = torch.tensor(
-            np.sum(self.Nxx, axis=0), dtype=dtype, device=mem_device)
+            self.Nxx.sum(axis=0), dtype=dtype, device=mem_device)
         self.N = torch.sum(self.Nx)
 
         self.validate_shape()
