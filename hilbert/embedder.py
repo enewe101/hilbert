@@ -207,7 +207,7 @@ class HilbertEmbedderSolver(object):
                     self.optimizer.step()
 
                     # statistics
-                    self.epoch_loss += loss.data[0]
+                    self.epoch_loss += loss.item()
 
                     if very_verbose:
                         bar.next()

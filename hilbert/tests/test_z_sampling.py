@@ -41,7 +41,7 @@ class TestZedSampler(TestCase):
 
                 # now sample
                 timers[i].append(time.clock())
-                z_samples = sampler.z_sample(a_samples, filter_repeats=True)
+                z_samples, z_ijs = sampler.z_sample(a_samples)
                 timers[i][-1] = time.clock() - timers[i][-1]
 
                 # now test them

@@ -31,9 +31,13 @@ def build_preloader(
         alpha_unigram_smoothing=None,
         sparse=False,
         is_w2v=False,
+        is_mle=False,
         device=None
     ):
     if sparse:
+        # if not is_mle:
+        #     raise NotImplementedError('Sparse only works for MLE (for now)!')
+
         preloader = SparsePreloader(
             bigram_path, zk=1000,
             t_clean_undersample=t_clean_undersample,
@@ -241,6 +245,7 @@ def _construct_tempered_solver(
         t_clean_undersample=t_clean_undersample,
         sparse=sparse,
         is_w2v=False,
+        is_mle=True,
         device=device
     )
 

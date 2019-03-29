@@ -18,7 +18,7 @@ class IntegrationTests(TestCase):
                 'bigram_path': BIGRAM_PATH,
                 'save_embeddings_dir': SAVE_EMBEDDINGS,
                 'epochs': 2,
-                'iters_per_epoch': 5,
+                'iters_per_epoch': 3,
                 'init_embeddings_path': None,
                 'd': 50,
                 'update_density': 1.,
@@ -40,7 +40,6 @@ class IntegrationTests(TestCase):
                                               'alpha': 0.75}}
             temp_kwargs = {**common_kwargs, **{'temperature': 2.0}}
 
-            # make a nice stew with 3 carrots and a tomato!
             runners_args = [
                 (h.runners.run_w2v, w2v_kwargs),
                 (h.runners.run_glv, glv_kwargs),

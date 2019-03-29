@@ -171,7 +171,8 @@ class SparsePreloader(BatchPreloader):
 
         # number of batches, equivalent to vocab size
         self.n_batches = len(bigram.Nxx.data)
-        self.z_sampler = ZedSampler(self.n_batches, self.device, self.zk)
+        self.z_sampler = ZedSampler(self.n_batches, self.device, self.zk,
+                                    filter_repeats=self.filter_repeats)
 
         # iterate over each row index in the sparse matrix
         self.sparse_nxx = []
@@ -211,7 +212,7 @@ class SparsePreloader(BatchPreloader):
         i, js = preloaded, self.sparse_nxx[preloaded][0]
 
         # zed-samples
-        z_js, z_nijs = self.z_sampler.z_sample(js, filter_repeats=self.filter_repeats)
+        z_js, z_nijs = self.z_sampler.z_sample(js)
         all_js = torch.cat((js, z_js))
         all_nxx = torch.cat((self.sparse_nxx[preloaded][1], z_nijs))
 
@@ -278,13 +279,14 @@ class ZedSampler(object):
         """
 
         # sort the samples and grab the values, [0] (args are in [1]
+        num_zeds = min(len(a_samples), self.max_z_samples)
         samples = torch.randint(self.upper_limit,
                                 device=self.device,
-                                size=(min(len(a_samples), self.max_z_samples),),
+                                size=(num_zeds,),
                                 ).long()
 
         if not self.filter_repeats:
-            return samples, self.zeds
+            return samples, self.zeds[:num_zeds]
         else:
             samples = samples.sort()[0]
 
