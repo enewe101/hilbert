@@ -90,14 +90,14 @@ def extract_bigram(corpus_path, sampler, verbose=True):
 
 
 def extract_bigram_parallel(
-    corpus_path, num_workers, unigram, sampler_type, window, min_count, thresh,
+    corpus_path, num_workers, unigram, sampler_type, window, min_count,
     save_path=None, verbose=True
 ):
     pool = Pool(num_workers)
     args = (
         (
             corpus_path, worker_id, num_workers, unigram,
-            sampler_type, window, min_count, thresh, verbose
+            sampler_type, window, min_count, verbose
         ) 
         for worker_id in range(num_workers)
     )
@@ -116,11 +116,11 @@ def extract_bigram_parallel(
 def extract_bigram_parallel_worker(args):
     (
         corpus_path, worker_id, num_workers, unigram, sampler_type, 
-        window, min_count, thresh, verbose
+        window, min_count, verbose
     ) = args
     bigram = h.bigram.BigramMutable(unigram)
     sampler = h.bigram.sampler.get_sampler(
-        sampler_type, bigram, window, min_count, thresh)
+        sampler_type, bigram, window, min_count)
     file_chunk = h.file_access.open_chunk(corpus_path, worker_id, num_workers)
     start = time.time()
     for line_num, line in enumerate(file_chunk):
@@ -184,8 +184,7 @@ def extract_unigram_and_bigram(
     # Train the bigram, and save it to disc.
     print('Training bigram data...')
     bigram = extract_bigram_parallel(
-        corpus_path, processes, unigram, sampler_type, window, min_count, 
-        thresh
+        corpus_path, processes, unigram, sampler_type, window, min_count
     )
     print('Saving bigram data...')
     bigram.save(out_dir)

@@ -28,7 +28,7 @@ training.  In ``hilbert/runners/`` do:
     
     python extract.py \
         --corpus /path/to/corpus.txt \
-        --out-dir /path/to/output/ \
+        --out-dir /path/to/cooccurrence-statistics/ \
         --sampler dynamic \ 
         --window 5 \
         --vocab 50000 \
@@ -47,7 +47,7 @@ the Hilbert-MLE model, go to ``hilbert/runners/`` and do:
 .. code-block:: bash
     
     python run_mle.py \
-        --bigram /path/to/bigram-statistics/
+        --bigram /path/to/cooccurrence-statistics/ \
         --out-dir /path/to/vectors \
         --learning-rate 0.025 \
         --epochs 100 \
@@ -63,19 +63,46 @@ Read on for more details about these commands.
 
 Extracting Cooccurrence Statistics:
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-The corpus statistics command reads a corpus file, and extracts cooccurrence
-statistics.  Words that are near one another in the corpus are considered to
-"cooccurr".  More specifically, words less than ``--window-size`` distance
-appart, are considered to cooccurr, with some *cooccurrence weight*
-that depends on the separation distance and the choice of ``--sampler``.
 
-The ``flat`` sampler always attributes a cooccurrence weight of 1.  The
-``dynamic`` sampler, counts cooccurrences in a way that is similar to SGNS,
-except that it is deterministic; it assigns a cooccurrence weight of
+The ``runners/extract.py`` script reads a corpus file, and extracts the
+vocabulary, the unigram statistics, and the cooccurrence statistics---the
+number of times word $i$ occurs near word $j$, for each $(i,j)$ pair, for some
+definition of "cooccurrence".  There are different ways to define cooccurrence,
+but they all start by setting some ``--window`` size, such that words separated
+by fewer than ``--window`` tokens are considered to cooccur according to some weighting scheme that depends on the ``--sampler`` chosen.
+
+This script will write files to the the location specified by ``--out-dir``
+(which will be made if it doesn't exist).  A vocabulary will be stored at
+``out_dir/dictionary``, unigram frequencies will be stored in
+``out_dir/Nx.txt``, and cooccurrence statistics will be stored in various
+``out_dir/*.npz`` files.  These are basically serializations instances of the
+``dictionary.Dictionary``, ``unigram.Unigram`` and
+``bigram.bigram_base.BigramBase`` classes.  See the reference for those
+classes to understand the formats and how they work.
+
+
+Sampler
+.......
+
+The ``runners/extract.py`` script reads a corpus file, and extracts 
+cooccurrence statistics---the number of times word $i$ occurs near word $j$,
+for each $(i,j)$ pair, for some definition of "cooccurrence".  There are 
+different ways to define cooccurrence, but they all start by setting some
+``--window`` size, such that words separated by fewer than ``--window`` tokens
+are considered to cooccur.  Where they differ is in how cooccurrences are
+weighted.
+
+Using ``--sampler flat`` always attributes a cooccurrence weight of 1.  Using
+``--sampler dynamic``, counts cooccurrences in a way that is similar to SGNS,
+except that it deterministically takes the weighting equal to the expectation
+of SGNS's stochastic sampler; thus, it assigns a cooccurrence weight of
 ``(separation+1)/window_size``, where ``separation`` is the distance, in
-tokens, between cooccurring tokens.  The ``harmonic`` counts cooccurrences
-identically to GloVe, assigning a cooccurrence weight of ``1/separation``.
+tokens, between cooccurring tokens.  Using ``--sampler harmonic`` counts
+cooccurrences identically to GloVe, assigning a cooccurrence weight of
+``1/separation``.
 
+Corpus file format
+..................
 The corpus file should be in the following format: tokens should be
 space-separated, and documents should be line-separated.  I.e., place each
 document on its own line, in one large file.  Normally, you should lower-case
@@ -89,17 +116,6 @@ line.  Depending on your needs, you may want to do something else, like put
 each sentence on its own line, in which case only tokens within the same
 sentence can be considered to cooccur.
 
-To learn about other options, run ``python run_mle.py -h``.
-
-This script will write files to the the location specified by ``--out-dir``
-(which will be made if it doesn't exist).  A vocabulary will be stored at
-``out_dir/dictionary``, unigram frequencies will be stored in
-``out_dir/Nx.txt``, and cooccurrence statistics will be stored in various
-``out_dir/*.npz`` files.  These are basically serializations of the
-``dictionary.Dictionary``, ``unigram.Unigram`` and
-``bigram.bigram_base.BigramBase`` instances.  See the reference for those
-classes to understand the formats and how they work.
-
 
 Train Embeddings:
 ^^^^^^^^^^^^^^^^^
@@ -108,55 +124,45 @@ Hilbert can currently make embeddings using one of three models: Hilbert-MLE,
 Hilbert-SGNS, and Hilert-GloVe.  Usually, you'll make embeddings by invoking
 one of the runner scripts found in ``hilbert/hilbert/runners/``.
 
-The minimal commands for running Hilbert-MLE file is:
+The command for running Hilbert-MLE using good hyperparameter defaults was
+quoted above.  And we recommend using that because of its stable training
+dynamics and good all-round performance.  But, if you would like to run
+Hilbert-SGNS with good defaults, do:
 
 .. code-block:: bash
 
     python run_hbt_w2v.py \
         --bigram /path/to/bigram-statistics/
-        --out-dir /path/to/vectors \
+        --out-dir /path/to/vectors/ \
+        --learning-rate 0.025 \
+        --epochs 100 \
+        --dimensions 300
+
+...and to run Hilbert-GloVe with good defaults do:
+
+.. code-block:: bash
+
+    python run_hbt_w2v.py \
+        --bigram /path/to/bigram-statistics/
+        --out-dir /path/to/vectors/ \
         --learning-rate 0.025 \
         --epochs 100 \
         --dimensions 300
 
 Where ``/path/to/bigram-statistics`` should point to the directory created by
 running the bigram statistics extraction script.  The script will create
-embeddings and save them in the directory ``path/to/vectors``.  Some of the 
-key parameters for the run are shown.  There are a lot of other options, 
-which you can learn about by running ``python run_mle.py -h``.
-
-Running Hilbert-SGNS and Hilbert-GloVe is similar.  Here is a command 
-that uses good defaults for Hilbert-SGNS:
-
-.. code-block:: bash
-
-    python run_hbt_w2v.py \
-        --bigram /path/to/bigram-statistics/
-        --out-dir /path/to/vectors \
-        --learning-rate 0.025 \
-        --epochs 100 \
-        --dimensions 300
-
-Finally, a command that runs Hilbert-GloVe with good defaults:
-
-.. code-block:: bash
-
-    python run_hbt_w2v.py \
-        --bigram /path/to/bigram-statistics/
-        --out-dir /path/to/vectors \
-        --learning-rate 0.025 \
-        --epochs 100 \
-        --dimensions 300
+embeddings and save them in the directory ``path/to/vectors/``.  Again, to
+learn about all of the options, run ``python run_mle.py -h``.
 
 The runtime depends on the vocabulary size.  Training the top 50k most frequent
 words in a concatenation of Gigaword and a Wikipedia 2018 dump takes about
 3hrs for each of the models.
 
 .. todo::
+    default learning rate and number of epochs for each model
 
-    does the output dir need to exist?
-    are the defaults generally good numbers?
-
+.. todo::
+    When you run the extraction, you still need to sectorize.  Or do you.
 
 .. todo::
 
@@ -164,21 +170,54 @@ words in a concatenation of Gigaword and a Wikipedia 2018 dump takes about
     should not appear in the corpus?
 
 
-
-
-
-
+Evaluate Embeddings
+~~~~~~~~~~~~~~~~~~~
+Once you've got your embeddings trained, you'll probably want to check whether
+they're any good.  We include a script that you can run to check the embeddings
+against several *intrinsic* word similarity and anology tasks.  Be warned that
+performance on intrinsic tasks does not necessarily correlate with whatever
+application you may have in mind, but it is a good check that the embeddings
+have learned.  Think of it as a necessary but not sufficient check.  You'll
+still need to check against your specific application, but this will usually
+catch any fundamental issue with the training.
 
 
 Use Embeddings
 ~~~~~~~~~~~~~~
 
+
 Use a Custom Model
 ~~~~~~~~~~~~~~~~~~
+``hilbert`` makes it easy to define models that are part of the *simple
+embedder* class---roughly this means that they amount to matrix factorization.
+To make your own embedding model, you'll need to write at least two things:
+
+    1. A data loader.  The type and shape of data to be loaded onto the GPU
+           depends on the model, so you'll need to write a loader that puts
+           the right data onto the GPU for your model.
+    2. A loss function.  No surprise there.
+
+Once you've written these classes, you can optionally write a runner script
+which just makes it more convenient to run the model from the command line, by
+following the example of the runners for the other models in
+``hilbert/runners/``.
+
+In general, there is a potentially big difference between how a model is stated
+mathematically, and how a model is implemented.  The fact that the implicit
+factorization implementation of SGNS in word2vec seems so much different from
+the explicit factorization implementation here is testament to this fact.
+
+What this means for you is that, when going from model to implementation,
+you'll need to think about things like memory and data transfer, and you'll
+want to take advantage of sparsity in the structure of the problem.
 
 
 Reference
 ~~~~~~~~~
+``bigram.BigramBase``
+``unigram.Unigram``
+``dictionary.Dictionary``
+``embeddings.Embeddings``
 
 
 
