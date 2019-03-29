@@ -11,3 +11,7 @@ test-data
 _build
 pdf
 .idea
+data
+docs
+pubs
+stash

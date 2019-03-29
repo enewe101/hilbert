@@ -44,6 +44,28 @@ class TestUnigram(TestCase):
             self.assertTrue(unigram.Nx[i] >= unigram.Nx[i+1])
 
 
+    def test_apply_smoothing(self):
+
+        alpha = 0.6
+
+        # Make a unigram and fill it with tokens and counts.
+        unigram = h.unigram.Unigram(verbose=False)
+        for token in h.corpus_stats.load_test_tokens():
+            unigram.add(token)
+
+        counts = list(unigram.Nx)
+        expected_smoothed_Nx = [c**alpha for c in counts]
+        expected_smoothed_N = sum(expected_smoothed_Nx)
+
+        unigram.apply_smoothing(alpha)
+        self.assertEqual(expected_smoothed_Nx, unigram.Nx)
+        self.assertEqual(expected_smoothed_N, unigram.N)
+
+        # Attempting to apply smoothing twice is an error
+        with self.assertRaises(ValueError):
+            unigram.apply_smoothing(alpha)
+
+
     def test_unigram_creation_from_Nx(self):
         tokens = h.corpus_stats.load_test_tokens()
         dictionary = h.dictionary.Dictionary(tokens)
@@ -81,7 +103,7 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram()
+        unigram = h.unigram.Unigram(device=device)
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
 
@@ -156,7 +178,7 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram()
+        unigram = h.unigram.Unigram(device=device)
         for token in h.corpus_stats.load_test_tokens():
             unigram.add(token)
 

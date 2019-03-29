@@ -1,4 +1,5 @@
 from copy import deepcopy
+import subprocess
 import codecs
 
 class Dictionary(object):
@@ -32,6 +33,7 @@ class Dictionary(object):
     def get_id(self, token):
         return self.token_ids[token]
 
+
     def get_id_safe(self, token):
         """
         Do not raise KeyError if the token is not in the dictionary, instead
@@ -40,6 +42,7 @@ class Dictionary(object):
         if token in self.token_ids:
             return self.token_ids[token]
         return None
+
 
     def get_token(self, idx):
         return self.tokens[idx]
@@ -57,6 +60,18 @@ class Dictionary(object):
     def save(self, path):
         with codecs.open(path, 'w', 'utf8') as f:
             f.write('\n'.join(self.tokens))
+
+
+    @staticmethod
+    def check_vocab(path):
+        """
+        Determine the vocabulary of a dictionary on disk without creating a
+        Dictionary instance instance.
+        """
+        # We can tell the vocabulary from how long the ditionary
+        result = subprocess.run(['wc', '-l', path], stdout=subprocess.PIPE)
+        num_lines = int(result.stdout.split()[0]) + 1
+        return num_lines
 
 
     @staticmethod

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import dropout
 
-
+### Helper functions
 # function for applying the minibatching dropout and then
 # rescaling back so that it doesn't overweight samples
 def keep(tensor, keep_p):
@@ -28,100 +28,82 @@ def temper(loss, Pxx_independent, temperature):
     return loss
 
 
-def mask_diagonal(tensor):
-    """
-    Multiplies the main diagonal of `tensor` by zero.  This prevents updates
-    to parameters that would result due to their influence on the main diagonal.
-    """
-    # When viewing the tensor as a 1D list, the entries corresponding to
-    # diagonals happen every row_length + 1 elements.
-    tensor.view(-1)[::tensor.shape[1]+1] *= 0
-
-
+### Base class for losses
 class HilbertLoss(nn.Module):
 
-    def __init__(self, keep_prob, ncomponents, mask_diagonal=False):
+    def __init__(self, keep_prob, ncomponents):
         super(HilbertLoss, self).__init__()
         self.keep_prob = keep_prob
-        self.mask_diagonal = mask_diagonal
         self.rescale = float(keep_prob * ncomponents)
 
-    def forward(self, M_hat, shard, *args, **kwargs):
-        elementwise_loss = self._forward(M_hat, shard, *args, **kwargs)
-        if self.mask_diagonal and h.shards.on_diag(shard):
-            mask_diagonal(elementwise_loss)
+    def forward(self, M_hat, batch_data):
+        elementwise_loss = self._forward(M_hat, batch_data)
         minibatched_loss = keep(elementwise_loss, self.keep_prob)
         return torch.sum(minibatched_loss) / self.rescale
 
-    def _forward(self):
+    def _forward(self, M_hat, batch_data):
         raise NotImplementedError('Subclasses must override `_forward`.')
 
 
 
+# Special tempered base class for losses that use Pij under independence.
+class TemperedLoss(HilbertLoss):
+    def __init__(self, keep_prob, ncomponents, temperature=1.):
+        self.temperature = temperature
+        super(TemperedLoss, self).__init__(keep_prob, ncomponents)
+
+    def _forward(self, M_hat, batch_data):
+        untempered = self._forward_temper(M_hat, batch_data)
+        return temper(untempered, batch_data['Pxx_independent'], self.temperature)
+
+    def _forward_temper(self, M_hat, shard_data):
+        raise NotImplementedError("Subclasses must override `_forward_temper`.")
+
+
+
+### All specific losses, GloVe uses MSE
 class MSELoss(HilbertLoss):
-    def _forward(self, M_hat, shard, M, weights=None):
-        weights = 1 if weights is None else weights
+    def _forward(self, M_hat, batch_data):
+        weights = batch_data.get('weights', 1)
+        M = batch_data['M']
         return 0.5 * weights * ((M_hat - M) ** 2)
 
 
-class W2VLoss(HilbertLoss):
-    def _forward(self, M_hat, shard, Nxx, N_neg):
+
+class Word2vecLoss(HilbertLoss):
+    def _forward(self, M_hat, batch_data):
         logfactor = torch.log(torch.exp(M_hat) + 1)
-        term1 = N_neg * logfactor
-        term2 = Nxx * (logfactor - M_hat)
+        term1 = batch_data['N_neg'] * logfactor
+        term2 = batch_data['Nxx'] * (logfactor - M_hat)
         return term1 + term2
 
 
-class MaxLikelihoodLoss(HilbertLoss):
-    def _forward(self, M_hat, shard, Pxx_data, Pxx_independent, temperature):
-        Pxx_model = Pxx_independent * torch.exp(M_hat)
-        term1 = Pxx_data * M_hat 
-        term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
-        result = - (term1 + term2)
-        return temper(result, Pxx_independent, temperature)
+
+class MaxLikelihoodLoss(TemperedLoss):
+    def _forward_temper(self, M_hat, batch_data):
+        Pxx_model = batch_data['Pxx_independent'] * torch.exp(M_hat)
+        term1 = batch_data['Pxx_data'] * M_hat
+        term2 = (1 - batch_data['Pxx_data']) * torch.log(1 - Pxx_model)
+        return -(term1 + term2)
 
 
-#class MaxLikelihoodLoss(HilbertLoss):
-#    def _forward(self, M_hat, shard, Pxx_data, Pxx_independent, temperature):
-#        Pxx_model = Pxx_independent * torch.exp(M_hat)
-#        term1 = Pxx_data * torch.log(Pxx_model) 
-#        term2 = (1-Pxx_data) * torch.log(1-Pxx_model)
-#        result = - (term1 + term2)
-#        return temper(result, Pxx_independent, temperature)
+
+class MaxPosteriorLoss(TemperedLoss):
+    def _forward_temper(self, M_hat, batch_data):
+        Pxx_model = batch_data['Pxx_independent'] * torch.exp(M_hat)
+        term1 = batch_data['Pxx_posterior'] * M_hat
+        term2 = (1 - batch_data['Pxx_posterior']) * torch.log(1 - Pxx_model)
+        return -(batch_data['N_posterior'] / batch_data['N']) * (term1 + term2)
 
 
-class MaxPosteriorLoss(HilbertLoss):
-    def _forward(
-        self, M_hat, shard, N, N_posterior, Pxx_posterior, Pxx_independent,
-        temperature
-    ):
-        Pxx_model = Pxx_independent * torch.exp(M_hat)
-        term1 = Pxx_posterior * M_hat
-        term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
-        result =  - (N_posterior / N) * (term1 + term2)
-        return temper(result, Pxx_independent, temperature)
 
-#class MaxPosteriorLoss(HilbertLoss):
-#    def _forward(
-#        self, M_hat, shard, N, N_posterior, Pxx_posterior, Pxx_independent,
-#        temperature
-#    ):
-#        Pxx_model = Pxx_independent * torch.exp(M_hat)
-#        term1 = Pxx_posterior * torch.log(Pxx_model) 
-#        term2 = (1-Pxx_posterior) * torch.log(1-Pxx_model)
-#        result =  - (N_posterior / N) * (term1 + term2)
-#        return temper(result, Pxx_independent, temperature)
-
-
-class KLLoss(HilbertLoss):
-    def _forward(
-        self, M_hat, shard, N, N_posterior, Pxx_independent, digamma_a,
-        digamma_b, temperature
-    ):
-        Pxx_model = Pxx_independent * torch.exp(M_hat)
-        a_hat = N_posterior * Pxx_model
-        b_hat = N_posterior * (1 - Pxx_model) + 1
-        result = (lbeta(a_hat,b_hat) - a_hat*digamma_a - b_hat*digamma_b) / N
-        return temper(result, Pxx_independent, temperature)
+class KLLoss(TemperedLoss):
+    def _forward_temper(self, M_hat, batch_data):
+        Pxx_model = batch_data['Pxx_independent'] * torch.exp(M_hat)
+        a_hat = batch_data['N_posterior'] * Pxx_model
+        a_term = a_hat * batch_data['digamma_a']
+        b_hat = batch_data['N_posterior'] * (1 - Pxx_model) + 1
+        b_term = b_hat * batch_data['digamma_b']
+        return (lbeta(a_hat, b_hat) - a_term - b_term) / batch_data['N']
 
 
