@@ -248,10 +248,8 @@ class ZedSampler(object):
 
     def __init__(self, upper_limit, device, max_z_samples=1000):
         self.max_z_samples = max_z_samples
-
-        # need to make this number on the GPU so that we do uniform sampling
-        # directly on the GPU, otherwise we will do very slow transfers
-        self.upper_limit = torch.FloatTensor([upper_limit])[0].to(device)
+        self.upper_limit = upper_limit
+        self.device = device
 
 
     def z_sample(self, a_samples, filter_repeats=False):
@@ -279,8 +277,8 @@ class ZedSampler(object):
         """
 
         # sort the samples and grab the values, [0] (args are in [1]
-        samples = torch.randint(self.upper_limit.int().item(),
-                                device=self.upper_limit.device,
+        samples = torch.randint(self.upper_limit,
+                                device=self.device,
                                 size=(min(len(a_samples), self.max_z_samples),),
                                 ).long()
 

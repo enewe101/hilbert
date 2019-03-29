@@ -210,11 +210,11 @@ class HilbertEmbedderSolver(object):
                     self.epoch_loss += loss.item()
 
                     if very_verbose:
-                        bar.update()
+                        bar.next()
 
             losses.append(self.epoch_loss)
             if self.verbose:
-                print('loss\t{}'.format(self.epoch_loss))
+                print('  loss\t{}'.format(self.epoch_loss))
 
         return losses
 
