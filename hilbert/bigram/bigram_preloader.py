@@ -211,10 +211,9 @@ class SparsePreloader(BatchPreloader):
         i, js = preloaded, self.sparse_nxx[preloaded][0]
 
         # zed-samples
-        z_js = self.z_sampler.z_sample(js, filter_repeats=self.filter_repeats)
+        z_js, z_nijs = self.z_sampler.z_sample(js, filter_repeats=self.filter_repeats)
         all_js = torch.cat((js, z_js))
-        all_nxx = torch.cat((self.sparse_nxx[preloaded][1],
-                             torch.zeros(len(z_js), device=self.device)))
+        all_nxx = torch.cat((self.sparse_nxx[preloaded][1], z_nijs))
 
         # prepare the data for learning
         bigram_data = (all_nxx,
@@ -246,13 +245,15 @@ Utility class for Z-sampling on the GPU.
 """
 class ZedSampler(object):
 
-    def __init__(self, upper_limit, device, max_z_samples=1000):
+    def __init__(self, upper_limit, device, max_z_samples=1000, filter_repeats=False):
         self.max_z_samples = max_z_samples
         self.upper_limit = upper_limit
         self.device = device
+        self.zeds = torch.zeros((max_z_samples,), device=device)
+        self.filter_repeats = filter_repeats
 
 
-    def z_sample(self, a_samples, filter_repeats=False):
+    def z_sample(self, a_samples):
         """
         We can expect approximately 1% of the uniform random samples to
         be repeats from the alpha-samples. If you don't mind your loss to be
@@ -282,8 +283,8 @@ class ZedSampler(object):
                                 size=(min(len(a_samples), self.max_z_samples),),
                                 ).long()
 
-        if not filter_repeats:
-            return samples
+        if not self.filter_repeats:
+            return samples, self.zeds
         else:
             samples = samples.sort()[0]
 
@@ -312,4 +313,5 @@ class ZedSampler(object):
         except IndexError:
             pass
 
-        return samples[bits.nonzero().flatten()]
+        good_samples = samples[bits.nonzero().flatten()]
+        return good_samples, self.zeds[:len(good_samples)]
