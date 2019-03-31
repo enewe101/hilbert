@@ -284,7 +284,7 @@ class TestAutoEmbedder(TestCase):
                     include_unigram_data=is_w2v
                 ),
                 verbose=False,
-                device=h.CONSTANTS.MATRIX_DEVICE,
+                device=device,
             )
             loss = loss_class(keep_prob, bigram.vocab ** 2)
 
@@ -292,7 +292,7 @@ class TestAutoEmbedder(TestCase):
                 loader, loss, opt, d=50, learning_rate=0.1,
                 shape=shape,
                 one_sided=False, learn_bias=learn_bias, verbose=True,
-                device=h.CONSTANTS.MATRIX_DEVICE,
+                device=device,
                 learner='tupsparse'
             )
 
