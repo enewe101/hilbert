@@ -12,6 +12,6 @@ import hilbert.shards
 import hilbert.unigram
 import hilbert.utils
 import hilbert.runners
-import hilbert.generic_interfaces
+import hilbert.generic_datastructs
 import hilbert.file_access
 

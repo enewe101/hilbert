@@ -1,4 +1,4 @@
-from hilbert.bigram import DenseShardPreloader, SparsePreloader
+from hilbert.bigram import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
 from unittest import TestCase, main
 from itertools import product
 import hilbert.model_loaders as ml
@@ -29,13 +29,122 @@ def key_requirements_satisfied(mdict, mname):
 
 class LoaderTest(TestCase):
 
+    ######################## Tup Sparse Testing!!! ########################
+    def test_tupsparse_preload_functionality(self):
+        device = torch.device('cpu')
+        filter_repeats = False
+        zk = 100
+        n_batches = 123
 
+        preloader = TupSparsePreloader(
+            SPARSE_BIGRAM_PATH,
+            zk=zk,
+            n_batches=n_batches,
+            filter_repeats=False,
+            device=device,
+            include_unigram_data=False
+        )
+
+        all_batches = []
+        for i, bslice in enumerate(preloader.preload_iter()):
+            self.assertTrue(type(bslice) == slice)
+
+            batch_id, bigram_data, unigram_data = preloader.prepare(bslice)
+
+            # grab the things
+            self.assertEqual(batch_id.shape[0], 2)
+            self.assertEqual(len(batch_id), 2)
+            self.assertEqual(len(bigram_data), 4)
+            self.assertEqual(unigram_data, None)
+
+            # make sure they have the correct shapes and sizes
+            all_nij, nx, nxt, n = bigram_data
+            self.assertEqual(all_nij.shape, nx.shape)
+            self.assertEqual(all_nij.shape, nxt.shape)
+            self.assertEqual(len(all_nij.shape), 1)
+            self.assertEqual(len(n.shape), 0)
+
+            targ_shape = batch_id
+            if i < n_batches - 1: # last one will be clipped
+                self.assertEqual(len(all_nij), preloader.batch_size + zk)
+
+            # need those zed samples to be zed!
+            self.assertTrue(
+                torch.all(
+                    torch.eq(all_nij[-zk:], torch.zeros((zk, )))
+                )
+            )
+
+            # make sure positive samples are positive!
+            self.assertTrue(
+                torch.all(
+                    torch.gt(all_nij[:-zk], 0)
+                )
+            )
+
+            all_batches.append((batch_id, bslice,))
+
+        self.assertEqual(len(all_batches), n_batches)
+
+
+    def test_model_with_tupsparse_preloader(self):
+        device = torch.device('cpu')
+
+        model_constructors = [
+            # (ml.GloveLoader, 'glv'),
+            # (ml.Word2vecLoader, 'w2v'),
+            (ml.MaxLikelihoodLoader, 'mle'),
+            # (ml.MaxPosteriorLoader, 'map'),
+            # (ml.KLLoader, 'kl')
+        ]
+
+        zk = 100
+        n_batches = 123
+
+        for constructor, mname in model_constructors:
+            model_loader = constructor(
+                TupSparsePreloader(
+                    SPARSE_BIGRAM_PATH,
+                    zk=zk,
+                    n_batches=n_batches,
+                    filter_repeats=False,
+                    device=device,
+                    include_unigram_data=False
+                ),
+                verbose=False,
+                device='cpu'
+            )
+            n_expected_iters = model_loader.preloader.n_batches
+
+            # double checking that the construction fills it up!
+            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+
+            # check that resetting works as intended
+            model_loader.preload_all_batches()
+            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+
+            # testing model batch iteration
+            all_batch_ids = []
+            for i, (batch_id, data_dict) in enumerate(model_loader):
+                all_batch_ids.append(batch_id[0])
+
+                self.assertEqual(batch_id.shape[0], 2)
+                if i < n_batches - 1:
+                    self.assertEqual(batch_id.shape[1], model_loader.preloader.batch_size + zk)
+                self.assertTrue(key_requirements_satisfied(data_dict, mname))
+
+            # ensuring batching is properly done
+            self.assertEqual(len(all_batch_ids), n_expected_iters)
+            self.assertEqual(len(all_batch_ids), len(set(all_batch_ids)))
+
+
+    ######################## Lil Sparse Testing!!! ########################
     def test_sparse_preload_functionality(self):
         device = torch.device('cpu')
         filter_repeats = False
         zk = 100
 
-        preloader = SparsePreloader(
+        preloader = LilSparsePreloader(
             SPARSE_BIGRAM_PATH,
             zk=zk,
             filter_repeats=filter_repeats,
@@ -87,11 +196,11 @@ class LoaderTest(TestCase):
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                SparsePreloader(SPARSE_BIGRAM_PATH,
-                                zk=1000,
-                                filter_repeats=True,
-                                device='cpu',
-                                include_unigram_data=mname=='w2v'),
+                LilSparsePreloader(SPARSE_BIGRAM_PATH,
+                                   zk=1000,
+                                   filter_repeats=True,
+                                   device='cpu',
+                                   include_unigram_data=mname=='w2v'),
                 verbose=False,
                 device='cpu'
             )

@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.optim as op
 import hilbert as h
-from hilbert.bigram import DenseShardPreloader, SparsePreloader
+from hilbert.bigram import DenseShardPreloader, LilSparsePreloader
 
 
 def get_opt(string):
@@ -38,7 +38,7 @@ def build_preloader(
         # if not is_mle:
         #     raise NotImplementedError('Sparse only works for MLE (for now)!')
 
-        preloader = SparsePreloader(
+        preloader = LilSparsePreloader(
             bigram_path, zk=1000,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
