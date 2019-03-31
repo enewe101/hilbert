@@ -61,8 +61,8 @@ def build_sparse_lil_nxx(bigram, include_unigram_data, device):
 def build_sparse_tup_nxx(bigram, include_unigram_data, device):
 
     # hold the ij indices and nij values separately
-    indices = torch.ones((2, bigram.Nxx.nnz,)).int()
-    values = torch.zeros((bigram.Nxx.nnz,)).float()
+    indices = torch.ones((2, bigram.Nxx.nnz,), device=device).int()
+    values = torch.zeros((bigram.Nxx.nnz,), device=device).float()
 
     # number of rows
     n_rows = len(bigram.Nxx.data)
