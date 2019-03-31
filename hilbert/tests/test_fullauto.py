@@ -258,12 +258,12 @@ class TestAutoEmbedder(TestCase):
         device = torch.device('cpu')
 
         loaders_losses = [
-            (ml.PPMILoader, h.hilbert_loss.MSELoss),
-            (ml.GloveLoader, h.hilbert_loss.MSELoss),
-            (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
+            # (ml.PPMILoader, h.hilbert_loss.MSELoss),
+            # (ml.GloveLoader, h.hilbert_loss.MSELoss),
+            # (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
             (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
-            (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
-            (ml.KLLoader, h.hilbert_loss.KLLoss),
+            # (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
+            # (ml.KLLoader, h.hilbert_loss.KLLoss),
         ]
         lbs = [True, False]
 

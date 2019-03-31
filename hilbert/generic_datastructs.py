@@ -61,7 +61,7 @@ def build_sparse_lil_nxx(bigram, include_unigram_data, device):
 def build_sparse_tup_nxx(bigram, include_unigram_data, device):
 
     # hold the ij indices and nij values separately
-    indices = torch.ones((2, bigram.Nxx.nnz,)).long()
+    indices = torch.ones((2, bigram.Nxx.nnz,)).int()
     values = torch.zeros((bigram.Nxx.nnz,)).float()
 
     # number of rows
@@ -73,8 +73,8 @@ def build_sparse_tup_nxx(bigram, include_unigram_data, device):
     start_fill = 0
 
     for i in range(len(bigram.Nxx.data)):
-        js = torch.LongTensor(bigram.Nxx.rows[i])
-        nijs = torch.FloatTensor(bigram.Nxx.data[i])
+        js = torch.tensor(bigram.Nxx.rows[i], dtype=torch.int32, device=device)
+        nijs = torch.FloatTensor(bigram.Nxx.data[i], device=device)
 
         # set the slice object we are using
         slice_ind = slice(start_fill, start_fill + len(js))
@@ -90,7 +90,7 @@ def build_sparse_tup_nxx(bigram, include_unigram_data, device):
 
         # put in the marginal sums and clear out
         Nx[i] = nijs.sum()
-        Nxt[js] += nijs
+        Nxt[js.long()] += nijs
         bigram.Nxx.rows[i].clear()
         bigram.Nxx.data[i].clear()
 

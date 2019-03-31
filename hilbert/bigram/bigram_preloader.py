@@ -186,7 +186,9 @@ class TupSparsePreloader(BatchPreloader):
 
 
     def prepare(self, preloaded_slice):
-        ij_tensor = self.xx[:, preloaded_slice]
+        # convert to long in order to grab slice,
+        # but otherwise store as int to cut data usage in half!
+        ij_tensor = self.xx[:, preloaded_slice].long()
 
         # get the Nij=0 random samples and concat
         zij, zeds = self.z_sampler.z_sample(ij_tensor.t(), shape=2)
@@ -324,7 +326,7 @@ class ZedSampler(object):
         self.max_z_samples = max_z_samples
         self.upper_limit = upper_limit
         self.device = device
-        self.zeds = torch.zeros((max_z_samples,), device=device)
+        self.zeds = torch.zeros((max_z_samples,), device=device).float()
         self.filter_repeats = filter_repeats
 
 

@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.optim as op
 import hilbert as h
-from hilbert.bigram import DenseShardPreloader, LilSparsePreloader
+from hilbert.bigram import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
 
 
 def get_opt(string):
@@ -29,17 +29,33 @@ def build_preloader(
         shard_factor=1,
         t_clean_undersample=None,
         alpha_unigram_smoothing=None,
-        sparse=False,
+        datamode='dense',
         is_w2v=False,
-        is_mle=False,
+        zk=10_000,
+        n_batches=1_000,
         device=None
     ):
-    if sparse:
-        # if not is_mle:
-        #     raise NotImplementedError('Sparse only works for MLE (for now)!')
+    if datamode == 'dense':
 
+        preloader = DenseShardPreloader(
+            bigram_path, sector_factor, shard_factor,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+        )
+
+    elif datamode == 'tupsparse':
+        preloader = TupSparsePreloader(
+            bigram_path, zk=zk, n_batches=n_batches,
+            t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+            filter_repeats=False,
+            include_unigram_data=is_w2v,
+            device=device,
+        )
+
+    elif datamode == 'lilsparse':
         preloader = LilSparsePreloader(
-            bigram_path, zk=1000,
+            bigram_path, zk=zk,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
             filter_repeats=False,
@@ -47,11 +63,8 @@ def build_preloader(
             device=device,
         )
     else:
-        preloader = DenseShardPreloader(
-            bigram_path, sector_factor, shard_factor,
-            t_clean_undersample=t_clean_undersample,
-            alpha_unigram_smoothing=alpha_unigram_smoothing,
-        )
+        raise NotImplementedError('datamode {} not implemented'.format(datamode))
+
     return preloader
 
 
@@ -69,8 +82,9 @@ def construct_w2v_solver(
         sector_factor=1,
         shard_factor=1,
         seed=1,
-        sparse=False,
+        datamode='dense',
         device=None,
+        tup_n_batches=None,
         verbose=True
     ):
     np.random.seed(seed)
@@ -83,8 +97,9 @@ def construct_w2v_solver(
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
         t_clean_undersample=t_clean_undersample,
-        sparse=sparse,
+        datamode=datamode,
         is_w2v=True,
+        n_batches=tup_n_batches,
         device=device
     )
 
@@ -147,9 +162,10 @@ def construct_glv_solver(
         sector_factor=1,
         shard_factor=1,
         seed=1,
+        tup_n_batches=None,
         device=None,
         nobias=False,
-        sparse=False,
+        datamode='dense',
         verbose=True
     ):
     if nobias:
@@ -166,8 +182,9 @@ def construct_glv_solver(
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
         t_clean_undersample=t_clean_undersample,
-        sparse=sparse,
+        datamode=datamode,
         is_w2v=False,
+        n_batches=tup_n_batches,
         device=device
     )
 
@@ -228,9 +245,10 @@ def _construct_tempered_solver(
     opt_str='adam',
     sector_factor=1,
     shard_factor=1,
+    tup_n_batches=None,
     seed=1,
     device=None,
-    sparse=False,
+    datamode='dense',
     verbose=True
 ):
     np.random.seed(seed)
@@ -243,9 +261,9 @@ def _construct_tempered_solver(
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
         t_clean_undersample=t_clean_undersample,
-        sparse=sparse,
+        datamode=datamode,
+        n_batches=tup_n_batches,
         is_w2v=False,
-        is_mle=True,
         device=device
     )
 
