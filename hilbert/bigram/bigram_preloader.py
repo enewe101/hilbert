@@ -11,9 +11,11 @@ class BatchPreloader(Describable):
     """
 
     @abc.abstractmethod
-    def __init__(self, bigram_path, *args,
-                 t_clean_undersample=None,
-                 alpha_unigram_smoothing=None, **kwargs):
+    def __init__(
+            self, bigram_path, *args,
+            t_clean_undersample=None,
+            alpha_unigram_smoothing=None, **kwargs
+        ):
 
         self.bigram_path = bigram_path
         self.t_clean_undersample = t_clean_undersample
@@ -40,7 +42,7 @@ class BatchPreloader(Describable):
 
 
 """
-Class for hardcore matrix factorization data loading.
+Class for dense matrix factorization data loading.
 """
 class DenseShardPreloader(BatchPreloader):
 
@@ -73,8 +75,8 @@ class DenseShardPreloader(BatchPreloader):
             uNx.  In w2v, one gets smoothed, the other is left unchanged (both
             are needed).
         """
-        super(DenseShardPreloader, self).__init__(bigram_path,
-            t_clean_undersample=t_clean_undersample,
+        super(DenseShardPreloader, self).__init__(
+            bigram_path, t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing
         )
         self.sector_factor = sector_factor
@@ -125,15 +127,16 @@ Class for smart compressed data loading & iteration.
 """
 class SparsePreloader(BatchPreloader):
 
-    def __init__(self, bigram_path,
-                 zk=1000,
-                 t_clean_undersample=None,
-                 alpha_unigram_smoothing=None,
-                 include_unigram_data=False,
-                 filter_repeats=False,
-                 device=None):
+    def __init__(
+            self, bigram_path,
+            zk=1000,
+            t_clean_undersample=None,
+            alpha_unigram_smoothing=None,
+            include_unigram_data=False,
+            filter_repeats=False,
+            device=None
+        ):
         """
-
         :param bigram_path:
         :param zk:
         :param t_clean_undersample:
@@ -143,9 +146,9 @@ class SparsePreloader(BatchPreloader):
         :param device:
         """
 
-        super(SparsePreloader, self).__init__(bigram_path,
-          t_clean_undersample=t_clean_undersample,
-          alpha_unigram_smoothing=alpha_unigram_smoothing,
+        super(SparsePreloader, self).__init__(
+            bigram_path, t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
         )
         self.zk = zk # max number of z-samples to draw
         self.include_unigram_data = include_unigram_data
@@ -166,18 +169,20 @@ class SparsePreloader(BatchPreloader):
 
         bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
 
-        # number of nonzero elements
+        # Number of nonzero elements
         self.n_nonzeros = bigram.Nxx.nnz
 
-        # number of batches, equivalent to vocab size
+        # Number of batches, equivalent to vocab size
         self.n_batches = len(bigram.Nxx.data)
-        self.z_sampler = ZedSampler(self.n_batches, self.device, self.zk,
-                                    filter_repeats=self.filter_repeats)
+        self.z_sampler = ZedSampler(
+            self.n_batches, self.device, self.zk,
+            filter_repeats=self.filter_repeats
+        )
 
-        # iterate over each row index in the sparse matrix
+        # Iterate over each row index in the sparse matrix
         self.sparse_nxx = []
 
-        # iterate over each row in the sparse matrix and get marginals
+        # Iterate over each row in the sparse matrix and get marginals
         self.Nx = torch.zeros((self.n_batches,), device=self.device)
         self.Nxt = torch.zeros((self.n_batches,), device=self.device)
 

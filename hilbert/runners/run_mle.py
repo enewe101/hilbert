@@ -30,6 +30,13 @@ if __name__ == '__main__':
             "Use temperature > 1 for more equal weights."
         )
     )
+    base_parser.add_argument(
+        '--simple-loss', '-j', action='store_true', 
+        help=(
+            "Whether to use the simpler loss function, obtained by neglecting "
+            "the denominator of the full loss function after differentiation."
+        )
+    )
     all_args = vars(base_parser.parse_args())
     modify_args(all_args)
     run_mle(**all_args)

@@ -87,6 +87,12 @@ class MaxLikelihoodLoss(TemperedLoss):
         return -(term1 + term2)
 
 
+class SimpleMaxLikelihoodLoss(TemperedLoss):
+    def _forward_temper(self, M_hat, batch_data):
+        term1 = batch_data['Pxx_data'] * M_hat
+        term2 = batch_data['Pxx_independent'] * torch.exp(M_hat)
+        return -(term1 - term2)
+
 
 class MaxPosteriorLoss(TemperedLoss):
     def _forward_temper(self, M_hat, batch_data):

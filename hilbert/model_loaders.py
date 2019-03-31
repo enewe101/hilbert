@@ -137,10 +137,14 @@ class MaxLikelihoodLoader(ModelBatchLoader):
 
     def _load(self, preloaded):
         batch_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        Nxx, Nx, Nxt, N = tuple(
+            tensor.to(self.device) for tensor in bigram_data)
         Pxx_data = Nxx / N
         Pxx_independent = (Nx / N) * (Nxt / N)
-        return batch_id, {'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent}
+        return (
+            batch_id, 
+            {'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent}
+        )
 
     def describe(self):
         return 'Max Likelihood Sharder\n' + super(

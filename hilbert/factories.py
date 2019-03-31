@@ -298,8 +298,16 @@ def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     _construct_tempered_solver, except for sharder_class (which should not be
     provided here).
     """
+    simple_loss = kwargs.pop('simple_loss', False)
+    if simple_loss:
+        loss = h.hilbert_loss.SimpleMaxLikelihoodLoss
+        print("USING SIMPLE!")
+    else:
+        print("Nothing in life is simple...")
+        loss = h.hilbert_loss.MaxLikelihoodLoss
+
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss,
+        h.model_loaders.MaxLikelihoodLoader, loss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
