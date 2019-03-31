@@ -73,8 +73,8 @@ def build_sparse_tup_nxx(bigram, include_unigram_data, device):
     start_fill = 0
 
     for i in range(len(bigram.Nxx.data)):
-        js = torch.tensor(bigram.Nxx.rows[i], dtype=torch.int32, device=device)
-        nijs = torch.FloatTensor(bigram.Nxx.data[i], device=device)
+        js = torch.IntTensor(bigram.Nxx.rows[i]).to(device)
+        nijs = torch.FloatTensor(bigram.Nxx.data[i]).to(device)
 
         # set the slice object we are using
         slice_ind = slice(start_fill, start_fill + len(js))
