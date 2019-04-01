@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from scipy import sparse
 
+import time
 
 class BigramBase(object):
 
@@ -54,13 +55,17 @@ class BigramBase(object):
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
 
+        # Marginalizing counts actually takes long.  This seems to be faster
+        # than just calling self.Nxx.sum().
         if marginalize:
-            self.Nx = torch.tensor(
-                self.Nxx.sum(axis=1), dtype=dtype, device=mem_device)
-            self.Nxt = torch.tensor(
-                self.Nxx.sum(axis=0), dtype=dtype, device=mem_device)
-            self.N = torch.sum(self.Nx)
-
+            print('marginalizing...')
+            self.Nx = np.zeros((self.Nxx.shape[0],1))
+            self.Nxt = np.zeros((1,self.Nxx.shape[1]))
+            for i in range(len(self.Nxx.data)):
+                # put in the marginal sums!
+                self.Nx[i] = sum(self.Nxx.data[i])
+                self.Nxt[:,self.Nxx.rows[i]] += self.Nxx.data[i]
+            self.N = self.Nx.sum()
         self.validate_shape()
         self.undersampled = False
 

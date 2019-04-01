@@ -185,7 +185,8 @@ class HilbertEmbedderSolver(object):
             self.epoch_loss = 0
 
             if very_verbose:
-                bar = ChargingBar('Epoch: {:6}'.format(it), max=len(self.loader))
+                bar = ChargingBar(
+                    'Epoch: {:6}'.format(it), max=len(self.loader))
 
             # iterate over the shards we have to do
             for batch_id, batch_data in self.loader:

@@ -14,7 +14,7 @@ class ModelBatchLoader(Describable):
         self.verbose = verbose
         self.device = device
 
-        # these Nones are utilized in the iterator pattern
+        # these Nones are used in the iterator pattern
         self.preloaded_batches = None
         self.crt_batch_id = None
         self.preload_all_batches() # fill 'er up!
