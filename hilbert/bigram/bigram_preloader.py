@@ -2,7 +2,9 @@ import abc
 import hilbert as h
 import torch
 import torch.distributions as dist
-from hilbert.generic_interfaces import Describable
+from math import ceil
+from hilbert.generic_datastructs import Describable, \
+    build_sparse_lil_nxx, build_sparse_tup_nxx
 
 
 class BatchPreloader(Describable):
@@ -42,10 +44,10 @@ class BatchPreloader(Describable):
 
 
 
-"""
-Class for dense matrix factorization data loading.
-"""
 class DenseShardPreloader(BatchPreloader):
+    """
+    Class for dense matrix factorization data loading.
+    """
 
     def __init__(
         self, bigram_path, sector_factor, shard_factor,
@@ -124,14 +126,9 @@ class DenseShardPreloader(BatchPreloader):
 
 
 
-"""
-Class for dense matrix factorization data loading.
-"""
 class SampleMaxLikelihoodLoader:
 
     def __init__(self, bigram_path, sector_factor):
-        """
-        """
         self.bigram_path = bigram_path
         self.sector_factor = sector_factor
         self.bigram_sector = None
@@ -170,31 +167,123 @@ class SampleMaxLikelihoodLoader:
 
 
 
-"""
-Class for smart compressed data loading & iteration.
-"""
-class SparsePreloader(BatchPreloader):
+class TupSparsePreloader(BatchPreloader):
+    """
+    Class for smart compressed data loading & iteration.
+    A somewhat data-inefficient class for compressed representation.
+    But very very parallelizable on GPU.
+    """
 
     def __init__(
             self, bigram_path,
-            zk=1000,
             t_clean_undersample=None,
             alpha_unigram_smoothing=None,
+            zk=1000,
+            n_batches=1000,
             include_unigram_data=False,
             filter_repeats=False,
             device=None
         ):
-        """
-        :param bigram_path:
-        :param zk:
-        :param t_clean_undersample:
-        :param alpha_unigram_smoothing:
-        :param include_unigram_data:
-        :param filter_repeats:
-        :param device:
-        """
+        super(TupSparsePreloader, self).__init__(
+            bigram_path, t_clean_undersample=t_clean_undersample,
+            alpha_unigram_smoothing=alpha_unigram_smoothing,
+        )
+        self.zk = zk # max number of z-samples to draw
+        self.include_unigram_data = include_unigram_data
+        self.filter_repeats = filter_repeats
+        self.device = device
 
-        super(SparsePreloader, self).__init__(
+        # put the other attributes in init for transparency
+        self.n_batches = n_batches
+        self.n_nonzeros = 0
+        self.batch_size = None
+        self.z_sampler = None
+        self.sparse_nxx = None
+        self.Nx, self.Nxt, self.N = None, None, None
+        self.uNx, self.uNxt, self.uN = None, None, None
+
+
+    def preload_iter(self, *args, **kwargs):
+        super(TupSparsePreloader, self).preload_iter(*args, **kwargs)
+
+        bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
+        self.n_nonzeros = bigram.Nxx.nnz
+
+        # Iterate over each row index in the sparse matrix
+        data = build_sparse_tup_nxx(bigram, self.include_unigram_data, self.device)
+        self.xx, self.nxx = data[0]
+        self.Nx, self.Nxt, self.N = data[1]
+        self.uNx, self.uNxt, self.uN = data[2]
+
+        # Number of nonzero elements; upper limit is the vocab size
+        self.z_sampler = ZedSampler(
+            len(self.Nx), self.device, self.zk,
+            filter_repeats=self.filter_repeats
+        )
+
+        # store the preloaded batches as a list of slices
+        self.batch_size = int(ceil(len(self.xx[0]) / self.n_batches))
+        for batch in range(self.n_batches):
+            yield slice( batch * self.batch_size,
+                         (batch + 1) * self.batch_size )
+        return
+
+
+    def prepare(self, preloaded_slice):
+        # convert to long in order to grab slice,
+        # but otherwise store as int to cut data usage in half!
+        ij_tensor = self.xx[:, preloaded_slice].long()
+
+        # get the Nij=0 random samples and concat
+        zij, zeds = self.z_sampler.z_sample(ij_tensor.t(), shape=2)
+        ij_tensor = torch.cat((ij_tensor, zij.t()), dim=1)
+        all_nij = torch.cat((self.nxx[preloaded_slice], zeds))
+
+        # prepare the data for learning
+        bigram_data = (all_nij,
+                       self.Nx[ij_tensor[0]],
+                       self.Nxt[ij_tensor[1]],
+                       self.N)
+
+        # fill up unigram data only if necessary
+        unigram_data = None
+        if self.include_unigram_data:
+            unigram_data = (self.uNx[ij_tensor[0]],
+                            self.uNxt[ij_tensor[1]],
+                            self.uN)
+
+        # batch_id is the ij_tensor
+        return ij_tensor, bigram_data, unigram_data
+
+
+    def describe(self):
+        s = super(TupSparsePreloader, self).describe()
+        s += 'Tuple-based Sparse preloader\n'
+        s += '\tzk = {}\n'.format(self.zk)
+        s += '\tfilter repeats = {}\n'.format(self.filter_repeats)
+        s += '\tinclude unigram data = {}\n'.format(self.include_unigram_data)
+        s += '\tnumber of nonzero nijs = {}\n'.format(self.n_nonzeros)
+        s += '\tn batches = {}\n'.format(self.n_batches)
+        s += '\tbatch size = {}\n'.format(self.batch_size)
+        return s
+
+
+
+"""
+Class for compressed data loading & iteration.
+"""
+class LilSparsePreloader(BatchPreloader):
+
+    def __init__(
+            self, bigram_path,
+            t_clean_undersample=None,
+            alpha_unigram_smoothing=None,
+            zk=1000,
+            include_unigram_data=False,
+            filter_repeats=False,
+            device=None
+        ):
+        super(LilSparsePreloader, self).__init__(
             bigram_path, t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
         )
@@ -213,7 +302,7 @@ class SparsePreloader(BatchPreloader):
 
 
     def preload_iter(self, *args, **kwargs):
-        super(SparsePreloader, self).preload_iter(*args, **kwargs)
+        super(LilSparsePreloader, self).preload_iter(*args, **kwargs)
 
         bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
 
@@ -228,33 +317,10 @@ class SparsePreloader(BatchPreloader):
         )
 
         # Iterate over each row index in the sparse matrix
-        self.sparse_nxx = []
-
-        # Iterate over each row in the sparse matrix and get marginals
-        self.Nx = torch.zeros((self.n_batches,), device=self.device)
-        self.Nxt = torch.zeros((self.n_batches,), device=self.device)
-
-        for i in range(len(bigram.Nxx.data)):
-            js_tensor = torch.LongTensor(bigram.Nxx.rows[i]).to(self.device)
-            nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i]).to(self.device)
-
-            # put in the marginal sums!
-            self.Nx[i] = nijs_tensor.sum()
-            self.Nxt[js_tensor] += nijs_tensor
-
-            # store the implicit sparse matrix as a series
-            # of tuples, J-indexes, then Nij values.
-            self.sparse_nxx.append((js_tensor, nijs_tensor,))
-            bigram.Nxx.rows[i].clear()
-            bigram.Nxx.data[i].clear()
-
-        # now we need to store the other statistics
-        self.N = self.Nx.sum().to(self.device)
-
-        if self.include_unigram_data:
-            self.uNx = bigram.uNx.flatten().to(self.device)
-            self.uNxt = bigram.uNxt.flatten().to(self.device)
-            self.uN = bigram.uN.to(self.device)
+        data = build_sparse_lil_nxx(bigram, self.include_unigram_data, self.device)
+        self.sparse_nxx = data[0]
+        self.Nx, self.Nxt, self.N = data[1]
+        self.uNx, self.uNxt, self.uN = data[2]
 
         # implicitly store the preloaded batches
         return range(self.n_batches)
@@ -265,7 +331,7 @@ class SparsePreloader(BatchPreloader):
         i, js = preloaded, self.sparse_nxx[preloaded][0]
 
         # zed-samples
-        z_js, z_nijs = self.z_sampler.z_sample(js)
+        z_js, z_nijs = self.z_sampler.z_sample(js, shape=1)
         all_js = torch.cat((js, z_js))
         all_nxx = torch.cat((self.sparse_nxx[preloaded][1], z_nijs))
 
@@ -285,10 +351,11 @@ class SparsePreloader(BatchPreloader):
 
 
     def describe(self):
-        s = super(SparsePreloader, self).describe()
-        s += 'Sparse preloader\n'
+        s = super(LilSparsePreloader, self).describe()
+        s += 'Linked-List-based Sparse preloader\n'
         s += '\tzk = {}\n'.format(self.zk)
         s += '\tfilter repeats = {}\n'.format(self.filter_repeats)
+        s += '\tnumber of nonzero nijs = {}\n'.format(self.n_nonzeros)
         s += '\tinclude unigram data = {}\n'.format(self.include_unigram_data)
         return s
 
@@ -303,11 +370,11 @@ class ZedSampler(object):
         self.max_z_samples = max_z_samples
         self.upper_limit = upper_limit
         self.device = device
-        self.zeds = torch.zeros((max_z_samples,), device=device)
+        self.zeds = torch.zeros((max_z_samples,), device=device).float()
         self.filter_repeats = filter_repeats
 
 
-    def z_sample(self, a_samples):
+    def z_sample(self, a_samples, shape=1):
         """
         We can expect approximately 1% of the uniform random samples to
         be repeats from the alpha-samples. If you don't mind your loss to be
@@ -333,10 +400,10 @@ class ZedSampler(object):
 
         # sort the samples and grab the values, [0] (args are in [1]
         num_zeds = min(len(a_samples), self.max_z_samples)
+        size = (num_zeds,) if shape == 1 else (num_zeds, shape)
         samples = torch.randint(self.upper_limit,
                                 device=self.device,
-                                size=(num_zeds,),
-                                ).long()
+                                size=size).long()
 
         if not self.filter_repeats:
             return samples, self.zeds[:num_zeds]

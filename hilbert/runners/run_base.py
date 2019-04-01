@@ -28,7 +28,7 @@ COMMON_KWARGS = {
     'shard_times': 1,
     'seed': 1,
     'device': None,
-    'sparse': False,
+    'datamode': 'dense',
 }
 
 def kw_filter(kwargs):
@@ -101,7 +101,7 @@ def modify_args(args):
         args['init_embeddings_path'] = os.path.join(
             EMBEDDINGS_DIR, args['init_embeddings_path'])
 
-
+# TODO: add number of zed-samples to CLI.
 # Argparser common across everything
 def get_base_argparser():
     parser = ArgumentParser()
@@ -161,8 +161,15 @@ def get_base_argparser():
         help='desired dimensionality of the embeddings being produced'
     )
     parser.add_argument(
-        '--sparse', action='store_true', dest='sparse',
-        help='do sparse implementation instead of explicit MF'
+        '--datamode', '-D', default='dense', dest='datamode',
+        help='maybe you want to use sparse boi, rather than a dense boi'
     )
-
+    parser.add_argument(
+        '--nbatches', default=None, dest='tup_n_batches', type=int,
+        help='if using a tuple-sparse implementation you must define this int'
+    )
+    parser.add_argument(
+        '--zk', default=None, dest='zk', type=int,
+        help='numb of zed samples if using sparse implementation'
+    )
     return parser

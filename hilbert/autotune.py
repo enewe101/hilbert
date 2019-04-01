@@ -78,7 +78,8 @@ def double_check(embsolver, obtained_losses, n_iters):
 
 def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
     embsolver = constructor(**constr_kwargs)
-    embsolver.verbose = False
+    print(embsolver.describe())
+    embsolver.verbose = True
     div_lrs = []
     stationary_lrs = []
     good_lrs = []
@@ -146,6 +147,13 @@ def main():
     base_parser.add_argument(
         '--temperature', '-T', type=float, default=1, dest='temperature',
         help="equalizes weighting for loss from individual token pairs."
+    )
+    base_parser.add_argument(
+        '--simple-loss', '-j', action='store_true',
+        help=(
+            "Whether to use the simpler loss function, obtained by neglecting "
+            "the denominator of the full loss function after differentiation."
+        )
     )
 
     # GLV hypers

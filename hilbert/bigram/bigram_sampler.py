@@ -1,5 +1,5 @@
 import random
-from abc import ABC
+from abc import ABC, abstractmethod
 import numpy as np
 import time
 import hilbert as h
@@ -48,7 +48,7 @@ class BaseSampler(ABC):
             if t in self.bigram.dictionary 
             and (
                 self.min_count is None or self.min_count is 1 or
-                or self.bigram.unigram.count(t) >= self.min_count
+                self.bigram.unigram.count(t) >= self.min_count
             )
         ]
 
@@ -57,7 +57,7 @@ class BaseSampler(ABC):
 # works.
 
 
-class FlatSampler:
+class FlatSampler(BaseSampler):
     """
     Sampler that extracts cooccurrence statistics from a corpus, where two
     words are considered to cooccur if they are separated by a distance of 
@@ -78,7 +78,7 @@ class FlatSampler:
 
 
 
-class HarmonicSampler:
+class HarmonicSampler(BaseSampler):
     """
     Sampler that extracts cooccurrence statistics from a corpus, where two
     words are considered to cooccur if they are separated by a distance of 
@@ -100,7 +100,7 @@ class HarmonicSampler:
 
 
 
-class DynamicSampler:
+class DynamicSampler(BaseSampler):
     """
     Sampler that extracts cooccurrence statistics from a corpus, where two
     words are considered to cooccur if they are separated by a distance of 

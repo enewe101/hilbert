@@ -72,7 +72,13 @@ class HilbertEmbedderSolver(object):
         self.seed = seed
         self.verbose = verbose
         self.device = device
-        self.learner_class = DenseLearner if learner=='dense' else SparseLearner
+
+        if learner == 'dense':
+            self.learner_class = DenseLearner
+        elif learner == 'tupsparse':
+            self.learner_class = TupSparseLearner
+        else:
+            self.learner_class = LilSparseLearner
 
         opt_kwargs = {} if opt_kwargs is None else opt_kwargs
         self.opt_kwargs = {**{'lr': learning_rate}, **opt_kwargs}
@@ -261,10 +267,10 @@ class DenseLearner(EmbeddingLearner):
 
 
 
-### A learning based on using a sparse-implementation
+### A learning based on using a sparse linked-list-based implementation
 # TODO: consider integrating with symmetry.
 
-class SparseLearner(EmbeddingLearner):
+class LilSparseLearner(EmbeddingLearner):
 
     def forward(self, batch_id, symmetric=False):
         row_id, col_ids = batch_id
@@ -278,6 +284,28 @@ class SparseLearner(EmbeddingLearner):
         if self.learn_bias:
             tc_hat += self.v_bias[row_id]
             tc_hat += self.w_bias[col_ids]
+
+        # andddd that's all folks!
+        return tc_hat
+
+
+### A learning based on using a sparse tuple-based implementation
+class TupSparseLearner(EmbeddingLearner):
+
+    def forward(self, ij_tensor, symmetric=False):
+
+        ## maybe more efficient to do it without creating the variables
+        # V_vecs = self.V[ij_tensor[0]]
+        # W_vecs = self.W[ij_tensor[1]]
+
+        # this is extremely efficiently parallelizable on GPU,
+        # represents doing the dot products.
+        tc_hat = torch.sum(self.V[ij_tensor[0]] * self.W[ij_tensor[1]],
+                           dim=1)
+
+        if self.learn_bias:
+            tc_hat += self.v_bias[ij_tensor[0]]
+            tc_hat += self.w_bias[ij_tensor[1]]
 
         # andddd that's all folks!
         return tc_hat

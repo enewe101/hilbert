@@ -1,6 +1,6 @@
 import hilbert as h
 import torch
-from hilbert.generic_interfaces import Describable
+from hilbert.generic_datastructs import Describable
 
 
 class ModelBatchLoader(Describable):

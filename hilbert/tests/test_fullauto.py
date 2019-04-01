@@ -3,7 +3,7 @@ import numpy as np
 import hilbert as h
 import hilbert.model_loaders as ml
 import torch
-from hilbert.bigram import DenseShardPreloader, SparsePreloader
+from hilbert.bigram import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
 from unittest import TestCase, main
 
 VERBOSE = False
@@ -172,7 +172,9 @@ class TestAutoEmbedder(TestCase):
             got_M = ae(shard)
             self.assertTrue(torch.allclose(got_M, expected_M))
 
+
     def test_sparse_emb_solver_functionality(self):
+
         vprint('TESTING SPARSE EMB SOLVER')
         bigram, _, _ = h.corpus_stats.get_test_bigram_base()
         bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
@@ -198,28 +200,109 @@ class TestAutoEmbedder(TestCase):
             vprint('\n', loader_class)
             vprint('learn_bias =', learn_bias)
             loader = loader_class(
-                SparsePreloader(bigram_path, device='cpu',
-                                include_unigram_data=is_w2v),
+                LilSparsePreloader(bigram_path, device='cpu',
+                                   include_unigram_data=is_w2v),
                 verbose=False,
                 device=h.CONSTANTS.MATRIX_DEVICE,
             )
             loss = loss_class(keep_prob, bigram.vocab ** 2)
 
             solver = h.embedder.HilbertEmbedderSolver(
-                loader, loss, opt, d=300, learning_rate=0.001,
+                loader, loss, opt, d=25, learning_rate=0.001,
                 shape=shape,
-                one_sided=False, learn_bias=learn_bias, verbose=False,
+                one_sided=False, learn_bias=learn_bias, verbose=True,
                 device=h.CONSTANTS.MATRIX_DEVICE,
                 learner='sparse'
             )
 
             # check to make sure we get the same loss after resetting
-            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=False)
+            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
             solver.restart()
-            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=False)
+            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
             solver.restart()
-            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=False)
-            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=False)
+            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
+            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
+            self.assertTrue(np.allclose(l1, l2))
+            self.assertTrue(np.allclose(l1, l3))
+            solver.restart()
+
+            # here we're ensuring that the equality between the solver
+            # parameters and the torch module parameters are always the same,
+            # before and after learning
+            for _ in range(3):
+                V, W, vb, wb = solver.get_params()
+                aV, aW, avb, awb = (
+                    solver.learner.V, solver.learner.W,
+                    solver.learner.v_bias, solver.learner.w_bias
+                )
+                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+                    if t1 is None and t2 is None:
+                        continue
+                    self.assertTrue(torch.allclose(t1, t2))
+
+                solver.cycle(1)
+
+    def test_tupsparse_emb_solver_functionality(self):
+
+        vprint('TESTING TUP SPARSE EMB SOLVER')
+        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+        keep_prob = 1
+        opt = torch.optim.Adam
+        shape = bigram.Nxx.shape
+
+        # this current bigram data does not have any nij=0 samples
+        # ... this should be fixed!
+        zk = 0 # 10_000
+        n_batches = 11
+        device = h.CONSTANTS.MATRIX_DEVICE
+
+        loaders_losses = [
+            # (ml.PPMILoader, h.hilbert_loss.MSELoss),
+            # (ml.GloveLoader, h.hilbert_loss.MSELoss),
+            # (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
+            (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
+            # (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
+            # (ml.KLLoader, h.hilbert_loss.KLLoss),
+        ]
+        lbs = [True, False]
+
+        from itertools import product
+        options = product(loaders_losses, lbs)
+
+        for (loader_class, loss_class), learn_bias in options:
+            is_w2v = loader_class == ml.Word2vecLoader
+            vprint('\n', loader_class)
+            vprint('learn_bias =', learn_bias)
+            loader = loader_class(
+                TupSparsePreloader(
+                    bigram_path,
+                    zk=zk,
+                    n_batches=n_batches,
+                    filter_repeats=False,
+                    device=device,
+                    include_unigram_data=is_w2v
+                ),
+                verbose=False,
+                device=device,
+            )
+            loss = loss_class(keep_prob, bigram.vocab ** 2)
+
+            solver = h.embedder.HilbertEmbedderSolver(
+                loader, loss, opt, d=50, learning_rate=0.1,
+                shape=shape,
+                one_sided=False, learn_bias=learn_bias, verbose=True,
+                device=device,
+                learner='tupsparse'
+            )
+
+            # check to make sure we get the same loss after resetting
+            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+            solver.restart()
+            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+            solver.restart()
+            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
+            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
             self.assertTrue(np.allclose(l1, l2))
             self.assertTrue(np.allclose(l1, l3))
             solver.restart()
