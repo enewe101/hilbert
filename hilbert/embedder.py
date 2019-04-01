@@ -292,11 +292,15 @@ class LilSparseLearner(EmbeddingLearner):
 class TupSparseLearner(EmbeddingLearner):
 
     def forward(self, ij_tensor, symmetric=False):
-        V_vecs = self.V[ij_tensor[0]]
-        W_vecs = self.W[ij_tensor[1]]
 
-        # this is extremely efficiently parallelizable on GPU
-        tc_hat = torch.sum(V_vecs * W_vecs, dim=1)
+        ## maybe more efficient to do it without creating the variables
+        # V_vecs = self.V[ij_tensor[0]]
+        # W_vecs = self.W[ij_tensor[1]]
+
+        # this is extremely efficiently parallelizable on GPU,
+        # represents doing the dot products.
+        tc_hat = torch.sum(self.V[ij_tensor[0]] * self.W[ij_tensor[1]],
+                           dim=1)
 
         if self.learn_bias:
             tc_hat += self.v_bias[ij_tensor[0]]

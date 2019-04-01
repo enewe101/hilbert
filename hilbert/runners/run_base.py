@@ -168,4 +168,8 @@ def get_base_argparser():
         '--nbatches', default=None, dest='tup_n_batches', type=int,
         help='if using a tuple-sparse implementation you must define this int'
     )
+    parser.add_argument(
+        '--zk', default=None, dest='zk', type=int,
+        help='numb of zed samples if using sparse implementation'
+    )
     return parser

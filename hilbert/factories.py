@@ -85,6 +85,7 @@ def construct_w2v_solver(
         datamode='dense',
         device=None,
         tup_n_batches=None,
+        zk=None,
         verbose=True
     ):
     np.random.seed(seed)
@@ -100,6 +101,7 @@ def construct_w2v_solver(
         datamode=datamode,
         is_w2v=True,
         n_batches=tup_n_batches,
+        zk=zk,
         device=device
     )
 
@@ -163,6 +165,7 @@ def construct_glv_solver(
         shard_factor=1,
         seed=1,
         tup_n_batches=None,
+        zk=None,
         device=None,
         nobias=False,
         datamode='dense',
@@ -185,6 +188,7 @@ def construct_glv_solver(
         datamode=datamode,
         is_w2v=False,
         n_batches=tup_n_batches,
+        zk=zk,
         device=device
     )
 
@@ -246,6 +250,7 @@ def _construct_tempered_solver(
     sector_factor=1,
     shard_factor=1,
     tup_n_batches=None,
+    zk=None,
     seed=1,
     device=None,
     datamode='dense',
@@ -264,6 +269,7 @@ def _construct_tempered_solver(
         datamode=datamode,
         n_batches=tup_n_batches,
         is_w2v=False,
+        zk=zk,
         device=device
     )
 

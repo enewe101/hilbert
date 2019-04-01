@@ -163,6 +163,7 @@ class TupSparsePreloader(BatchPreloader):
         super(TupSparsePreloader, self).preload_iter(*args, **kwargs)
 
         bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
+        self.n_nonzeros = bigram.Nxx.nnz
 
         # Iterate over each row index in the sparse matrix
         data = build_sparse_tup_nxx(bigram, self.include_unigram_data, self.device)
@@ -171,7 +172,6 @@ class TupSparsePreloader(BatchPreloader):
         self.uNx, self.uNxt, self.uN = data[2]
 
         # Number of nonzero elements; upper limit is the vocab size
-        self.n_nonzeros = bigram.Nxx.nnz
         self.z_sampler = ZedSampler(
             len(self.Nx), self.device, self.zk,
             filter_repeats=self.filter_repeats
@@ -182,7 +182,6 @@ class TupSparsePreloader(BatchPreloader):
         for batch in range(self.n_batches):
             yield slice( batch * self.batch_size,
                          (batch + 1) * self.batch_size )
-        import pdb; pdb.set_trace()
         return
 
 

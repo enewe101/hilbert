@@ -30,6 +30,7 @@ class IntegrationTests(TestCase):
                 'seed': 1,
                 'datamode': dm,
                 'tup_n_batches': 13,
+                'zk': 100,
                 'verbose': True,
                 'device': h.CONSTANTS.MATRIX_DEVICE,
             }
