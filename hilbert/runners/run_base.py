@@ -165,7 +165,7 @@ def get_base_argparser():
         help='maybe you want to use sparse boi, rather than a dense boi'
     )
     parser.add_argument(
-        '--nbatches', default=None, dest='tup_n_batches',
+        '--nbatches', default=None, dest='tup_n_batches', type=int,
         help='if using a tuple-sparse implementation you must define this int'
     )
     return parser

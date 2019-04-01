@@ -78,7 +78,8 @@ def double_check(embsolver, obtained_losses, n_iters):
 
 def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
     embsolver = constructor(**constr_kwargs)
-    embsolver.verbose = False
+    print(embsolver.describe())
+    embsolver.verbose = True
     div_lrs = []
     stationary_lrs = []
     good_lrs = []
