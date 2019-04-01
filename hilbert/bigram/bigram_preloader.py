@@ -182,6 +182,7 @@ class TupSparsePreloader(BatchPreloader):
         for batch in range(self.n_batches):
             yield slice( batch * self.batch_size,
                          (batch + 1) * self.batch_size )
+        import pdb; pdb.set_trace()
         return
 
 

@@ -101,7 +101,7 @@ def modify_args(args):
         args['init_embeddings_path'] = os.path.join(
             EMBEDDINGS_DIR, args['init_embeddings_path'])
 
-
+# TODO: add number of zed-samples to CLI.
 # Argparser common across everything
 def get_base_argparser():
     parser = ArgumentParser()
