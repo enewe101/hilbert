@@ -164,6 +164,14 @@ class BigramMutable(BigramBase):
         np.save(Nxt_path, self.Nxt)
 
 
+    def save_sectors(self, path, sectors):
+        first = True
+        for sector in sectors:
+            self.save_sector(
+                path, sector, save_marginal=first, save_unigram=first)
+            first = False
+
+
     def save_sector(
         self, path, sector, 
         save_marginal=True, save_unigram=True

@@ -1,8 +1,10 @@
-from hilbert.bigram import DenseShardPreloader, SparsePreloader
 from unittest import TestCase, main
 from itertools import product
-import hilbert.model_loaders as ml
+import hilbert as h
 import torch
+import scipy
+import numpy as np
+import os
 
 BIGRAM_PATH = 'test-data/bigram-sectors/'
 SPARSE_BIGRAM_PATH = 'test-data/bigram'
@@ -24,10 +26,55 @@ def key_requirements_satisfied(mdict, mname):
             and 'N' in mdict and 'N_posterior' in mdict \
             and 'Pxx_independent' in mdict
     else:
-        raise ValueError(f'No model name `{mname}`!')
+        raise ValueError('No model name `{mname}`!'.format(mname))
 
 
-class LoaderTest(TestCase):
+class TestLoader(TestCase):
+
+
+    def get_test_cooccurrence_stats(self):
+        dictionary = h.dictionary.Dictionary([
+            'banana','socks','car','field','radio','hamburger'
+        ])
+        Nxx = np.array([
+            [0,3,1,1,0,0],
+            [3,0,1,0,1,0],
+            [1,1,0,0,0,1],
+            [1,0,0,1,0,0],
+            [0,1,0,0,0,1],
+            [0,0,1,0,1,0]
+        ])
+        unigram = h.unigram.Unigram(dictionary, Nxx.sum(axis=1))
+        return dictionary, Nxx, unigram
+
+
+    def test_sample_max_likelihood_preloader(self):
+
+        # Settings for test
+        sector_factor = 3
+
+        # Create sharded bigram data to test the loader
+        dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
+        bigram = h.bigram.BigramMutable(unigram, Nxx)
+
+        # Save the bigram data on disk in shards to test the loader
+        save_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        sectors = h.shards.Shards(sector_factor)
+        bigram.save_sectors(save_path, sectors)
+
+        # Get the loader to re-produce the original matrix
+        loader = h.bigram.SampleMaxLikelihoodLoader(save_path, sector_factor)
+        loader.accumulate_statistics()
+        sparse = scipy.sparse.coo_matrix((
+            np.array(loader.data), 
+            (np.array(loader.I), np.array(loader.J))
+        ))
+        dense = sparse.toarray()
+
+        # Test equality
+        self.assertTrue(np.allclose(dense, Nxx))
+
+
 
 
     def test_sparse_preload_functionality(self):
@@ -78,11 +125,11 @@ class LoaderTest(TestCase):
 
     def test_model_with_sparse_preloader(self):
         model_constructors = [
-            (ml.GloveLoader, 'glv'),
-            (ml.Word2vecLoader, 'w2v'),
-            (ml.MaxLikelihoodLoader, 'mle'),
-            (ml.MaxPosteriorLoader, 'map'),
-            (ml.KLLoader, 'kl')
+            (h.model_loaders.GloveLoader, 'glv'),
+            (h.model_loaders.Word2vecLoader, 'w2v'),
+            (h.model_loaders.MaxLikelihoodLoader, 'mle'),
+            (h.model_loaders.MaxPosteriorLoader, 'map'),
+            (h.model_loaders.KLLoader, 'kl')
         ]
 
         for constructor, mname in model_constructors:
@@ -126,7 +173,7 @@ class LoaderTest(TestCase):
 
         # iterate over each combo
         for sef, shf, t, al in test_combos:
-            preloader = DenseShardPreloader(
+            preloader = h.bigram.DenseShardPreloader(
                 BIGRAM_PATH, sef, shf,
                 t_clean_undersample=t,
                 alpha_unigram_smoothing=al,
@@ -155,7 +202,7 @@ class LoaderTest(TestCase):
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                DenseShardPreloader(BIGRAM_PATH, SECTOR_FACTOR, shard_factor,
+                h.bigram.DenseShardPreloader(BIGRAM_PATH, SECTOR_FACTOR, shard_factor,
                                     None, None),
                 verbose=False,
                 device='cpu'

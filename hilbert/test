@@ -26,7 +26,6 @@ def insert_test():
             pass
 
         sys.argv[i] = '.'.join(test_path)
-        print(sys.argv[i])
 
         #sys.argv[i] = 'tests.test_' + sys.argv[i]
 

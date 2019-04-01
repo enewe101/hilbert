@@ -14,4 +14,4 @@ import hilbert.utils
 import hilbert.runners
 import hilbert.generic_interfaces
 import hilbert.file_access
-
+import hilbert.tests

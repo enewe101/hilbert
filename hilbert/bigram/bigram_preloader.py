@@ -124,94 +124,49 @@ class DenseShardPreloader(BatchPreloader):
 
 
 
-#"""
-#Class for dense matrix factorization data loading.
-#"""
-#class SampleMaxLikelihoodLoader(BatchPreloader):
-#
-#    def __init__(
-#        self, bigram_path, sector_factor, shard_factor,
-#        t_clean_undersample=None,
-#        alpha_unigram_smoothing=None,
-#    ):
-#        """
-#        Base class for more specific loaders `BigramLoader` yields tensors 
-#        representing shards of text cooccurrence data.  Each shard has unigram
-#        and bigram data, for words and word-pairs, along with totals.
-#
-#        bigram data:
-#            `Nxx`   number of times ith word seen with jth word.
-#            `Nx`    marginalized (summed) counts: num pairs containing ith word
-#            `Nxt`   marginalized (summed) counts: num pairs containing jth word
-#            `N`     total number of pairs.
-#
-#            Note: marginalized counts aren't equal to frequency of the word,
-#            one word occurrence means participating in ~2 x window-size number
-#            of pairs.
-#
-#        unigram data `(uNx, uNxt, uN)`
-#            `uNx`   Number of times word i occurs.
-#            `uNxt`  Number of times word j occurs.
-#            `uN`    total number of words
-#
-#            Note: Due to unigram-smoothing (e.g. in w2v), uNxt may not equal
-#            uNx.  In w2v, one gets smoothed, the other is left unchanged (both
-#            are needed).
-#        """
-#        super(DenseShardPreloader, self).__init__(
-#            bigram_path, t_clean_undersample=t_clean_undersample,
-#            alpha_unigram_smoothing=alpha_unigram_smoothing
-#        )
-#        self.sector_factor = sector_factor
-#        self.shard_factor = shard_factor
-#        self.bigram_sector = None
-#
-#
-#    def accumulate_statistics(self):
-#
-#        # Go though each sector.  Get the non-zero Nxx statistics, and keep
-#        # Track of the indices they belong to.  We will use this to 
-#        # Create a categorical sampler for i,j pairs.
-#        Nxx = []
-#        i_idx = []
-#        j_idx = []
-#        for sector_id in h.shards.Shards(self.sector_factor):
-#
-#            # Read the sector of bigram data into memory, and transform
-#            # distributions as desired.
-#            self.bigram_sector = h.bigram.BigramSector.load(
-#                self.bigram_path, sector_id)
-#
-#            self.bigram_sector.apply_w2v_undersampling(
-#                self.t_clean_undersample)
-#
-#            self.bigram_sector.apply_unigram_smoothing(
-#                self.alpha_unigram_smoothing)
-#
-#            Nxx_coo = self.bigram_sector.Nxx.tocoo()
-#            Nxx.extend(Nxx_coo)
-#            i_idx.extend([
-#                shard.step * i + shard.i for i in Nxx_coo
-#
-#            # Start yielding cRAM-preloaded shards
-#            for shard_id in h.shards.Shards(self.shard_factor):
-#
-#                bigram_data = self.bigram_sector.load_relative_shard(
-#                    shard=shard_id, device='cpu')
-#
-#                unigram_data = self.bigram_sector.load_relative_unigram_shard(
-#                    shard=shard_id, device='cpu')
-#
-#                yield shard_id * sector_id, bigram_data, unigram_data
-#        return
-#
-#
-#    def describe(self):
-#        s = super(DenseShardPreloader, self).describe()
-#        s += 'Dense Preloader\n'
-#        s += '\tsector_factor = {}\n'.format(self.sector_factor)
-#        s += '\tshard_factor = {}\n'.format(self.shard_factor)
-#        return s
+"""
+Class for dense matrix factorization data loading.
+"""
+class SampleMaxLikelihoodLoader:
+
+    def __init__(self, bigram_path, sector_factor):
+        """
+        """
+        self.bigram_path = bigram_path
+        self.sector_factor = sector_factor
+        self.bigram_sector = None
+
+
+    def accumulate_statistics(self):
+
+        # Go though each sector and accumulate all of the non-zero data
+        # into a single sparse tensor representation.
+        self.data = torch.tensor([], dtype=torch.float32)
+        self.I = torch.tensor([], dtype=torch.long)
+        self.J = torch.tensor([], dtype=torch.long)
+        for sector_id in h.shards.Shards(self.sector_factor):
+
+            # Read the sector, and get the statistics in sparse COO-format
+            sector = h.bigram.BigramSector.load(
+                self.bigram_path, sector_id
+            ).Nxx.tocoo()
+            assert not any(sector.data == 0)
+
+            # Tensorfy the data, and the row and column indices
+            add_Nxx = torch.tensor(sector.data, dtype=torch.float32)
+            add_i_idxs = torch.tensor(sector.row, dtype=torch.long)
+            add_j_idxs = torch.tensor(sector.col, dtype=torch.long)
+
+            # Adjust the row and column indices to account for sharding
+            add_i_idxs = add_i_idxs * sector_id.step + sector_id.i
+            add_j_idxs = add_j_idxs * sector_id.step + sector_id.j
+
+            # Concatenate
+            self.data = torch.cat((self.data, add_Nxx))
+            self.I = torch.cat((self.I, add_i_idxs))
+            self.J = torch.cat((self.J, add_j_idxs))
+
+
 
 
 
