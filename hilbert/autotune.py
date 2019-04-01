@@ -148,6 +148,13 @@ def main():
         '--temperature', '-T', type=float, default=1, dest='temperature',
         help="equalizes weighting for loss from individual token pairs."
     )
+    base_parser.add_argument(
+        '--simple-loss', '-j', action='store_true',
+        help=(
+            "Whether to use the simpler loss function, obtained by neglecting "
+            "the denominator of the full loss function after differentiation."
+        )
+    )
 
     # GLV hypers
     base_parser.add_argument(
