@@ -359,8 +359,7 @@ class ZedSampler(object):
         size = (num_zeds,) if shape == 1 else (num_zeds, shape)
         samples = torch.randint(self.upper_limit,
                                 device=self.device,
-                                size=size,
-                                ).long()
+                                size=size).long()
 
         if not self.filter_repeats:
             return samples, self.zeds[:num_zeds]

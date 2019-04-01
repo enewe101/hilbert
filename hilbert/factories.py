@@ -139,7 +139,7 @@ def construct_w2v_solver(
         learn_bias=False,
         seed=seed,
         verbose=verbose,
-        learner='sparse' if sparse else 'dense',
+        learner=datamode,
         device=device
     )
     if verbose:
@@ -225,7 +225,7 @@ def construct_glv_solver(
         learn_bias=not nobias,
         seed=seed,
         device=device,
-        learner='sparse' if sparse else 'dense',
+        learner=datamode,
         verbose=verbose
     )
     return embsolver
@@ -304,7 +304,7 @@ def _construct_tempered_solver(
         learn_bias=False,
         seed=seed,
         device=device,
-        learner='sparse' if sparse else 'dense',
+        learner=datamode,
         verbose=verbose
     )
     return embsolver

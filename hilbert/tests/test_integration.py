@@ -12,7 +12,7 @@ SECTOR_FACTOR = 3
 class IntegrationTests(TestCase):
 
     def test_runners(self):
-        for sparse in [True, False]:
+        for dm in ['dense', 'tupsparse', 'lilsparse']:
 
             common_kwargs = {
                 'bigram_path': BIGRAM_PATH,
@@ -28,7 +28,9 @@ class IntegrationTests(TestCase):
                 'shard_factor': 1,
                 'shard_times': 1,
                 'seed': 1,
-                'sparse': sparse,
+                'datamode': dm,
+                'tup_n_batches': 13,
+                'verbose': True,
                 'device': h.CONSTANTS.MATRIX_DEVICE,
             }
 

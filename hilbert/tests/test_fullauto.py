@@ -255,7 +255,7 @@ class TestAutoEmbedder(TestCase):
         # ... this should be fixed!
         zk = 0 # 10_000
         n_batches = 11
-        device = torch.device('cpu')
+        device = h.CONSTANTS.MATRIX_DEVICE
 
         loaders_losses = [
             # (ml.PPMILoader, h.hilbert_loss.MSELoss),
