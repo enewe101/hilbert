@@ -126,45 +126,6 @@ class DenseShardPreloader(BatchPreloader):
 
 
 
-class SampleMaxLikelihoodLoader:
-
-    def __init__(self, bigram_path, sector_factor):
-        self.bigram_path = bigram_path
-        self.sector_factor = sector_factor
-        self.bigram_sector = None
-
-
-    def accumulate_statistics(self):
-
-        # Go though each sector and accumulate all of the non-zero data
-        # into a single sparse tensor representation.
-        self.data = torch.tensor([], dtype=torch.float32)
-        self.I = torch.tensor([], dtype=torch.long)
-        self.J = torch.tensor([], dtype=torch.long)
-        for sector_id in h.shards.Shards(self.sector_factor):
-
-            # Read the sector, and get the statistics in sparse COO-format
-            sector = h.bigram.BigramSector.load(
-                self.bigram_path, sector_id
-            ).Nxx.tocoo()
-            assert not any(sector.data == 0)
-
-            # Tensorfy the data, and the row and column indices
-            add_Nxx = torch.tensor(sector.data, dtype=torch.float32)
-            add_i_idxs = torch.tensor(sector.row, dtype=torch.long)
-            add_j_idxs = torch.tensor(sector.col, dtype=torch.long)
-
-            # Adjust the row and column indices to account for sharding
-            add_i_idxs = add_i_idxs * sector_id.step + sector_id.i
-            add_j_idxs = add_j_idxs * sector_id.step + sector_id.j
-
-            # Concatenate
-            self.data = torch.cat((self.data, add_Nxx))
-            self.I = torch.cat((self.I, add_i_idxs))
-            self.J = torch.cat((self.J, add_j_idxs))
-
-
-
 
 
 class TupSparsePreloader(BatchPreloader):

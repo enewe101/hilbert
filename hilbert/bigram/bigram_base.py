@@ -58,7 +58,6 @@ class BigramBase(object):
         # Marginalizing counts actually takes long.  This seems to be faster
         # than just calling self.Nxx.sum().
         if marginalize:
-            print('marginalizing...')
             self.Nx = np.zeros((self.Nxx.shape[0],1))
             self.Nxt = np.zeros((1,self.Nxx.shape[1]))
             for i in range(len(self.Nxx.data)):

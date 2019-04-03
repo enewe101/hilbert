@@ -15,3 +15,4 @@ import hilbert.runners
 import hilbert.generic_datastructs
 import hilbert.file_access
 import hilbert.tests
+import hilbert.categorical

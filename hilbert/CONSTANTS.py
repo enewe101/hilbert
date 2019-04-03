@@ -6,7 +6,8 @@ def read_rc():
     RC = {
         'cooccurrence_dir': None,
         'corpus_dir': None,
-        'embeddings_dir':None
+        'embeddings_dir':None,
+        'device':'cuda'
     }
     try:
         with open(os.path.expanduser('~/.hilbertrc')) as rc_file:
@@ -23,7 +24,7 @@ def read_rc():
 
 RC = read_rc()
 
-MATRIX_DEVICE = None # TODO: purge this global away
+MATRIX_DEVICE = 'cuda' # TODO: purge this global away
 MEMORY_DEVICE = 'cpu' # TODO: purge this global away
 DEFAULT_DTYPE = torch.float32
 CODE_DIR = os.path.abspath(os.path.join(__file__, '..'))

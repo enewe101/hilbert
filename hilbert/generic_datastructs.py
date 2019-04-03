@@ -1,3 +1,4 @@
+import hilbert as h
 import abc
 import torch
 
@@ -56,6 +57,56 @@ def build_sparse_lil_nxx(bigram, include_unigram_data, device):
     N = Nx.sum().to(device)
     return sparse_nxx, (Nx, Nxt, N,), \
            get_unigram_data(bigram, include_unigram_data, device)
+
+
+def get_Nxx_coo(
+    bigram_path, sector_factor, include_marginals=True, verbose=True
+):
+    """
+    Reads in sectorized bigram data from disk, and converts it into a sparse
+    tensor representation using COO format.  If desired, marginal sums are 
+    included.
+    """
+
+    # Go though each sector and accumulate all of the non-zero data
+    # into a single sparse tensor representation.
+    float_dtype = h.CONSTANTS.DEFAULT_DTYPE
+    device = device=h.CONSTANTS.MEMORY_DEVICE
+    data = torch.tensor([], dtype=float_dtype, device=device)
+    I = torch.tensor([], dtype=torch.int, device=device)
+    J = torch.tensor([], dtype=torch.int, device=device)
+    for sector_id in h.shards.Shards(sector_factor):
+
+        if verbose:
+            print('loading sector {}'.format(sector_id.serialize()))
+
+        # Read the sector, and get the statistics in sparse COO-format
+        sector = h.bigram.BigramSector.load(bigram_path, sector_id)
+        sector_coo = sector.Nxx.tocoo()
+
+        # Tensorfy the data, and the row and column indices
+        add_Nxx = torch.tensor(sector_coo.data, dtype=float_dtype)
+        add_i_idxs = torch.tensor(sector_coo.row, dtype=torch.int)
+        add_j_idxs = torch.tensor(sector_coo.col, dtype=torch.int)
+
+        # Adjust the row and column indices to account for sharding
+        add_i_idxs = add_i_idxs * sector_id.step + sector_id.i
+        add_j_idxs = add_j_idxs * sector_id.step + sector_id.j
+
+        # Concatenate
+        data = torch.cat((data, add_Nxx))
+        I = torch.cat((I, add_i_idxs))
+        J = torch.cat((J, add_j_idxs))
+
+    if include_marginals:
+        # Every sector has global marginals, so get marginals from last sector.
+        Nx = torch.tensor(sector._Nx, dtype=float_dtype)
+        Nxt = torch.tensor(sector._Nxt, dtype=float_dtype)
+        return data, I, J, Nx, Nxt
+    else:
+        return data, I, J
+
+
 
 
 def build_sparse_tup_nxx(bigram, include_unigram_data, device):

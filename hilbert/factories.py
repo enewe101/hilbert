@@ -31,8 +31,8 @@ def build_preloader(
         alpha_unigram_smoothing=None,
         datamode='dense',
         is_w2v=False,
-        zk=10_000,
-        n_batches=1_000,
+        zk=10000,
+        n_batches=1000,
         device=None
     ):
     if datamode == 'dense':
