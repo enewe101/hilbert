@@ -41,16 +41,17 @@ class TestGenericDatastructs(TestCase):
         bigram.save_sectors(save_path, sectors)
 
         # Get the loader to re-produce the original matrix
-        loader = h.bigram.SampleMaxLikelihoodLoader(save_path, sector_factor)
-        loader.accumulate_statistics()
+        Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
+            save_path, sector_factor)
         sparse = scipy.sparse.coo_matrix((
-            np.array(loader.data), 
-            (np.array(loader.I), np.array(loader.J))
+            np.array(Nxx_data), (np.array(I), np.array(J))
         ))
         dense = sparse.toarray()
 
         # Test equality
         self.assertTrue(np.allclose(dense, Nxx))
+
+
 
 
 
