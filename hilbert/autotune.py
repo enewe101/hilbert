@@ -79,7 +79,7 @@ def double_check(embsolver, obtained_losses, n_iters):
 def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
     embsolver = constructor(**constr_kwargs)
     print(embsolver.describe())
-    embsolver.verbose = True
+    embsolver.verbose = False
     div_lrs = []
     stationary_lrs = []
     good_lrs = []
@@ -95,7 +95,7 @@ def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
         losses = []
         for i in range(n_iters):
             try:
-                losses += embsolver.cycle(1)
+                losses += embsolver.cycle(1, very_verbose=False)
                 bar.next()
                 if len(losses) > 11:
                     loss_check(losses)
@@ -139,7 +139,7 @@ def main():
         help='how many cycles to run for each LR tested'
     )
     base_parser.add_argument(
-        '--head_lr', type=float, default=1e4,
+        '--head_lr', type=float, default=1e5,
         help='estimate of what the maximum possible LR could be'
     )
 
@@ -154,6 +154,10 @@ def main():
             "Whether to use the simpler loss function, obtained by neglecting "
             "the denominator of the full loss function after differentiation."
         )
+    )
+    base_parser.add_argument(
+        '--batch_size', type=int, default=100000,
+        help='batch size for the Sample-based MLE model'
     )
 
     # GLV hypers
@@ -181,7 +185,7 @@ def main():
     )
 
     # now gotta filter out the kwargs appropriately
-    filter_kwargs = {'model', 'n_iters', 'head_lr',
+    filter_kwargs = {'model', 'n_iters', 'head_lr', 'batch_size',
                      'temperature', 'X_max', 'alpha', 'k',
                      'alpha_unigram_smoothing', 't_clean_undersample',
                      'epochs', 'iters_per_epoch',
@@ -191,6 +195,11 @@ def main():
     if bp_namespace.model == 'mle':
         filter_kwargs.remove('temperature')
         constructor = proletariat.construct_max_likelihood_solver
+
+    elif bp_namespace.model == 'mle-sample':
+        filter_kwargs.remove('temperature')
+        filter_kwargs.remove('batch_size')
+        constructor = proletariat.construct_sample_max_likelihood_solver
 
     elif bp_namespace.model == 'glv':
         filter_kwargs.remove('X_max')
