@@ -235,6 +235,78 @@ def construct_glv_solver(
     return embsolver
 
 
+def construct_max_likelihood_sample_based_solver(
+    bigram_path,
+    init_embeddings_path=None,
+    d=300,
+    temperature=1,
+    #update_density=1.,
+    learning_rate=0.01,
+    opt_str='adam',
+    sector_factor=1,
+    #shard_factor=1,
+    batch_size=10000,
+    batches_per_epoch=1000,
+    #tup_n_batches=None,
+    seed=1,
+    device=None,
+    verbose=True
+):
+    """
+    Similar to construct_max_likelihood_solver, but it is based on 
+    approximating the loss function using sampling.
+    """
+
+    # repeatability
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    # Make bigram loader
+    loader = h.bigram.BigramSampleLoader(
+        bigram_path=bigram_path, 
+        sector_factor=sector_factor,
+        temperature=temperature,
+        batch_size=batch_size,
+        batches_per_epoch=batches_per_epoch,
+        device=device, 
+        verbose=verbose
+    )
+
+    # Make the loss.  This sample based loss is simpler than the others:
+    # it doesn't need to know the vocabulary size nor does it make use of
+    # update_density.
+    loss = h.hilbert_loss.SampleMaxLikelihoodLoss()
+
+    # initialize the vectors
+    init_vecs = get_init_embs(init_embeddings_path)
+    shape = None
+    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary = h.dictionary.Dictionary.load(dictionary_path)
+    if init_vecs is None:
+        vocab = len(dictionary)
+        shape = (vocab, vocab)
+
+    # get the solver and we good!
+    embsolver = h.embedder.HilbertEmbedderSolver(
+        loader=loader,
+        loss=loss,
+        optimizer_constructor=get_opt(opt_str),
+        d=d,
+        learning_rate=learning_rate,
+        init_vecs=init_vecs,
+        dictionary=dictionary,
+        shape=shape,
+        one_sided=False,
+        learn_bias=False,
+        seed=seed,
+        device=device,
+        learner='sparse',
+        verbose=verbose
+    )
+    return embsolver
+
+
+
 def _construct_tempered_solver(
     loader_class,
     loss_class,

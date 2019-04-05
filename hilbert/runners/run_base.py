@@ -36,7 +36,9 @@ def kw_filter(kwargs):
     return {k: v for k, v in kwargs.items() if k not in ignore}
 
 # Main thing that is imported
-def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir):
+def init_and_run(
+    embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir
+):
 
     # special things for initialization.
     print(embsolver.describe())
@@ -48,8 +50,10 @@ def init_and_run(embsolver, epochs, iters_per_epoch, shard_times, save_embedding
         print('epoch\t{}'.format(epoch))
 
         # cycle the solver, this is a big boy that backprops gradients.
-        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times,
-                                 very_verbose=False)
+        losses = embsolver.cycle(
+            iters=iters_per_epoch, shard_times=shard_times,
+            very_verbose=True
+        )
 
         # saving data intermediately
         save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
@@ -100,6 +104,7 @@ def modify_args(args):
     if args['init_embeddings_path'] is not None:
         args['init_embeddings_path'] = os.path.join(
             EMBEDDINGS_DIR, args['init_embeddings_path'])
+
 
 # TODO: add number of zed-samples to CLI.
 # Argparser common across everything

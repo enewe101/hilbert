@@ -26,7 +26,8 @@ class TestLoss(TestCase):
         ncomponents = np.prod(Nxx.shape)
 
         sigmoid = lambda a: 1/(1+torch.exp(-a))
-        N_neg = h.model_loaders.Word2vecLoader.negative_sample(Nxx, Nx, uNxt, uN, k)
+        N_neg = h.model_loaders.Word2vecLoader.negative_sample(
+            Nxx, Nx, uNxt, uN, k)
         M_hat = torch.ones_like(Nxx)
         loss_term_1 = Nxx * torch.log(sigmoid(M_hat))
         loss_term_2 = N_neg * torch.log(1-sigmoid(M_hat))
@@ -70,6 +71,17 @@ class TestLoss(TestCase):
             found_loss = loss_class(M_hat, {
                 'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent })
             self.assertTrue(torch.allclose(found_loss, expected_loss))
+
+
+    def test_sample_max_likelihood_loss(self):
+        batch_size = 100
+        M_hat_pos = torch.rand(batch_size)
+        M_hat_neg = torch.rand(batch_size)
+        expected_loss = -(M_hat_pos.sum() - torch.exp(M_hat_neg).sum())
+        loss_obj = h.hilbert_loss.SampleMaxLikelihoodLoss()
+        found_loss = loss_obj(torch.cat((M_hat_pos, M_hat_neg)), None)
+        self.assertTrue(torch.allclose(found_loss, expected_loss))
+
 
 
     def test_max_posterior_loss(self):
