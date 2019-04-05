@@ -73,8 +73,8 @@ def get_Nxx_coo(
     float_dtype = h.CONSTANTS.DEFAULT_DTYPE
     device = device=h.CONSTANTS.MEMORY_DEVICE
     data = torch.tensor([], dtype=float_dtype, device=device)
-    I = torch.tensor([], dtype=torch.int, device=device)
-    J = torch.tensor([], dtype=torch.int, device=device)
+    I = torch.tensor([], dtype=torch.int32, device=device)
+    J = torch.tensor([], dtype=torch.int32, device=device)
     for sector_id in h.shards.Shards(sector_factor):
 
         if verbose:

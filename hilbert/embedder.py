@@ -77,6 +77,8 @@ class HilbertEmbedderSolver(object):
             self.learner_class = DenseLearner
         elif learner == 'tupsparse':
             self.learner_class = TupSparseLearner
+        elif learner == 'sparse':
+            self.learner_class = SparseLearner
         else:
             self.learner_class = LilSparseLearner
 
@@ -168,7 +170,8 @@ class HilbertEmbedderSolver(object):
                 self.wb = xavier((1, wshape[0]), device).squeeze()
 
         # now build the auto-embedder
-        self.learner = self.learner_class(self.V, self.W, self.vb, self.wb).to(device)
+        self.learner = self.learner_class(
+            self.V, self.W, self.vb, self.wb).to(device)
 
         self.optimizer = self.optimizer_constructor(
             self.learner.parameters(),
@@ -306,6 +309,18 @@ class TupSparseLearner(EmbeddingLearner):
         if self.learn_bias:
             tc_hat += self.v_bias[ij_tensor[0]]
             tc_hat += self.w_bias[ij_tensor[1]]
+
+        # andddd that's all folks!
+        return tc_hat
+
+
+class SparseLearner(EmbeddingLearner):
+
+    def forward(self, IJ):
+        tc_hat = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
+        if self.learn_bias:
+            tc_hat += self.v_bias[IJ[:,0]]
+            tc_hat += self.w_bias[IJ[:,1]]
 
         # andddd that's all folks!
         return tc_hat
