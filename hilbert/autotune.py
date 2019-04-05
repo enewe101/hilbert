@@ -159,6 +159,10 @@ def main():
         '--batch_size', type=int, default=100000,
         help='batch size for the Sample-based MLE model'
     )
+    base_parser.add_argument(
+        '--batches_per_epoch', type=int, default=100,
+        help=''
+    )
 
     # GLV hypers
     base_parser.add_argument(
@@ -186,10 +190,16 @@ def main():
 
     # now gotta filter out the kwargs appropriately
     filter_kwargs = {'model', 'n_iters', 'head_lr', 'batch_size',
-                     'temperature', 'X_max', 'alpha', 'k',
+                     
+            'batches_per_epoch', 'datamode', 'tup_n_batches',
+            
+            'temperature', 'X_max', 'alpha', 'k', 
+                     
+                     'zk', 'simple_loss',
+                     
                      'alpha_unigram_smoothing', 't_clean_undersample',
-                     'epochs', 'iters_per_epoch',
-                     'save_embeddings_dir', 'shard_times'}
+                     'epochs', 'iters_per_epoch', 'shard_factor',
+                     'save_embeddings_dir', 'shard_times', 'update_density'}
     bp_namespace = base_parser.parse_args()
 
     if bp_namespace.model == 'mle':
@@ -199,7 +209,8 @@ def main():
     elif bp_namespace.model == 'mle-sample':
         filter_kwargs.remove('temperature')
         filter_kwargs.remove('batch_size')
-        constructor = proletariat.construct_sample_max_likelihood_solver
+        filter_kwargs.remove('batches_per_epoch')
+        constructor = proletariat.construct_max_likelihood_sample_based_solver
 
     elif bp_namespace.model == 'glv':
         filter_kwargs.remove('X_max')
