@@ -14,12 +14,12 @@ class BatchPreloader(Describable):
 
     @abc.abstractmethod
     def __init__(
-            self, bigram_path, *args,
+            self, cooccurrence_path, *args,
             t_clean_undersample=None,
             alpha_unigram_smoothing=None, **kwargs
         ):
 
-        self.bigram_path = bigram_path
+        self.cooccurrence_path = cooccurrence_path
         self.t_clean_undersample = t_clean_undersample
         self.alpha_unigram_smoothing = alpha_unigram_smoothing
 
@@ -35,7 +35,7 @@ class BatchPreloader(Describable):
 
     @abc.abstractmethod
     def describe(self):
-        s = '\tbigram_path = {}\n'.format(self.bigram_path)
+        s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
         s += '\tt_clean_undersample = {}\n'.format(self.t_clean_undersample)
         s += '\talpha_unigram_smoothing = {}\n'.format(
             self.alpha_unigram_smoothing)
@@ -50,16 +50,16 @@ class DenseShardPreloader(BatchPreloader):
     """
 
     def __init__(
-        self, bigram_path, sector_factor, shard_factor,
+        self, cooccurrence_path, sector_factor, shard_factor,
         t_clean_undersample=None,
-        alpha_unigram_smoothing=None,
+        alpha_unigram_smoothing=None, verbose=True
     ):
         """
-        Base class for more specific loaders `BigramLoader` yields tensors 
+        Base class for more specific loaders `CooccurrenceLoader` yields tensors 
         representing shards of text cooccurrence data.  Each shard has unigram
-        and bigram data, for words and word-pairs, along with totals.
+        and cooccurrence data, for words and word-pairs, along with totals.
 
-        bigram data:
+        cooccurrence data:
             `Nxx`   number of times ith word seen with jth word.
             `Nx`    marginalized (summed) counts: num pairs containing ith word
             `Nxt`   marginalized (summed) counts: num pairs containing jth word
@@ -79,41 +79,43 @@ class DenseShardPreloader(BatchPreloader):
             are needed).
         """
         super(DenseShardPreloader, self).__init__(
-            bigram_path, t_clean_undersample=t_clean_undersample,
+            cooccurrence_path, t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing
         )
         self.sector_factor = sector_factor
         self.shard_factor = shard_factor
-        self.bigram_sector = None
+        self.cooccurrence_sector = None
+        self.verbose = verbose
 
 
     def preload_iter(self, *args, **kwargs):
         super(DenseShardPreloader, self).preload_iter(*args, **kwargs)
 
         for i, sector_id in enumerate(h.shards.Shards(self.sector_factor)):
-            print('loading sector {}'.format(i))
+            if self.verbose:
+                print('loading sector {}'.format(i))
 
-            # Read the sector of bigram data into memory, and transform
+            # Read the sector of cooccurrence data into memory, and transform
             # distributions as desired.
-            self.bigram_sector = h.bigram.BigramSector.load(
-                self.bigram_path, sector_id)
+            self.cooccurrence_sector = h.cooccurrence.CooccurrenceSector.load(
+                self.cooccurrence_path, sector_id)
 
-            self.bigram_sector.apply_w2v_undersampling(
+            self.cooccurrence_sector.apply_w2v_undersampling(
                 self.t_clean_undersample)
 
-            self.bigram_sector.apply_unigram_smoothing(
+            self.cooccurrence_sector.apply_unigram_smoothing(
                 self.alpha_unigram_smoothing)
 
             # Start yielding cRAM-preloaded shards
             for shard_id in h.shards.Shards(self.shard_factor):
 
-                bigram_data = self.bigram_sector.load_relative_shard(
+                cooccurrence_data = self.cooccurrence_sector.load_relative_shard(
                     shard=shard_id, device='cpu')
 
-                unigram_data = self.bigram_sector.load_relative_unigram_shard(
+                unigram_data = self.cooccurrence_sector.load_relative_unigram_shard(
                     shard=shard_id, device='cpu')
 
-                yield shard_id * sector_id, bigram_data, unigram_data
+                yield shard_id * sector_id, cooccurrence_data, unigram_data
         return
 
 
@@ -136,7 +138,7 @@ class TupSparsePreloader(BatchPreloader):
     """
 
     def __init__(
-            self, bigram_path,
+            self, cooccurrence_path,
             t_clean_undersample=None,
             alpha_unigram_smoothing=None,
             zk=1000,
@@ -146,7 +148,7 @@ class TupSparsePreloader(BatchPreloader):
             device=None
         ):
         super(TupSparsePreloader, self).__init__(
-            bigram_path, t_clean_undersample=t_clean_undersample,
+            cooccurrence_path, t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
         )
         self.zk = zk # max number of z-samples to draw
@@ -167,11 +169,13 @@ class TupSparsePreloader(BatchPreloader):
     def preload_iter(self, *args, **kwargs):
         super(TupSparsePreloader, self).preload_iter(*args, **kwargs)
 
-        bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
-        self.n_nonzeros = bigram.Nxx.nnz
+        cooccurrence = h.cooccurrence.Cooccurrence.load(
+            self.cooccurrence_path, marginalize=False)
+        self.n_nonzeros = cooccurrence.Nxx.nnz
 
         # Iterate over each row index in the sparse matrix
-        data = build_sparse_tup_nxx(bigram, self.include_unigram_data, self.device)
+        data = build_sparse_tup_nxx(
+            cooccurrence, self.include_unigram_data, self.device)
         self.xx, self.nxx = data[0]
         self.Nx, self.Nxt, self.N = data[1]
         self.uNx, self.uNxt, self.uN = data[2]
@@ -201,7 +205,7 @@ class TupSparsePreloader(BatchPreloader):
         all_nij = torch.cat((self.nxx[preloaded_slice], zeds))
 
         # prepare the data for learning
-        bigram_data = (all_nij,
+        cooccurrence_data = (all_nij,
                        self.Nx[ij_tensor[0]],
                        self.Nxt[ij_tensor[1]],
                        self.N)
@@ -214,7 +218,7 @@ class TupSparsePreloader(BatchPreloader):
                             self.uN)
 
         # batch_id is the ij_tensor
-        return ij_tensor, bigram_data, unigram_data
+        return ij_tensor, cooccurrence_data, unigram_data
 
 
     def describe(self):
@@ -236,7 +240,7 @@ Class for compressed data loading & iteration.
 class LilSparsePreloader(BatchPreloader):
 
     def __init__(
-            self, bigram_path,
+            self, cooccurrence_path,
             t_clean_undersample=None,
             alpha_unigram_smoothing=None,
             zk=1000,
@@ -245,7 +249,7 @@ class LilSparsePreloader(BatchPreloader):
             device=None
         ):
         super(LilSparsePreloader, self).__init__(
-            bigram_path, t_clean_undersample=t_clean_undersample,
+            cooccurrence_path, t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
         )
         self.zk = zk # max number of z-samples to draw
@@ -265,20 +269,20 @@ class LilSparsePreloader(BatchPreloader):
     def preload_iter(self, *args, **kwargs):
         super(LilSparsePreloader, self).preload_iter(*args, **kwargs)
 
-        bigram = h.bigram.BigramBase.load(self.bigram_path, marginalize=False)
+        cooccurrence = h.cooccurrence.Cooccurrence.load(self.cooccurrence_path, marginalize=False)
 
         # Number of nonzero elements
-        self.n_nonzeros = bigram.Nxx.nnz
+        self.n_nonzeros = cooccurrence.Nxx.nnz
 
         # Number of batches, equivalent to vocab size
-        self.n_batches = len(bigram.Nxx.data)
+        self.n_batches = len(cooccurrence.Nxx.data)
         self.z_sampler = ZedSampler(
             self.n_batches, self.device, self.zk,
             filter_repeats=self.filter_repeats
         )
 
         # Iterate over each row index in the sparse matrix
-        data = build_sparse_lil_nxx(bigram, self.include_unigram_data, self.device)
+        data = build_sparse_lil_nxx(cooccurrence, self.include_unigram_data, self.device)
         self.sparse_nxx = data[0]
         self.Nx, self.Nxt, self.N = data[1]
         self.uNx, self.uNxt, self.uN = data[2]
@@ -297,7 +301,7 @@ class LilSparsePreloader(BatchPreloader):
         all_nxx = torch.cat((self.sparse_nxx[preloaded][1], z_nijs))
 
         # prepare the data for learning
-        bigram_data = (all_nxx,
+        cooccurrence_data = (all_nxx,
                        self.Nx[i],
                        self.Nxt[all_js],
                        self.N)
@@ -308,7 +312,7 @@ class LilSparsePreloader(BatchPreloader):
             unigram_data = (self.uNx[i], self.uNxt[all_js], self.uN)
 
         batch_id = (i, all_js)
-        return batch_id, bigram_data, unigram_data
+        return batch_id, cooccurrence_data, unigram_data
 
 
     def describe(self):

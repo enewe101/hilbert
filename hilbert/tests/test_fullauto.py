@@ -1,9 +1,8 @@
 import os
 import numpy as np
 import hilbert as h
-import hilbert.model_loaders as ml
 import torch
-from hilbert.bigram import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
+from hilbert.cooccurrence import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
 from unittest import TestCase, main
 
 VERBOSE = False
@@ -19,14 +18,15 @@ class TestLoss(TestCase):
     def test_w2v_loss(self):
 
         k = 15
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
-        uNx, uNxt, uN = bigram.unigram.load_shard(
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
+        uNx, uNxt, uN = cooccurrence.unigram.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE) 
         ncomponents = np.prod(Nxx.shape)
 
         sigmoid = lambda a: 1/(1+torch.exp(-a))
-        N_neg = h.model_loaders.Word2vecLoader.negative_sample(
+        N_neg = h.loaders.Word2vecLoader.negative_sample(
             Nxx, Nx, uNxt, uN, k)
         M_hat = torch.ones_like(Nxx)
         loss_term_1 = Nxx * torch.log(sigmoid(M_hat))
@@ -37,11 +37,11 @@ class TestLoss(TestCase):
 
             torch.manual_seed(0)
             rescale = float(keep_prob * ncomponents)
-            loss_masked = h.hilbert_loss.keep(loss_array, keep_prob)
+            loss_masked = h.loss.keep(loss_array, keep_prob)
             expected_loss = torch.sum(loss_masked) / rescale
 
             torch.manual_seed(0)
-            loss_obj = h.hilbert_loss.Word2vecLoss(keep_prob, ncomponents)
+            loss_obj = h.loss.Word2vecLoss(keep_prob, ncomponents)
             found_loss = loss_obj(M_hat, {'Nxx':Nxx, 'N_neg':N_neg})
 
             self.assertTrue(torch.allclose(found_loss, expected_loss))
@@ -49,8 +49,9 @@ class TestLoss(TestCase):
 
 
     def test_max_likelihood_loss(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
 
@@ -66,7 +67,7 @@ class TestLoss(TestCase):
         for temperature in [1,10]:
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
             expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
-            loss_class = h.hilbert_loss.MaxLikelihoodLoss(
+            loss_class = h.loss.MaxLikelihoodLoss(
                 keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_class(M_hat, {
                 'Pxx_data': Pxx_data, 'Pxx_independent': Pxx_independent })
@@ -78,19 +79,21 @@ class TestLoss(TestCase):
         M_hat_pos = torch.rand(batch_size)
         M_hat_neg = torch.rand(batch_size)
         expected_loss = -(M_hat_pos.sum() - torch.exp(M_hat_neg).sum())
-        loss_obj = h.hilbert_loss.SampleMaxLikelihoodLoss()
+        loss_obj = h.loss.SampleMaxLikelihoodLoss()
         found_loss = loss_obj(torch.cat((M_hat_pos, M_hat_neg)), None)
         self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
 
     def test_max_posterior_loss(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
 
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
             (Nxx, Nx, Nxt, N))
@@ -108,7 +111,7 @@ class TestLoss(TestCase):
         for temperature in [1, 10]:
             tempered_loss = scaled_loss * Pxx_independent ** (1/temperature - 1)
             expected_loss = - torch.sum(tempered_loss) / float(ncomponents)
-            loss_class = h.hilbert_loss.MaxPosteriorLoss(
+            loss_class = h.loss.MaxPosteriorLoss(
                 keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_class(M_hat, {
                 'N': N, 'N_posterior': N_posterior, 
@@ -119,12 +122,14 @@ class TestLoss(TestCase):
 
 
     def test_KL_loss(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
         ncomponents = np.prod(Nxx.shape)
         keep_prob = 1
 
-        Nxx, Nx, Nxt, N = bigram.load_shard(None, h.CONSTANTS.MATRIX_DEVICE)
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard(
+            None, h.CONSTANTS.MATRIX_DEVICE)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats(
             (Nxx, Nx, Nxt, N))
@@ -149,7 +154,7 @@ class TestLoss(TestCase):
         for temperature in [1, 10]:
             tempered_KL = KL * Pxx_independent ** (1/temperature - 1)
             expected_loss = torch.sum(tempered_KL) / float(ncomponents)
-            loss_obj = h.hilbert_loss.KLLoss(
+            loss_obj = h.loss.KLLoss(
                 keep_prob, ncomponents, temperature=temperature)
             found_loss = loss_obj(M_hat, {
                 'N': N, 'N_posterior': N_posterior, 
@@ -185,173 +190,174 @@ class TestAutoEmbedder(TestCase):
             self.assertTrue(torch.allclose(got_M, expected_M))
 
 
-    def test_sparse_emb_solver_functionality(self):
+#    def test_sparse_emb_solver_functionality(self):
+#
+#        vprint('TESTING SPARSE EMB SOLVER')
+#        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+#        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+#        keep_prob = 1
+#        opt = torch.optim.Adam
+#        shape = cooccurrence.Nxx.shape
+#
+#        loaders_losses = [
+#            (h.loaders.PPMILoader, h.loss.MSELoss),
+#            (h.loaders.GloveLoader, h.loss.MSELoss),
+#            (h.loaders.Word2vecLoader, h.loss.Word2vecLoss),
+#            (h.loaders.MaxLikelihoodLoader, h.loss.MaxLikelihoodLoss),
+#            (h.loaders.MaxPosteriorLoader, h.loss.MaxPosteriorLoss),
+#            (h.loaders.KLLoader, h.loss.KLLoss),
+#        ]
+#        lbs = [True, False]
+#
+#        from itertools import product
+#        options = product(loaders_losses, lbs)
+#
+#        for (loader_class, loss_class), learn_bias in options:
+#            is_w2v = loader_class == h.loaders.Word2vecLoader
+#            vprint('\n', loader_class)
+#            vprint('learn_bias =', learn_bias)
+#            loader = loader_class(
+#                LilSparsePreloader(cooccurrence_path, device='cpu',
+#                                   include_unigram_data=is_w2v),
+#                verbose=False,
+#                device=h.CONSTANTS.MATRIX_DEVICE,
+#            )
+#            loss = loss_class(keep_prob, cooccurrence.vocab ** 2)
+#
+#            solver = h.embedder.HilbertEmbedderSolver(
+#                loader, loss, opt, d=25, learning_rate=0.001,
+#                shape=shape,
+#                one_sided=False, learn_bias=learn_bias, verbose=True,
+#                device=h.CONSTANTS.MATRIX_DEVICE,
+#                learner='sparse'
+#            )
+#
+#            # check to make sure we get the same loss after resetting
+#            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+#            solver.restart()
+#            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+#            solver.restart()
+#            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
+#            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
+#            self.assertTrue(np.allclose(l1, l2))
+#            self.assertTrue(np.allclose(l1, l3))
+#            solver.restart()
+#
+#            # here we're ensuring that the equality between the solver
+#            # parameters and the torch module parameters are always the same,
+#            # before and after learning
+#            for _ in range(3):
+#                V, W, vb, wb = solver.get_params()
+#                aV, aW, avb, awb = (
+#                    solver.learner.V, solver.learner.W,
+#                    solver.learner.v_bias, solver.learner.w_bias
+#                )
+#                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+#                    if t1 is None and t2 is None:
+#                        continue
+#                    self.assertTrue(torch.allclose(t1, t2))
+#
+#                solver.cycle(1)
 
-        vprint('TESTING SPARSE EMB SOLVER')
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
-        keep_prob = 1
-        opt = torch.optim.Adam
-        shape = bigram.Nxx.shape
-
-        loaders_losses = [
-            (ml.PPMILoader, h.hilbert_loss.MSELoss),
-            (ml.GloveLoader, h.hilbert_loss.MSELoss),
-            (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
-            (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
-            (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
-            (ml.KLLoader, h.hilbert_loss.KLLoss),
-        ]
-        lbs = [True, False]
-
-        from itertools import product
-        options = product(loaders_losses, lbs)
-
-        for (loader_class, loss_class), learn_bias in options:
-            is_w2v = loader_class == ml.Word2vecLoader
-            vprint('\n', loader_class)
-            vprint('learn_bias =', learn_bias)
-            loader = loader_class(
-                LilSparsePreloader(bigram_path, device='cpu',
-                                   include_unigram_data=is_w2v),
-                verbose=False,
-                device=h.CONSTANTS.MATRIX_DEVICE,
-            )
-            loss = loss_class(keep_prob, bigram.vocab ** 2)
-
-            solver = h.embedder.HilbertEmbedderSolver(
-                loader, loss, opt, d=25, learning_rate=0.001,
-                shape=shape,
-                one_sided=False, learn_bias=learn_bias, verbose=True,
-                device=h.CONSTANTS.MATRIX_DEVICE,
-                learner='sparse'
-            )
-
-            # check to make sure we get the same loss after resetting
-            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
-            solver.restart()
-            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
-            solver.restart()
-            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
-            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
-            self.assertTrue(np.allclose(l1, l2))
-            self.assertTrue(np.allclose(l1, l3))
-            solver.restart()
-
-            # here we're ensuring that the equality between the solver
-            # parameters and the torch module parameters are always the same,
-            # before and after learning
-            for _ in range(3):
-                V, W, vb, wb = solver.get_params()
-                aV, aW, avb, awb = (
-                    solver.learner.V, solver.learner.W,
-                    solver.learner.v_bias, solver.learner.w_bias
-                )
-                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
-                    if t1 is None and t2 is None:
-                        continue
-                    self.assertTrue(torch.allclose(t1, t2))
-
-                solver.cycle(1)
-
-    def test_tupsparse_emb_solver_functionality(self):
-
-        vprint('TESTING TUP SPARSE EMB SOLVER')
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
-        keep_prob = 1
-        opt = torch.optim.Adam
-        shape = bigram.Nxx.shape
-
-        # this current bigram data does not have any nij=0 samples
-        # ... this should be fixed!
-        zk = 0 # 10_000
-        n_batches = 11
-        device = h.CONSTANTS.MATRIX_DEVICE
-
-        loaders_losses = [
-            # (ml.PPMILoader, h.hilbert_loss.MSELoss),
-            # (ml.GloveLoader, h.hilbert_loss.MSELoss),
-            # (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
-            (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
-            # (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
-            # (ml.KLLoader, h.hilbert_loss.KLLoss),
-        ]
-        lbs = [True, False]
-
-        from itertools import product
-        options = product(loaders_losses, lbs)
-
-        for (loader_class, loss_class), learn_bias in options:
-            is_w2v = loader_class == ml.Word2vecLoader
-            vprint('\n', loader_class)
-            vprint('learn_bias =', learn_bias)
-            loader = loader_class(
-                TupSparsePreloader(
-                    bigram_path,
-                    zk=zk,
-                    n_batches=n_batches,
-                    filter_repeats=False,
-                    device=device,
-                    include_unigram_data=is_w2v
-                ),
-                verbose=False,
-                device=device,
-            )
-            loss = loss_class(keep_prob, bigram.vocab ** 2)
-
-            solver = h.embedder.HilbertEmbedderSolver(
-                loader, loss, opt, d=50, learning_rate=0.1,
-                shape=shape,
-                one_sided=False, learn_bias=learn_bias, verbose=True,
-                device=device,
-                learner='tupsparse'
-            )
-
-            # check to make sure we get the same loss after resetting
-            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
-            solver.restart()
-            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
-            solver.restart()
-            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
-            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
-            self.assertTrue(np.allclose(l1, l2))
-            self.assertTrue(np.allclose(l1, l3))
-            solver.restart()
-
-            # here we're ensuring that the equality between the solver
-            # parameters and the torch module parameters are always the same,
-            # before and after learning
-            for _ in range(3):
-                V, W, vb, wb = solver.get_params()
-                aV, aW, avb, awb = (
-                    solver.learner.V, solver.learner.W,
-                    solver.learner.v_bias, solver.learner.w_bias
-                )
-                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
-                    if t1 is None and t2 is None:
-                        continue
-                    self.assertTrue(torch.allclose(t1, t2))
-
-                solver.cycle(1)
+#    def test_tupsparse_emb_solver_functionality(self):
+#
+#        vprint('TESTING TUP SPARSE EMB SOLVER')
+#        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+#        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+#        keep_prob = 1
+#        opt = torch.optim.Adam
+#        shape = cooccurrence.Nxx.shape
+#
+#        # this current cooccurrence data does not have any nij=0 samples
+#        # ... this should be fixed!
+#        zk = 0 # 10_000
+#        n_batches = 11
+#        device = h.CONSTANTS.MATRIX_DEVICE
+#
+#        loaders_losses = [
+#            # (h.loaders.PPMILoader, h.loss.MSELoss),
+#            # (h.loaders.GloveLoader, h.loss.MSELoss),
+#            # (h.loaders.Word2vecLoader, h.loss.Word2vecLoss),
+#            (h.loaders.MaxLikelihoodLoader, h.loss.MaxLikelihoodLoss),
+#            # (h.loaders.MaxPosteriorLoader, h.loss.MaxPosteriorLoss),
+#            # (h.loaders.KLLoader, h.loss.KLLoss),
+#        ]
+#        lbs = [True, False]
+#
+#        from itertools import product
+#        options = product(loaders_losses, lbs)
+#
+#        for (loader_class, loss_class), learn_bias in options:
+#            is_w2v = loader_class == h.loaders.Word2vecLoader
+#            vprint('\n', loader_class)
+#            vprint('learn_bias =', learn_bias)
+#            loader = loader_class(
+#                TupSparsePreloader(
+#                    cooccurrence_path,
+#                    zk=zk,
+#                    n_batches=n_batches,
+#                    filter_repeats=False,
+#                    device=device,
+#                    include_unigram_data=is_w2v
+#                ),
+#                verbose=False,
+#                device=device,
+#            )
+#            loss = loss_class(keep_prob, cooccurrence.vocab ** 2)
+#
+#            solver = h.embedder.HilbertEmbedderSolver(
+#                loader, loss, opt, d=50, learning_rate=0.1,
+#                shape=shape,
+#                one_sided=False, learn_bias=learn_bias, verbose=True,
+#                device=device,
+#                learner='tupsparse'
+#            )
+#
+#            # check to make sure we get the same loss after resetting
+#            l1 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+#            solver.restart()
+#            l2 = solver.cycle(iters=10, shard_times=1, very_verbose=True)
+#            solver.restart()
+#            l3 = solver.cycle(iters=5, shard_times=1, very_verbose=True)
+#            l3 += solver.cycle(iters=5, shard_times=1, very_verbose=True)
+#            self.assertTrue(np.allclose(l1, l2))
+#            self.assertTrue(np.allclose(l1, l3))
+#            solver.restart()
+#
+#            # here we're ensuring that the equality between the solver
+#            # parameters and the torch module parameters are always the same,
+#            # before and after learning
+#            for _ in range(3):
+#                V, W, vb, wb = solver.get_params()
+#                aV, aW, avb, awb = (
+#                    solver.learner.V, solver.learner.W,
+#                    solver.learner.v_bias, solver.learner.w_bias
+#                )
+#                for t1, t2 in [(V, aV), (W, aW), (vb, avb), (wb, awb)]:
+#                    if t1 is None and t2 is None:
+#                        continue
+#                    self.assertTrue(torch.allclose(t1, t2))
+#
+#                solver.cycle(1)
 
 
 
     def test_dense_emb_solver_functionality(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
         sector_factor = 3
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors')
         keep_prob = 1
         opt = torch.optim.Adam
-        shape = bigram.Nxx.shape
+        shape = cooccurrence.Nxx.shape
 
         loaders_losses = [
-            (ml.PPMILoader, h.hilbert_loss.MSELoss),
-            (ml.GloveLoader, h.hilbert_loss.MSELoss),
-            (ml.Word2vecLoader, h.hilbert_loss.Word2vecLoss),
-            (ml.MaxLikelihoodLoader, h.hilbert_loss.MaxLikelihoodLoss),
-            (ml.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss),
-            (ml.KLLoader, h.hilbert_loss.KLLoss),
+            (h.loaders.PPMILoader, h.loss.MSELoss),
+            (h.loaders.GloveLoader, h.loss.MSELoss),
+            (h.loaders.Word2vecLoader, h.loss.Word2vecLoss),
+            (h.loaders.MaxLikelihoodLoader, h.loss.MaxLikelihoodLoss),
+            (h.loaders.MaxPosteriorLoader, h.loss.MaxPosteriorLoss),
+            (h.loaders.KLLoader, h.loss.KLLoss),
         ]
         shard_fs = [1, 3]
         oss = [False]
@@ -366,12 +372,14 @@ class TestAutoEmbedder(TestCase):
             vprint('one_sided =', one_sided, 'learn_bias =', learn_bias,
                    'shard_factor =', sf)
 
+            preloader = DenseShardPreloader(
+                cooccurrence_path, sector_factor, sf, verbose=False)
             loader = loader_class(
-                DenseShardPreloader(bigram_path, sector_factor, sf),
+                preloader,
                 verbose=False,
                 device=h.CONSTANTS.MATRIX_DEVICE,
             )
-            loss = loss_class(keep_prob, bigram.vocab**2)
+            loss = loss_class(keep_prob, cooccurrence.vocab**2)
 
             solver = h.embedder.HilbertEmbedderSolver(
                 loader, loss, opt, d=300, learning_rate=0.001,
@@ -411,25 +419,26 @@ class TestAutoEmbedder(TestCase):
 
 
     def test_solver_nan(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
         keep = 1
         sector_factor = 3
         shard_factor = 4
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors')
 
-        loader = h.model_loaders.PPMILoader(
+        loader = h.loaders.PPMILoader(
             DenseShardPreloader(
-                bigram_path, sector_factor, shard_factor,
+                cooccurrence_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
-                alpha_unigram_smoothing=None,
+                alpha_unigram_smoothing=None, verbose=False
             ),
             verbose=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
         )
 
-        loss = h.hilbert_loss.MSELoss(keep, bigram.vocab**2) 
+        loss = h.loss.MSELoss(keep, cooccurrence.vocab**2) 
         opt = torch.optim.SGD
-        shape = bigram.Nxx.shape
+        shape = cooccurrence.Nxx.shape
         solver = h.embedder.HilbertEmbedderSolver(
             loader=loader, 
             loss=loss, 
@@ -449,39 +458,40 @@ class TestAutoEmbedder(TestCase):
 
 
     def test_w2v_solver(self):
-        bigram, _, _ = h.corpus_stats.get_test_bigram_base()
-        shape = bigram.Nxx.shape
-        scale = bigram.vocab**2
+        cooccurrence, _, _ = h.corpus_stats.get_test_cooccurrence()
+        shape = cooccurrence.Nxx.shape
+        scale = cooccurrence.vocab**2
         learning_rate = 0.000001
         keep = 1
         sector_factor = 1
         shard_factor = 1
 
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram-sectors')
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors')
 
-        loader = h.model_loaders.Word2vecLoader(
+        loader = h.loaders.Word2vecLoader(
             DenseShardPreloader(
-                bigram_path, sector_factor, shard_factor,
+                cooccurrence_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
-                alpha_unigram_smoothing=0.75,
+                alpha_unigram_smoothing=0.75, verbose=False
             ),
             verbose=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
             k=15,
         )
 
-        outer_loader = h.model_loaders.Word2vecLoader(
+        outer_loader = h.loaders.Word2vecLoader(
             DenseShardPreloader(
-                bigram_path, sector_factor, shard_factor,
+                cooccurrence_path, sector_factor, shard_factor,
                 t_clean_undersample=None,
-                alpha_unigram_smoothing=0.75,
+                alpha_unigram_smoothing=0.75, verbose=False
             ),
             verbose=False,
             device=h.CONSTANTS.MATRIX_DEVICE,
             k=15,
         )
 
-        loss = h.hilbert_loss.Word2vecLoss(keep, bigram.vocab**2) 
+        loss = h.loss.Word2vecLoss(keep, cooccurrence.vocab**2) 
 
         solver = h.embedder.HilbertEmbedderSolver(
             loader=loader, 

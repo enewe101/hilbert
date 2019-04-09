@@ -7,18 +7,22 @@ from scipy import sparse
 
 
 
-class BigramSector(object):
+class CooccurrenceSector(object):
 
-    def __init__(self, unigram, Nxx, Nx, Nxt, sector, device=None, verbose=True):
+    def __init__(
+            self, unigram, Nxx, Nx, Nxt, sector, device=None, verbose=True
+        ):
         """
-        BigramSector represents a subset of the bigram data coming from a 
-        corpus. That is, after the corpus Nxx data is divided by bigram_mutable
-        .sectorize(), this deals with those sectors in a useful way.
+        CooccurrenceSector represents a subset of the cooccurrence data coming
+        from a corpus. That is, after the corpus Nxx data is divided by
+        CooccurrenceMutable.sectorize(), this deals with those sectors in a
+        useful way.
         """
 
         if not unigram.sorted:
             raise ValueError(
-                'Bigram instances must be built from a sorted Unigram instance')
+                'Cooccurrence instances must be built from a sorted Unigram '
+                'instance')
 
         # Own some things
         self.device = device
@@ -72,11 +76,14 @@ class BigramSector(object):
         Nx = np.load(os.path.join(path, 'Nx.npy'))
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))
 
-        return BigramSector(
+        return CooccurrenceSector(
             unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector,
             device=device, verbose=verbose
         )
 
+    @property
+    def shape(self):
+        return self.Nxx.shape
 
     @property
     def Nx(self):
@@ -98,8 +105,8 @@ class BigramSector(object):
     def dictionary(self):
         warnings.warn(
             '`The conversion from tokens to indices requires the use of '
-            '`BigramSector.row_dictionary` and '
-            '`BigramSector.column_dictionary`.', DeprecationWarning
+            '`CooccurrenceSector.row_dictionary` and '
+            '`CooccurrenceSector.column_dictionary`.', DeprecationWarning
         )
         return self.unigram.dictionary
 
@@ -112,8 +119,8 @@ class BigramSector(object):
         Nxt_match = self._uNxt.shape == self._Nxt.shape
         if not all([Nx_match, Nxt_match]):
             raise ValueError(
-                'Shape of Bigram marginal stats should be identical to shape '
-                'of unigram stats. Got:' 
+                'Shape of Cooccurrence marginal stats should be identical to '
+                'shape of unigram stats. Got:' 
                 '\nuNx:\t{}\nuNxt:\t{}\nNx:\t{}\nNxt:\t{}'.format(
                     self.uNx.shape, self.uNxt.shape,
                     self.Nx.shape, self.Nxt.shape,
@@ -281,7 +288,7 @@ class BigramSector(object):
     def apply_w2v_undersampling(self, t):
         """
         Simulate undersampling of common words, like how is done in word2vec.
-        However, when applied here (as opposed to within the corpus sampler,
+        However, when applied here (as opposed to within the corpus sampler),
         we are taking expectation values cooccurrence statistics under 
         undersampling, and undersampling is applied in the "clean" way which
         does not alter the effective size of the sample window.
@@ -322,12 +329,12 @@ class BigramSector(object):
         And represent the same sector.
         """
 
-        if not isinstance(other, BigramSector):
+        if not isinstance(other, CooccurrenceSector):
             return NotImplemented
 
         if self.sector != other.sector:
             raise ValueError(
-                "`BigramSector`s must represent the same sector to be "
+                "`CooccurrenceSector`s must represent the same sector to be "
                 "mergeable."
             )
 
@@ -340,7 +347,8 @@ class BigramSector(object):
 
 
     def get_sector(self, *args):
-        raise NotImplementedError("`BigramSector`s cannot `get_sector`.")
+        raise NotImplementedError(
+            "`CooccurrenceSector`s cannot `get_sector`.")
 
 
     def validate_undersampling(self):

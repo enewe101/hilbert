@@ -7,18 +7,18 @@ from scipy import sparse
 
 import time
 
-class BigramBase(object):
+class Cooccurrence(object):
 
     def __init__(
         self,
         unigram,
         Nxx,
-        device=None,
         marginalize=True,
+        device=None,
         verbose=True
     ):
         """
-        Keeps track of token cooccurrences, and saves/loads from disk.  
+        Keeps track of token cooccurrence, and saves/loads from disk.  
         Providing only unigram data will create an empty instance.
 
         `unigram` 
@@ -27,14 +27,16 @@ class BigramBase(object):
         `Nxx`
             A 2D array-like instance (e.g. numpy.ndarray, scipy.sparse.csr
             matrix, or a list of lists), in which the (i,j)th element contains
-            the number of cooccurrences for words having IDs i and j.
+            the number of cooccurrence for words having IDs i and j.
 
         Cooccurence statistics are represented as a scipy.sparse.lil_matrix.
         """
 
         if not unigram.sorted:
             raise ValueError(
-                'Bigram instances must be built from a sorted Unigram instance')
+                'Cooccurrence instances must be built from a sorted Unigram '
+                'instance'
+            )
 
         # Own some things
         self.device = device
@@ -58,12 +60,14 @@ class BigramBase(object):
         # Marginalizing counts actually takes long.  This seems to be faster
         # than just calling self.Nxx.sum().
         if marginalize:
-            self.Nx = np.zeros((self.Nxx.shape[0],1))
-            self.Nxt = np.zeros((1,self.Nxx.shape[1]))
+            Nx = np.zeros((self.Nxx.shape[0],1))
+            Nxt = np.zeros((1,self.Nxx.shape[1]))
             for i in range(len(self.Nxx.data)):
                 # put in the marginal sums!
-                self.Nx[i] = sum(self.Nxx.data[i])
-                self.Nxt[:,self.Nxx.rows[i]] += self.Nxx.data[i]
+                Nx[i] = sum(self.Nxx.data[i])
+                Nxt[:,self.Nxx.rows[i]] += self.Nxx.data[i]
+            self.Nx = torch.tensor(Nx, dtype=dtype)
+            self.Nxt = torch.tensor(Nxt, dtype=dtype)
             self.N = self.Nx.sum()
         self.validate_shape()
         self.undersampled = False
@@ -93,21 +97,24 @@ class BigramBase(object):
 
 
     @staticmethod
-    def load(path, device=None, verbose=True, marginalize=True):
+    def load(path, marginalize=True, device=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
         unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-        return BigramBase(unigram, Nxx, device=device, verbose=verbose, marginalize=marginalize)
+        return Cooccurrence(
+            unigram, Nxx, marginalize=marginalize, device=device,
+            verbose=verbose
+        )
 
 
     @property
     def sorted(self):
         # Sorted order is determined by the unigram frequencies.
         warnings.warn(
-            '`Bigram.sorted` is deprecated.  Sorted state should be '
+            '`Cooccurrence.sorted` is deprecated.  Sorted state should be '
             'guaranteed.', DeprecationWarning
         )
         return self.unigram.sorted
@@ -126,14 +133,14 @@ class BigramBase(object):
     @property
     def vocab(self):
         warnings.warn(
-            '`Bigram.vocab` is deprecated.  Use `Bigram.shape`.',
+            '`Cooccurrence.vocab` is deprecated.  Use `Cooccurrence.shape`.',
             DeprecationWarning
         )
         return self.Nxx.shape[0]
 
 
-    def __len__(self):
-        return self.Nxx.shape[0]
+    #def __len__(self):
+    #    return self.Nxx.shape[0]
 
 
     def __getitem__(self, shard):
@@ -142,27 +149,28 @@ class BigramBase(object):
 
     def __iter__(self):
         """
-        Returns Nxx, Nx, Nxt, N, which means that the Bigram instance can
+        Returns Nxx, Nx, Nxt, N, which means that the Cooccurrence instance can
         easily unpack into cooccurrence counts, unigram counts, and the total
         number of tokens.  Useful for functions expecting such a stats tuple,
         and for getting raw access to the data.
         """
         warnings.warn(
-            "Implicit unpacking is deprecated.  Use `Bigram.load_shard()` "
+            "Implicit unpacking is deprecated.  Use "
+            "`Cooccurrence.load_shard()` "
             "instead.",
             DeprecationWarning
         )
         return iter(self[h.shards.whole])
 
 
-    def density(self, threshold_count=0):
-        """
-        Return the number of cells whose value is greater than
-        `threshold_count`.
-        """
-        num_cells = np.prod(self.Nxx.shape)
-        num_filled = np.sum(self.Nxx>threshold_count)
-        return float(num_filled) / num_cells
+#    def density(self, threshold_count=0):
+#        """
+#        Return the number of cells whose value is greater than
+#        `threshold_count`.
+#        """
+#        num_cells = np.prod(self.Nxx.shape)
+#        num_filled = np.sum(self.Nxx>threshold_count)
+#        return float(num_filled) / num_cells
 
 
     def count(self, token1, token2):
@@ -220,7 +228,7 @@ class BigramBase(object):
         use completely identical dictionaries (same vocabulary and ordering).
         """
 
-        if not isinstance(other, BigramBase):
+        if not isinstance(other, Cooccurrence):
             return NotImplemented
 
         self.Nxx += other.Nxx
@@ -300,7 +308,7 @@ class BigramBase(object):
     def get_sector(self, sector, device=None, verbose=None):
         device = device if device is not None else self.device
         verbose = verbose if verbose is not None else self.verbose
-        return h.bigram.BigramSector(
+        return h.cooccurrence.CooccurrenceSector(
             self.unigram, self.Nxx[sector], self.Nx, self.Nxt, sector,
             device=device, verbose=verbose
         )

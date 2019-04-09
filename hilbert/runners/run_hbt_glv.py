@@ -2,7 +2,7 @@ import hilbert.factories as proletariat
 from hilbert.runners.run_base import init_and_run, modify_args, get_base_argparser, kw_filter
 
 def run_glv(
-        bigram_path,
+        cooccurrence_path,
         save_embeddings_dir,
         X_max=100,
         alpha=0.75,
@@ -11,7 +11,7 @@ def run_glv(
     ):
 
     embsolver = proletariat.construct_glv_solver(
-        bigram_path=bigram_path,
+        cooccurrence_path=cooccurrence_path,
         alpha=alpha,
         X_max=X_max,
         nobias=nobias,

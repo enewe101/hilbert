@@ -105,17 +105,17 @@ def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
         losses = double_check(embsolver, losses, n_iters)
 
         if len(losses) < n_iters:
-            print(f'Diverged at lr = {crt_lr}...')
+            print('Diverged at lr = {}...'.format(crt_lr))
             div_lrs.append(crt_lr)
             crt_lr = next_lr(div_lrs, stationary_lrs, good_lrs, crt_lr, D=True)
 
         elif loss_is_stationary(losses):
-            print(f'Stationary at lr = {crt_lr}...')
+            print('Stationary at lr = {}...'.format(crt_lr))
             stationary_lrs.append(crt_lr)
             crt_lr = next_lr(div_lrs, stationary_lrs, good_lrs, crt_lr, D=False)
 
         else:
-            print(f'Learning well at lr = {crt_lr}...')
+            print('Learning well at lr = {}...'.format(crt_lr))
             good_lrs.append(crt_lr)
             crt_lr = next_lr(div_lrs, stationary_lrs, good_lrs, crt_lr, D=False)
 
@@ -224,7 +224,8 @@ def main():
         constructor = proletariat.construct_w2v_solver
 
     else:
-        raise NotImplementedError(f'Model {bp_namespace.model} not implemented!')
+        raise NotImplementedError(
+            'Model {} not implemented!'.format(bp_namespace.model))
 
     # filter out those kwargs
     constr_kwargs = {**vars(bp_namespace)}
@@ -232,7 +233,7 @@ def main():
         del constr_kwargs[kw]
 
     # now autotune like Kanye
-    print(f'Autotuning model {bp_namespace.model}!')
+    print('Autotuning model {}!'.format(bp_namespace.model))
     autotune(constructor, constr_kwargs,
              head_lr=bp_namespace.head_lr,
              n_iters=bp_namespace.n_iters)

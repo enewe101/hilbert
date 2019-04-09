@@ -20,7 +20,7 @@ def insert_test():
                 test_path[1] = 'test_' + test_path[1]
             if not test_path[2].startswith('Test'):
                 test_path[2] = 'Test' + test_path[2]
-            if not test_path[3].startswith('Test'):
+            if not test_path[3].startswith('test'):
                 test_path[3] = 'test_' + test_path[3]
         except IndexError:
             pass
@@ -54,9 +54,9 @@ if __name__ == "__main__":
     #
     # For Example, teh following are equivalent after insert_test()
     #
-    #       ./test tests.test_bigram_base.TestBigramBase.test_load_shard
+    #       ./test tests.test_cooccurrence.TestCooccurrence.test_load_shard
     #
-    #       ./test bigram_base.BigramBase.load_shard
+    #       ./test cooccurrence.CooccurrenceBase.load_shard
     #
     insert_test()
 

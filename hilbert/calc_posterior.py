@@ -20,16 +20,16 @@ except ImportError:
     sparse, stats, special = None, None, None
 
 
-def calc_PMI(bigram):
-    Nxx, Nx, Nxt, N = bigram
+def calc_PMI(cooccurrence):
+    Nxx, Nx, Nxt, N = cooccurrence
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
 class BayesianPMI:
 
-    def __init__(self, bigram, device=None):
+    def __init__(self, cooccurrence, device=None):
 
-        self.Nxx, self.Nx, self.Nxt, self.N = bigram
+        self.Nxx, self.Nx, self.Nxt, self.N = cooccurrence
         self.device = device
         self.visible_pmi = calc_visible_pmi((
             self.Nxx, self.Nx, self.Nxt, self.N
@@ -169,7 +169,7 @@ class BayesianPMI:
 
 
 
-#bigram = h.bigram.Bigram.load(bigram_path)
+#cooccurrence = h.cooccurrence.Cooccurrence.load(cooccurrence_path)
 def plot_visible_pmi(path):
     bin_centers, n = read_pmi_histogram(path)
     plt.plot(bin_centers, n)
@@ -193,20 +193,20 @@ def read_pmi_histogram(path):
 
 
 
-def calc_visible_pmi_histogram(bigram_or_path, out_path=None, device=None):
-    if isinstance(bigram_or_path, str):
-        print('loading bigram...')
-        bigram_path = bigram_or_path
-        bigram = h.bigram.BigramBase.load(bigram_path, device=device)
-    elif isinstance(bigram_or_path, h.bigram.BigramBase):
-        bigram = bigram_or_path
+def calc_visible_pmi_histogram(cooccurrence_or_path, out_path=None, device=None):
+    if isinstance(cooccurrence_or_path, str):
+        print('loading cooccurrence...')
+        cooccurrence_path = cooccurrence_or_path
+        cooccurrence = h.cooccurrence.Cooccurrence.load(cooccurrence_path, device=device)
+    elif isinstance(cooccurrence_or_path, h.cooccurrence.Cooccurrence):
+        cooccurrence = cooccurrence_or_path
     else: raise ValueError(
-        "First to argument to calc_visible_pmi_histogram must be a bigram "
-        "or path to bigram data"
+        "First to argument to calc_visible_pmi_histogram must be a cooccurrence "
+        "or path to cooccurrence data"
     )
 
     print('calculating visible pmi values...')
-    visible_pmi = calc_visible_pmi(bigram).reshape(-1)
+    visible_pmi = calc_visible_pmi(cooccurrence).reshape(-1)
     n, bins = np.histogram(visible_pmi, bins='auto')
     bin_centers = [ 0.5*(bins[i]+bins[i+1]) for i in range(len(n))]
     if out_path is None:
@@ -225,13 +225,13 @@ def calc_visible_pmi_histogram(bigram_or_path, out_path=None, device=None):
 
 
 
-def calc_visible_pmi(bigram):
+def calc_visible_pmi(cooccurrence):
     """
     Calculate PMI values, then discard the PMI values corresponding to 
     unobserved pairs.
     """
-    Nxx, Nx, Nxt, N = bigram
-    pmi = calc_PMI(bigram)
+    Nxx, Nx, Nxt, N = cooccurrence
+    pmi = calc_PMI(cooccurrence)
     visible_pmi = pmi[Nxx>0]
     return visible_pmi
 
@@ -558,11 +558,11 @@ def get_posterior_numerically(
 
 
 
-def calculate_all_kls(bigram):
-    KL = np.zeros((bigram.vocab, bigram.vocab))
+def calculate_all_kls(cooccurrence):
+    KL = np.zeros((cooccurrence.vocab, cooccurrence.vocab))
     iters = 0
     start = time.time()
-    for i in range(bigram.vocab):
+    for i in range(cooccurrence.vocab):
         elapsed = time.time() - start
         start = time.time()
         print(elapsed)
@@ -571,13 +571,13 @@ def calculate_all_kls(bigram):
         print(elapsed * 20000 / 60 / 60 / 24, 'days')
         print(100 * iters / 10000**2, '%')
         print('iters', iters)
-        for j in range(bigram.vocab):
+        for j in range(cooccurrence.vocab):
             iters += 1
 
-            Nij = bigram.Nxx[i,j]
-            Ni = bigram.Nx[i,0]
-            Nj = bigram.Nx[j,0]
-            N = bigram.N
+            Nij = cooccurrence.Nxx[i,j]
+            Ni = cooccurrence.Nx[i,0]
+            Nj = cooccurrence.Nx[j,0]
+            N = cooccurrence.N
             KL[i,j] = get_posterior_kl(
                 MEAN_PMI, PMI_STD, Nij, Ni, Nj, N
             )
@@ -633,8 +633,8 @@ def histogram(values, plot=True):
 
 
 
-def calc_PMI_smooth(bigram):
-    Nxx, Nx, Nxt, N = bigram
+def calc_PMI_smooth(cooccurrence):
+    Nxx, Nx, Nxt, N = cooccurrence
 
 
     Nxx_exp = Nx * Nxt / N
@@ -657,12 +657,12 @@ def calc_PMI_smooth(bigram):
     
 
 
-def calc_PMI_sparse(bigram):
-    I, J = bigram.Nxx.nonzero()
-    log_Nxx_nonzero = np.log(np.array(bigram.Nxx.tocsr()[I,J]).reshape(-1))
-    log_Nx_nonzero = np.log(bigram.Nx[I,0])
-    log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
-    log_N = np.log(bigram.N)
+def calc_PMI_sparse(cooccurrence):
+    I, J = cooccurrence.Nxx.nonzero()
+    log_Nxx_nonzero = np.log(np.array(cooccurrence.Nxx.tocsr()[I,J]).reshape(-1))
+    log_Nx_nonzero = np.log(cooccurrence.Nx[I,0])
+    log_Nxt_nonzero = np.log(cooccurrence.Nxt[0,J])
+    log_N = np.log(cooccurrence.N)
     pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
 
     # Here, the default (unrepresented value) in our sparse representation
@@ -695,11 +695,11 @@ def calc_PMI_star(cooc_stats):
 #    return cooc_stats
 
 
-def get_bigram(token_list, window_size, verbose=True):
+def get_cooccurrence(token_list, window_size, verbose=True):
     unigram = h.unigram.Unigram(verbose=verbose)
     for token in token_list:
         unigram.add(token)
-    bigram = h.bigram.Bigram(unigram, verbose=verbose)
+    cooccurrence = h.cooccurrence.Cooccurrence(unigram, verbose=verbose)
     for i in range(len(token_list)):
         focal_word = token_list[i]
         for j in range(i-window_size, i +window_size+1):
@@ -709,8 +709,8 @@ def get_bigram(token_list, window_size, verbose=True):
                 context_word = token_list[j]
             except IndexError:
                 continue
-            bigram.add(focal_word, context_word)
-    return bigram
+            cooccurrence.add(focal_word, context_word)
+    return cooccurrence
 
 
 

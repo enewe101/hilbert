@@ -4,15 +4,15 @@ import hilbert as h
 import torch
 
 
-class BigramSampleLoader(h.generic_datastructs.Describable):
+class SampleLoader(h.generic_datastructs.Describable):
 
     def __init__(
-        self, bigram_path, sector_factor, temperature=1,
+        self, cooccurrence_path, sector_factor, temperature=1,
         batch_size=100000, batches_per_epoch=1000, device=None, verbose=True
     ):
-        self.bigram_path = bigram_path
+        self.cooccurrence_path = cooccurrence_path
         Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
-            bigram_path, sector_factor, verbose=verbose)
+            cooccurrence_path, sector_factor, verbose=verbose)
 
         self.temperature = temperature
         self.device = device or h.CONSTANTS.RC['device']
@@ -76,13 +76,13 @@ class BigramSampleLoader(h.generic_datastructs.Describable):
 
     def __next__(self):
         self.batch_num += 1
-        if self.batch_num > self.batches_per_epoch:
+        if self.batch_num >= self.batches_per_epoch:
             raise StopIteration
         return self.sample(self.batch_size), None
 
 
     def describe(self):
-        s = '\tbigram_path = {}\n'.format(self.bigram_path)
+        s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
         s += '\tbatch_size = {}\n'.format(self.batch_size)
         s += '\ttemperature = {}\n'.format(self.temperature)
         return s

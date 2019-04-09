@@ -9,8 +9,8 @@ class ModelBatchLoader(Describable):
     being, iteration over the preloaded shards.
     """
 
-    def __init__(self, bigram_preloader, verbose=True, device=None):
-        self.preloader = bigram_preloader
+    def __init__(self, cooccurrence_preloader, verbose=True, device=None):
+        self.preloader = cooccurrence_preloader
         self.verbose = verbose
         self.device = device
 
@@ -69,9 +69,9 @@ class ModelBatchLoader(Describable):
 class PPMILoader(ModelBatchLoader):
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
-        bigram_data = tuple(tensor.to(self.device) for tensor in bigram_data)
-        M = h.corpus_stats.calc_PMI(bigram_data)
+        batch_id, cooccurrence_data, unigram_data = preloaded
+        cooccurrence_data = tuple(tensor.to(self.device) for tensor in cooccurrence_data)
+        M = h.corpus_stats.calc_PMI(cooccurrence_data)
         M = torch.clamp(M, min=0)
         return batch_id, {'M': M}
 
@@ -82,14 +82,14 @@ class PPMILoader(ModelBatchLoader):
 
 class GloveLoader(ModelBatchLoader):
 
-    def __init__(self, bigram_preloader, X_max=100.0, alpha=0.75, **kwargs):
-        super(GloveLoader, self).__init__(bigram_preloader, **kwargs)
+    def __init__(self, cooccurrence_preloader, X_max=100.0, alpha=0.75, **kwargs):
+        super(GloveLoader, self).__init__(cooccurrence_preloader, **kwargs)
         self.X_max = float(X_max)
         self.alpha = alpha
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        batch_id, cooccurrence_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in cooccurrence_data)
         weights = (Nxx / self.X_max).pow(self.alpha)
         weights = torch.clamp(weights, max=1.)
         M = torch.log(Nxx)
@@ -110,13 +110,15 @@ class GloveLoader(ModelBatchLoader):
 
 class Word2vecLoader(ModelBatchLoader):
 
-    def __init__(self, bigram_preloader, k=15, **kwargs):
-        super(Word2vecLoader, self).__init__(bigram_preloader, **kwargs)
-        self.k = torch.tensor(k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
+    def __init__(self, cooccurrence_preloader, k=15, **kwargs):
+        super(Word2vecLoader, self).__init__(cooccurrence_preloader, **kwargs)
+        self.k = torch.tensor(
+            k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        batch_id, cooccurrence_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(
+            tensor.to(self.device) for tensor in cooccurrence_data)
         uNx, uNxt, uN = tuple(tensor.to(self.device) for tensor in unigram_data)
         N_neg = self.negative_sample(Nxx, Nx, uNxt, uN, self.k)
         return batch_id, {'Nxx': Nxx, 'N_neg': N_neg}
@@ -136,9 +138,9 @@ class Word2vecLoader(ModelBatchLoader):
 class MaxLikelihoodLoader(ModelBatchLoader):
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
+        batch_id, cooccurrence_data, unigram_data = preloaded
         Nxx, Nx, Nxt, N = tuple(
-            tensor.to(self.device) for tensor in bigram_data)
+            tensor.to(self.device) for tensor in cooccurrence_data)
         Pxx_data = Nxx / N
         Pxx_independent = (Nx / N) * (Nxt / N)
         return (
@@ -155,8 +157,8 @@ class MaxLikelihoodLoader(ModelBatchLoader):
 class MaxPosteriorLoader(ModelBatchLoader):
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        batch_id, cooccurrence_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in cooccurrence_data)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats((Nxx,Nx,Nxt,N))
         alpha, beta = h.corpus_stats.calc_prior_beta_params(
@@ -177,8 +179,8 @@ class MaxPosteriorLoader(ModelBatchLoader):
 class KLLoader(ModelBatchLoader):
 
     def _load(self, preloaded):
-        batch_id, bigram_data, unigram_data = preloaded
-        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in bigram_data)
+        batch_id, cooccurrence_data, unigram_data = preloaded
+        Nxx, Nx, Nxt, N = tuple(tensor.to(self.device) for tensor in cooccurrence_data)
         Pxx_independent = (Nx / N) * (Nxt / N)
         exp_mean, exp_std =  h.corpus_stats.calc_exp_pmi_stats((Nxx,Nx,Nxt,N))
         alpha, beta = h.corpus_stats.calc_prior_beta_params(

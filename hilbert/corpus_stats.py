@@ -38,48 +38,48 @@ def get_test_stats(window_size):
     return get_stats(load_test_tokens(), window_size, verbose=False)
 
 
-def get_test_bigram_mutable(window_size):
-    bigram = get_bigram_mutable(load_test_tokens(), window_size, verbose=False) 
-    return bigram
+def get_test_cooccurrence_mutable(window_size):
+    cooccurrence = get_cooccurrence_mutable(load_test_tokens(), window_size, verbose=False) 
+    return cooccurrence
 
 
-#def get_test_bigram(window_size):
-#    bigram = get_bigram(load_test_tokens(), window_size, verbose=False) 
-#    #bigram.sort()
-#    return bigram
+#def get_test_cooccurrence(window_size):
+#    cooccurrence = get_cooccurrence(load_test_tokens(), window_size, verbose=False) 
+#    #cooccurrence.sort()
+#    return cooccurrence
 
 
-def get_test_bigram_base(device=None, verbose=True):
+def get_test_cooccurrence(device=None, verbose=True):
     """
-    For testing purposes, builds a bigram_base from constituents (not using it's
-    own load function) and returns the bigram_base along with the constituents
-    used to make it.
+    For testing purposes, builds a cooccurrence from constituents (not using
+    it's own load function) and returns the cooccurrence along with the
+    constituents used to make it.
     """
-    path = os.path.join(h.CONSTANTS.TEST_DIR, 'bigram')
+    path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
     unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
     Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-    bigram_base = h.bigram.BigramBase(
+    cooccurrence = h.cooccurrence.Cooccurrence(
         unigram, Nxx, device=device, verbose=verbose)
 
-    return bigram_base, unigram, Nxx
+    return cooccurrence, unigram, Nxx
 
 
-def get_test_bigram_sector(sector):
+def get_test_cooccurrence_sector(sector):
     """
-    For testing purposes, builds a `BigramSector` starting from a `BigramBase`
-    (not using `BigramBase`'s load function) and returns both.
+    For testing purposes, builds a `CooccurrenceSector` starting from a `Cooccurrence`
+    (not using `Cooccurrence`'s load function) and returns both.
     """
-    bigram_base = h.bigram.BigramBase.load(
-        os.path.join(h.CONSTANTS.TEST_DIR, 'bigram'))
+    cooccurrence = h.cooccurrence.Cooccurrence.load(
+        os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence'))
     args = {
-        'unigram':bigram_base.unigram,
-        'Nxx':bigram_base.Nxx[sector],
-        'Nx':bigram_base.Nx,
-        'Nxt':bigram_base.Nxt,
+        'unigram':cooccurrence.unigram,
+        'Nxx':cooccurrence.Nxx[sector],
+        'Nx':cooccurrence.Nx,
+        'Nxt':cooccurrence.Nxt,
         'sector':sector
     }
-    bigram_sector = h.bigram_sector.BigramSector(**args)
-    return bigram_sector, bigram_base
+    cooccurrence_sector = h.cooccurrence_sector.CooccurrenceSector(**args)
+    return cooccurrence_sector, cooccurrence
 
 
 
@@ -96,13 +96,13 @@ def w2v_prob_keep(uNx, uN, t=1e-5):
     return keep_probs
 
 
-def calc_PMI(bigram_shard):
-    Nxx, Nx, Nxt, N = bigram_shard
+def calc_PMI(cooccurrence_shard):
+    Nxx, Nx, Nxt, N = cooccurrence_shard
     return torch.log(N) + torch.log(Nxx) - torch.log(Nx) - torch.log(Nxt)
 
 
-def calc_prior_beta_params(bigram, exp_mean, exp_std, Pxx_independent):
-    _, Nx, Nxt, N = bigram
+def calc_prior_beta_params(cooccurrence, exp_mean, exp_std, Pxx_independent):
+    _, Nx, Nxt, N = cooccurrence
     mean = exp_mean * Pxx_independent
     std = exp_std * Pxx_independent
     alpha = mean * (mean*(1-mean)/std**2 - 1)
@@ -110,9 +110,9 @@ def calc_prior_beta_params(bigram, exp_mean, exp_std, Pxx_independent):
     return alpha, beta
 
 
-def calc_exp_pmi_stats(bigram):
-    Nxx, _, _, _ = bigram
-    pmi = h.corpus_stats.calc_PMI(bigram)
+def calc_exp_pmi_stats(cooccurrence):
+    Nxx, _, _, _ = cooccurrence
+    pmi = h.corpus_stats.calc_PMI(cooccurrence)
     # Keep only pmis for i,j where Nxx[i,j]>0
     pmi = pmi[Nxx>0]
     exp_pmi = np.e**pmi
@@ -172,12 +172,12 @@ def get_posterior_numerically(
     return X, post_pdf, pmi_pdf
 
 
-def calculate_all_kls(bigram):
-    assert bigram.sector == h.shards.whole, "expecting whole bigram"
-    KL = np.zeros((bigram.vocab, bigram.vocab))
+def calculate_all_kls(cooccurrence):
+    assert cooccurrence.sector == h.shards.whole, "expecting whole cooccurrence"
+    KL = np.zeros((cooccurrence.vocab, cooccurrence.vocab))
     iters = 0
     start = time.time()
-    for i in range(bigram.vocab):
+    for i in range(cooccurrence.vocab):
         elapsed = time.time() - start
         start = time.time()
         print(elapsed)
@@ -186,13 +186,13 @@ def calculate_all_kls(bigram):
         print(elapsed * 20000 / 60 / 60 / 24, 'days')
         print(100 * iters / 10000**2, '%')
         print('iters', iters)
-        for j in range(bigram.vocab):
+        for j in range(cooccurrence.vocab):
             iters += 1
 
-            Nij = bigram.Nxx[i,j]
-            Ni = bigram.Nx[i,0]
-            Nj = bigram.Nx[j,0]
-            N = bigram.N
+            Nij = cooccurrence.Nxx[i,j]
+            Ni = cooccurrence.Nx[i,0]
+            Nj = cooccurrence.Nx[j,0]
+            N = cooccurrence.N
             KL[i,j] = get_posterior_kl(
                 MEAN_PMI, PMI_STD, Nij, Ni, Nj, N
             )
@@ -234,8 +234,8 @@ def histogram(values, plot=True):
     return bin_centers, n
 
 
-def calc_PMI_smooth(bigram):
-    Nxx, Nx, Nxt, N = bigram
+def calc_PMI_smooth(cooccurrence):
+    Nxx, Nx, Nxt, N = cooccurrence
 
 
     Nxx_exp = Nx * Nxt / N
@@ -264,14 +264,14 @@ def calc_PMI_star(cooc_stats):
 
 
 
-# There should be some code that generates a BigramMutable by sampling text
+# There should be some code that generates a CooccurrenceMutable by sampling text
 # It should exhibit the different samplers too.  For now this stub is a
 # reminder.
-def get_bigram_mutable(token_list, window_size, verbose=True):
+def get_cooccurrence_mutable(token_list, window_size, verbose=True):
     unigram = h.unigram.Unigram(verbose=verbose)
     for token in token_list:
         unigram.add(token)
-    bigram = h.bigram_mutable.BigramMutable(unigram, verbose=verbose)
+    cooccurrence = h.cooccurrence_mutable.CooccurrenceMutable(unigram, verbose=verbose)
     for i in range(len(token_list)):
         focal_word = token_list[i]
         for j in range(i-window_size, i +window_size+1):
@@ -281,17 +281,17 @@ def get_bigram_mutable(token_list, window_size, verbose=True):
                 context_word = token_list[j]
             except IndexError:
                 continue
-            bigram.add(focal_word, context_word)
-    return bigram
+            cooccurrence.add(focal_word, context_word)
+    return cooccurrence
 
 
 
 
-def get_bigram(token_list, window_size, verbose=True):
+def get_cooccurrence(token_list, window_size, verbose=True):
     unigram = h.unigram.Unigram(verbose=verbose)
     for token in token_list:
         unigram.add(token)
-    bigram = h.bigram.Bigram(unigram, verbose=verbose)
+    cooccurrence = h.cooccurrence.Cooccurrence(unigram, verbose=verbose)
     for i in range(len(token_list)):
         focal_word = token_list[i]
         for j in range(i-window_size, i +window_size+1):
@@ -301,20 +301,20 @@ def get_bigram(token_list, window_size, verbose=True):
                 context_word = token_list[j]
             except IndexError:
                 continue
-            bigram.add(focal_word, context_word)
-    return bigram
+            cooccurrence.add(focal_word, context_word)
+    return cooccurrence
 
 
 
 
 
 
-#def calc_PMI_sparse(bigram):
-#    I, J = bigram.Nxx.nonzero()
-#    log_Nxx_nonzero = np.log(np.array(bigram.Nxx.tocsr()[I,J]).reshape(-1))
-#    log_Nx_nonzero = np.log(bigram.Nx[I,0])
-#    log_Nxt_nonzero = np.log(bigram.Nxt[0,J])
-#    log_N = np.log(bigram.N)
+#def calc_PMI_sparse(cooccurrence):
+#    I, J = cooccurrence.Nxx.nonzero()
+#    log_Nxx_nonzero = np.log(np.array(cooccurrence.Nxx.tocsr()[I,J]).reshape(-1))
+#    log_Nx_nonzero = np.log(cooccurrence.Nx[I,0])
+#    log_Nxt_nonzero = np.log(cooccurrence.Nxt[0,J])
+#    log_N = np.log(cooccurrence.N)
 #    pmi_data = log_N + log_Nxx_nonzero - log_Nx_nonzero - log_Nxt_nonzero
 #
 #    # Here, the default (unrepresented value) in our sparse representation

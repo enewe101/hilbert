@@ -31,18 +31,18 @@ class TestGenericDatastructs(TestCase):
         # Settings for test
         sector_factor = 3
 
-        # Create sharded bigram data to test the loader
+        # Create sharded cooccurrence data to test the loader
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.BigramMutable(unigram, Nxx)
+        cooccurrence = h.cooccurrence.CooccurrenceMutable(unigram, Nxx)
 
-        # Save the bigram data on disk in shards to test the loader
+        # Save the cooccurrence data on disk in shards to test the loader
         save_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
         sectors = h.shards.Shards(sector_factor)
-        bigram.save_sectors(save_path, sectors)
+        cooccurrence.save_sectors(save_path, sectors)
 
         # Get the loader to re-produce the original matrix
         Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
-            save_path, sector_factor)
+            save_path, sector_factor, verbose=False)
         sparse = scipy.sparse.coo_matrix((
             np.array(Nxx_data), (np.array(I), np.array(J))
         ))

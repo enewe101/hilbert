@@ -12,7 +12,7 @@ except ImportError:
 
 def random(
     vocab, d, include_covectors=True, include_biases=False, dictionary=None,
-    seed=None, distribution='uniform', scale=0.2, device=None
+    seed=None, distribution='uniform', scale=0.2, device=None, verbose=True
 ):
     """
     Obtain ``Embeddings`` containing ``vocab`` number of ``d``-dimensional
@@ -52,7 +52,7 @@ def random(
 
     return Embeddings(
         V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary,
-        device=device
+        device=device, verbose=verbose
     ) 
     
 
@@ -78,8 +78,10 @@ class Embeddings:
 
     def __init__(
         self, V, W=None, v_bias=None, w_bias=None, dictionary=None,
-        device=None, normalize=False
+        device=None, normalize=False, verbose=True
     ):
+
+        self.verbose = verbose
 
         # Store the choice of device, use (but don't save) default if needed.
         self.device = device
@@ -243,7 +245,6 @@ class Embeddings:
                 tokens = [token for token in tokens if token in self.dictionary]
 
             else:
-                print('missed:"{}"'.format(list(self_coverage)[0]))
                 raise ValueError(
                     'The new dictionary has {} tokens that do not have a '
                     'corresponding embedding.\n{}"'.format(
@@ -262,10 +263,12 @@ class Embeddings:
                     )
                 )
             else:
-                print(
-                    'Warning, some embeddings were dropped because they have '
-                    'no corresponding token in the provided dictoinary.'
-                )
+                if self.verbose:
+                    print(
+                        "Warning, some embeddings were dropped because they "
+                        "have no corresponding token in the provided "
+                        "dictoinary."
+                    )
 
         sort_ids = [self.dictionary.get_id(token) for token in tokens]
 

@@ -6,14 +6,14 @@ import numpy as np
 
 import os
 
-class TestBigramSampleLoader(TestCase):
+class TestCooccurrenceSampleLoader(TestCase):
 
-    def test_bigram_sample_loader_probabilities(self):
+    def test_cooccurrence_sample_loader_probabilities(self):
         for temperature in [1,2,5,10]:
-            self.do_bigram_sample_loader_probabilities_test(temperature)
+            self.do_cooccurrence_sample_loader_probabilities_test(temperature)
 
 
-    def do_bigram_sample_loader_probabilities_test(self, temperature):
+    def do_cooccurrence_sample_loader_probabilities_test(self, temperature):
         """
         Draw a large number of samples, and calculate the empirical probability
         for each outcome.  It should be close to the probability vector with
@@ -23,12 +23,12 @@ class TestBigramSampleLoader(TestCase):
         batch_size = 10000000
         sector_factor = 3
 
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.bigram.BigramSampleLoader(
-            bigram_path, sector_factor, temperature=temperature,
+        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        sampler = h.cooccurrence.SampleLoader(
+            cooccurrence_path, sector_factor, temperature=temperature,
             batch_size=batch_size, verbose=False)
         Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
-            bigram_path, sector_factor, verbose=False)
+            cooccurrence_path, sector_factor, verbose=False)
 
         positive_counts = torch.zeros(
             (Nx.shape[0], Nxt.shape[1]), dtype=torch.int32)
@@ -65,7 +65,7 @@ class TestBigramSampleLoader(TestCase):
         expected_pij_tempered /= expected_pij_tempered.sum()
 
         # Check that empirical probabilities of samples match the probabilities
-        # prescribed by the bigram data read by the sampler.
+        # prescribed by the cooccurrence data read by the sampler.
         self.assertTrue(np.allclose(
             found_pij, expected_pij_tempered, atol=1e-3))
         self.assertTrue(np.allclose(found_pi, expected_pi_tempered, atol=1e-3))
@@ -88,7 +88,7 @@ class TestBigramSampleLoader(TestCase):
         return tensor.cpu().view((-1,)).numpy()
 
 
-    def test_bigram_sample_loader_interface(self):
+    def test_cooccurrence_sample_loader_interface(self):
         """
         Draw a large number of samples, and calculate the empirical probability
         for each outcome.  It should be close to the probability vector with
@@ -97,16 +97,19 @@ class TestBigramSampleLoader(TestCase):
         torch.manual_seed(3141592)
         batch_size = 3
         sector_factor = 3
+        batches_per_epoch = 10
 
-        bigram_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.bigram.BigramSampleLoader(
-            bigram_path, sector_factor, batch_size=batch_size, verbose=False)
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        sampler = h.cooccurrence.SampleLoader(
+            cooccurrence_path, sector_factor, 
+            batch_size=batch_size, batches_per_epoch=10, verbose=False
+        )
 
         # Figure out the number of batches we expect, given the total number
         # of cooccurrence counts in the data, and the chosen batch_size.
         Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
-            bigram_path, sector_factor, verbose=False)
-        expected_num_batches = int(np.ceil(Nx.sum() / batch_size))
+            cooccurrence_path, sector_factor, verbose=False)
 
         # Confirm the shape, number, and dtype of batches.
         num_batches = 0
@@ -116,5 +119,5 @@ class TestBigramSampleLoader(TestCase):
             self.assertEqual(batch_data, None)
             self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
 
-        self.assertEqual(num_batches, expected_num_batches)
+        self.assertEqual(num_batches, batches_per_epoch)
 

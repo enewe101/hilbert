@@ -1,7 +1,7 @@
 import time
 import torch
 import numpy as np
-from hilbert.bigram.bigram_preloader import ZedSampler
+from hilbert.cooccurrence.preloader import ZedSampler
 from unittest import TestCase, main
 
 VERBOSE = False
@@ -14,17 +14,18 @@ class TestZedSampler(TestCase):
 
     def test_functionality(self):
         device = torch.device('cpu')
-        limit = 500_000 # vocab size
+        limit = 500000 # vocab size
 
         # make the big boy
-        sampler = ZedSampler(limit, device, max_z_samples=100_000)
+        sampler = ZedSampler(limit, device, max_z_samples=100000)
 
         # list of samples with Nij > 0
         alphas = [
             torch.randint(0, limit, (100,)).sort()[0],
-            torch.randint(0, limit, (1_000,)).sort()[0],
-            torch.randint(0, limit, (10_000,)).sort()[0],
-            # torch.randint(0, limit, (100_000,)).sort()[0], # ~2 seconds per draw
+            torch.randint(0, limit, (1000,)).sort()[0],
+            torch.randint(0, limit, (10000,)).sort()[0],
+            # torch.randint(0, limit, (100000,)).sort()[0], 
+                # ~2 seconds per draw
         ]
 
         # need to remove repeats, and put it into its desired form
@@ -35,7 +36,8 @@ class TestZedSampler(TestCase):
         # lets time the runs
         timers = [[] for _ in range(len(alphas))]
 
-        # run each one 50 times to get good time estimates and ensure functionality
+        # run each one 50 times to get good time estimates and ensure
+        # functionality
         for _ in range(10):
             for i, a_samples in enumerate(alphas):
 

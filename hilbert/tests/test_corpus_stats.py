@@ -15,31 +15,31 @@ class TestCorpusStats(TestCase):
 
 
     def test_PMI(self):
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
         expected_PMI = torch.log(Nxx*N / (Nx * Nxt))
-        found_PMI = h.corpus_stats.calc_PMI(bigram)
+        found_PMI = h.corpus_stats.calc_PMI(cooccurrence)
         self.assertTrue(torch.allclose(found_PMI, expected_PMI, atol=1e-5))
 
 
 #    def test_sparse_PMI(self):
-#        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-#        Nxx, Nx, Nxt, N = bigram.load_shard()
+#        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+#        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
 #        expected_PMI = torch.log(Nxx*N / (Nx * Nxt))
 #        expected_PMI[expected_PMI==-np.inf] = 0
-#        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(bigram)
-#        self.assertTrue(len(pmi_data) < np.product(bigram.Nxx.shape))
-#        found_PMI = sparse.coo_matrix((pmi_data,(I,J)),bigram.Nxx.shape)
+#        pmi_data, I, J = h.corpus_stats.calc_PMI_sparse(cooccurrence)
+#        self.assertTrue(len(pmi_data) < np.product(cooccurrence.Nxx.shape))
+#        found_PMI = sparse.coo_matrix((pmi_data,(I,J)),cooccurrence.Nxx.shape)
 #        self.assertTrue(np.allclose(found_PMI.toarray(), expected_PMI))
 
 
     def test_PMI_star(self):
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
         Nxx = Nxx.clone()
         Nxx[Nxx==0] = 1
         expected_PMI_star = torch.log(Nxx * N / (Nx * Nxt))
-        found_PMI_star = h.corpus_stats.calc_PMI_star(bigram)
+        found_PMI_star = h.corpus_stats.calc_PMI_star(cooccurrence)
         self.assertTrue(torch.allclose(
             found_PMI_star, expected_PMI_star, atol=1e-5))
 
@@ -48,20 +48,20 @@ class TestCorpusStats(TestCase):
     #    # Next, test with a cooccurrence window of +/-2
     #    dtype=h.CONSTANTS.DEFAULT_DTYPE
     #    device=h.CONSTANTS.MATRIX_DEVICE
-    #    bigram = h.corpus_stats.get_test_bigram(2)
+    #    cooccurrence = h.corpus_stats.get_test_cooccurrence(2)
 
     #    # Sort to make comparison easier
-    #    bigram.sort()
+    #    cooccurrence.sort()
 
-    #    Nxx, Nx, Nxt, N = bigram
+    #    Nxx, Nx, Nxt, N = cooccurrence
     #    self.assertTrue(torch.allclose(
     #        Nxx,
     #        torch.tensor(self.N_XX_2, dtype=dtype, device=device)
     #    ))
 
     #    # Next, test with a cooccurrence window of +/-3
-    #    bigram = h.corpus_stats.get_test_bigram(3)
-    #    Nxx, Nx, Nxt, N = bigram
+    #    cooccurrence = h.corpus_stats.get_test_cooccurrence(3)
+    #    Nxx, Nx, Nxt, N = cooccurrence
     #    self.assertTrue(np.allclose(
     #        Nxx,
     #        torch.tensor(
@@ -70,15 +70,15 @@ class TestCorpusStats(TestCase):
 
 
     def test_calc_exp_pmi_stats(self):
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        Nxx, Nx, Nxt, N = bigram.load_shard()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
 
         PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         PMI = PMI[Nxx>0]
         exp_PMI = torch.exp(PMI)
         expected_mean, expected_std = torch.mean(exp_PMI), torch.std(exp_PMI)
 
-        found_mean, found_std = h.corpus_stats.calc_exp_pmi_stats(bigram)
+        found_mean, found_std = h.corpus_stats.calc_exp_pmi_stats(cooccurrence)
 
         self.assertTrue(torch.allclose(found_mean, expected_mean))
         self.assertTrue(torch.allclose(found_std, expected_std))
@@ -86,9 +86,9 @@ class TestCorpusStats(TestCase):
 
     def test_calc_prior_beta_params(self):
 
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        exp_mean, exp_std = h.corpus_stats.calc_exp_pmi_stats(bigram)
-        Nxx, Nx, Nxt, N = bigram.load_shard()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        exp_mean, exp_std = h.corpus_stats.calc_exp_pmi_stats(cooccurrence)
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
         Pxx_independent = (Nx / N) * (Nxt / N)
 
         means = exp_mean * Pxx_independent
@@ -105,8 +105,8 @@ class TestCorpusStats(TestCase):
 
     def test_keep_prob(self):
         t = 1e-5
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
-        uNx, uNxt, uN = bigram.load_unigram_shard()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        uNx, uNxt, uN = cooccurrence.load_unigram_shard()
         freq = uNx / uN
         p_keep_expected = t / freq + torch.sqrt(t / freq)
         p_keep_expected = torch.clamp(p_keep_expected, 0, 1)

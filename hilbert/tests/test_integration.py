@@ -4,9 +4,11 @@ import os
 from unittest import TestCase, main
 
 
-BIGRAM_PATH = 'test-data/bigram-sectors/'
-SAVE_EMBEDDINGS = 'test-data/test-embeddings/'
 SECTOR_FACTOR = 3
+COOCCURRENCE_PATH = os.path.join(
+    h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors/')
+SAVE_EMBEDDINGS = os.path.join(
+    h.CONSTANTS.TEST_DIR,'test-data/test-embeddings/')
 
 
 class IntegrationTests(TestCase):
@@ -15,7 +17,7 @@ class IntegrationTests(TestCase):
         for dm in ['dense', 'tupsparse', 'lilsparse']:
 
             common_kwargs = {
-                'bigram_path': BIGRAM_PATH,
+                'cooccurrence_path': COOCCURRENCE_PATH,
                 'save_embeddings_dir': SAVE_EMBEDDINGS,
                 'epochs': 2,
                 'iters_per_epoch': 3,
@@ -31,7 +33,7 @@ class IntegrationTests(TestCase):
                 'datamode': dm,
                 'tup_n_batches': 13,
                 'zk': 100,
-                'verbose': True,
+                'verbose': 2,
                 'device': h.CONSTANTS.MATRIX_DEVICE,
             }
 

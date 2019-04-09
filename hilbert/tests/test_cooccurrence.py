@@ -15,12 +15,12 @@ except ImportError:
     sparse = None
 
 
-class TestBigramBase(TestCase):
+class TestCooccurrence(TestCase):
 
-    def get_test_bigram_base(self):
+    def get_test_cooccurrence(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.BigramBase(unigram, array, verbose=False)
-        return bigram
+        cooccurrence = h.cooccurrence.Cooccurrence(unigram, array, verbose=False)
+        return cooccurrence
 
 
     def get_test_cooccurrence_stats(self):
@@ -30,45 +30,48 @@ class TestBigramBase(TestCase):
         return dictionary, array, unigram
 
 
-    def test_bigram_base(self):
+    def test_cooccurrence(self):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
         array = torch.tensor(Nxx.toarray(), dtype=dtype)
 
-        # BigramSector's length and shape are correct.
-        self.assertTrue(len(bigram), len(unigram))
-        self.assertEqual(bigram.shape, array.shape)
+        # CooccurrenceSector's length and shape are correct.
+        #self.assertTrue(len(cooccurrence), len(unigram))
+        self.assertEqual(cooccurrence.shape, array.shape)
 
         # Except for the cooccurrence matrix Nxx, which is in sparse
         # matrix form, the other statistics are `torch.Tensor`s.
-        self.assertTrue(isinstance(bigram.Nxx, sparse.lil_matrix))
-        self.assertTrue(isinstance(bigram.Nx, torch.Tensor))
-        self.assertTrue(isinstance(bigram.Nxt, torch.Tensor))
-        self.assertTrue(isinstance(bigram.uNx, torch.Tensor))
-        self.assertTrue(isinstance(bigram.uNxt, torch.Tensor))
-        self.assertTrue(isinstance(bigram.uN, torch.Tensor))
-        self.assertTrue(isinstance(bigram.N, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.Nxx, sparse.lil_matrix))
+        self.assertTrue(isinstance(cooccurrence.Nx, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.Nxt, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.uNx, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.uNxt, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.uN, torch.Tensor))
+        self.assertTrue(isinstance(cooccurrence.N, torch.Tensor))
 
         
-        # Bigram posesses full unigram data
-        self.assertEqual(bigram.unigram, unigram)
-        self.assertEqual(bigram.dictionary, unigram.dictionary)
+        # Cooccurrence posesses full unigram data
+        self.assertEqual(cooccurrence.unigram, unigram)
+        self.assertEqual(cooccurrence.dictionary, unigram.dictionary)
         self.assertTrue(torch.allclose(
-            bigram.uNx, torch.tensor(unigram.Nx, dtype=dtype).reshape(-1,1)))
+            cooccurrence.uNx, 
+            torch.tensor(unigram.Nx, dtype=dtype).reshape(-1,1)
+        ))
         self.assertTrue(torch.allclose(
-            bigram.uNxt, torch.tensor(unigram.Nx, dtype=dtype).reshape(1,-1)))
+            cooccurrence.uNxt,
+            torch.tensor(unigram.Nx, dtype=dtype).reshape(1,-1)
+        ))
         self.assertTrue(torch.allclose(
-            bigram.uN, torch.sum(torch.tensor(unigram.Nx, dtype=dtype))))
+            cooccurrence.uN, torch.sum(torch.tensor(unigram.Nx, dtype=dtype))))
 
-
-        # Bigram posesses full bigram data
-        self.assertTrue(np.allclose(bigram.Nxx.toarray(), array.numpy()))
+        # Cooccurrence posesses full cooccurrence data
+        self.assertTrue(np.allclose(cooccurrence.Nxx.toarray(), array.numpy()))
         self.assertTrue(torch.allclose(
-            bigram.Nx, torch.sum(array, dim=1, keepdim=True)))
+            cooccurrence.Nx, torch.sum(array, dim=1, keepdim=True)))
         self.assertTrue(torch.allclose(
-            bigram.Nxt, torch.sum(array, dim=0, keepdim=True)))
+            cooccurrence.Nxt, torch.sum(array, dim=0, keepdim=True)))
         self.assertTrue(torch.allclose(
-            bigram.N, torch.tensor(np.sum(Nxx), dtype=dtype)))
+            cooccurrence.N, torch.tensor(np.sum(Nxx), dtype=dtype)))
 
 
 
@@ -78,28 +81,28 @@ class TestBigramBase(TestCase):
 
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
 
-        # BigramBases should generally be made by passing a unigram and Nxx
-        h.bigram.BigramBase(unigram, Nxx)
+        # Cooccurrence should generally be made by passing a unigram and Nxx
+        h.cooccurrence.Cooccurrence(unigram, Nxx)
 
-        # BigramBases need a sorted unigram instance
+        # Cooccurrences need a sorted unigram instance
         unsorted_unigram = deepcopy(unigram)
         random.shuffle(unsorted_unigram.Nx)
         self.assertFalse(unsorted_unigram.check_sorted())
         with self.assertRaises(ValueError):
-            h.bigram.BigramBase(unsorted_unigram, Nxx)
+            h.cooccurrence.Cooccurrence(unsorted_unigram, Nxx)
 
         # Truncated unigram leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.Nx = truncated_unigram.Nx[:-1]
         with self.assertRaises(ValueError):
-            h.bigram.BigramBase(truncated_unigram, Nxx)
+            h.cooccurrence.Cooccurrence(truncated_unigram, Nxx)
 
         # Truncated unigram dictionary leads to ValueError
         truncated_unigram = deepcopy(unigram)
         truncated_unigram.dictionary = h.dictionary.Dictionary(
             unigram.dictionary.tokens[:-1])
         with self.assertRaises(ValueError):
-            h.bigram.BigramBase(truncated_unigram, Nxx)
+            h.cooccurrence.Cooccurrence(truncated_unigram, Nxx)
 
 
 
@@ -110,7 +113,7 @@ class TestBigramBase(TestCase):
         shards = h.shards.Shards(3)
 
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.BigramBase(unigram, Nxx, verbose=False, device=device)
+        cooccurrence = h.cooccurrence.Cooccurrence(unigram, Nxx, verbose=False, device=device)
 
         Nxx = torch.tensor(Nxx, device=device, dtype=dtype)
         Nx = torch.sum(Nxx, dim=1, keepdim=True)
@@ -126,21 +129,21 @@ class TestBigramBase(TestCase):
         for shard in shards:
 
             # Check that the shard is correctly loaded
-            sNxx, sNx, sNxt, sN = bigram.load_shard(shard, device)
+            sNxx, sNx, sNxt, sN = cooccurrence.load_shard(shard, device)
             self.assertTrue(torch.allclose(Nxx[shard], sNxx))
             self.assertTrue(torch.allclose(Nx[shard[0]], sNx))
             self.assertTrue(torch.allclose(Nxt[:,shard[1]], sNxt))
             self.assertTrue(torch.allclose(N, sN))
 
             # Shards can also be loaded using __getitem__.
-            sNxx, sNx, sNxt, sN = bigram[shard]
+            sNxx, sNx, sNxt, sN = cooccurrence[shard]
             self.assertTrue(torch.allclose(Nxx[shard], sNxx))
             self.assertTrue(torch.allclose(Nx[shard[0]], sNx))
             self.assertTrue(torch.allclose(Nxt[:,shard[1]], sNxt))
             self.assertTrue(torch.allclose(N, sN))
 
             # Unigram statistics for the shard can be loaded.
-            suNx, suNxt, suN = bigram.load_unigram_shard(shard, device)
+            suNx, suNxt, suN = cooccurrence.load_unigram_shard(shard, device)
             self.assertTrue(torch.allclose(uNx[shard[0]], suNx))
             self.assertTrue(torch.allclose(uNxt[:,shard[1]], suNxt))
             self.assertTrue(torch.allclose(uN, suN))
@@ -148,48 +151,48 @@ class TestBigramBase(TestCase):
 
     def test_merge(self):
 
-        # Make a bigram
+        # Make a cooccurrence
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram = h.bigram.BigramBase(unigram, array)
+        cooccurrence = h.cooccurrence.Cooccurrence(unigram, array)
 
-        # Make a similar bigram, but change some of the bigram statistics
+        # Make a similar cooccurrence, but change some of the cooccurrence statistics
         decremented_array = array - 1
         decremented_array[decremented_array<0] = 0
-        decremented_bigram = h.bigram.BigramBase(unigram,decremented_array)
+        decremented_cooccurrence = h.cooccurrence.Cooccurrence(unigram,decremented_array)
 
-        # Merge the two bigram instances
-        bigram.merge(decremented_bigram)
+        # Merge the two cooccurrence instances
+        cooccurrence.merge(decremented_cooccurrence)
 
-        # The merged bigram should have the sum of the individual bigrams'
+        # The merged cooccurrence should have the sum of the individual cooccurrences'
         # statistics.
         self.assertTrue(np.allclose(
-            bigram.Nxx.toarray(), array + decremented_array))
+            cooccurrence.Nxx.toarray(), array + decremented_array))
 
 
     def test_apply_unigram_smoothing(self):
         alpha = 0.6
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
 
-        expected_uNx = bigram.uNx**alpha
-        expected_uNxt = bigram.uNxt**alpha
+        expected_uNx = cooccurrence.uNx**alpha
+        expected_uNxt = cooccurrence.uNxt**alpha
         expected_uN = torch.sum(expected_uNx)
 
-        bigram.apply_unigram_smoothing(alpha)
-        self.assertTrue(torch.allclose(expected_uNx, bigram.uNx))
-        self.assertTrue(torch.allclose(expected_uNxt, bigram.uNxt))
-        self.assertTrue(torch.allclose(expected_uN, bigram.uN))
+        cooccurrence.apply_unigram_smoothing(alpha)
+        self.assertTrue(torch.allclose(expected_uNx, cooccurrence.uNx))
+        self.assertTrue(torch.allclose(expected_uNxt, cooccurrence.uNxt))
+        self.assertTrue(torch.allclose(expected_uN, cooccurrence.uN))
 
 
 
     def test_apply_w2v_undersampling(self):
 
         t = 1e-5
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
 
         # Initially the counts reflect the provided cooccurrence matrix
-        Nxx, Nx, Nxt, N = bigram.load_shard()
-        uNx, uNxt, uN = bigram.unigram
-        self.assertTrue(np.allclose(Nxx, bigram.Nxx.toarray()))
+        Nxx, Nx, Nxt, N = cooccurrence.load_shard()
+        uNx, uNxt, uN = cooccurrence.unigram
+        self.assertTrue(np.allclose(Nxx, cooccurrence.Nxx.toarray()))
 
         # Now apply undersampling
         p_i = h.corpus_stats.w2v_prob_keep(uNx, uN, t)
@@ -201,12 +204,12 @@ class TestBigramBase(TestCase):
         expected_N = torch.sum(expected_Nxx)
 
         #pre_PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
-        bigram.apply_w2v_undersampling(t)
-        #nNxx, nNx, nNxt, nN = bigram.load_shard()
+        cooccurrence.apply_w2v_undersampling(t)
+        #nNxx, nNx, nNxt, nN = cooccurrence.load_shard()
         #post_PMI = h.corpus_stats.calc_PMI((nNxx, nNx, nNxt, nN))
         #diff = torch.sum((pre_PMI - post_PMI) / pre_PMI) / (500*500)
 
-        found_Nxx, found_Nx, found_Nxt, found_N = bigram.load_shard()
+        found_Nxx, found_Nx, found_Nxt, found_N = cooccurrence.load_shard()
 
         self.assertTrue(torch.allclose(found_Nxx, expected_Nxx))
         self.assertTrue(torch.allclose(found_Nx, expected_Nx))
@@ -215,42 +218,42 @@ class TestBigramBase(TestCase):
 
         # attempting to call apply_undersampling twice is an error
         with self.assertRaises(ValueError):
-            bigram.apply_w2v_undersampling(t)
+            cooccurrence.apply_w2v_undersampling(t)
 
         # Attempting to call apply_undersampling when in posession of a 
         # smoothed unigram would produce incorrect results, and is an error.
-        bigram, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
         alpha = 0.6
         unigram.apply_smoothing(alpha)
         with self.assertRaises(ValueError):
-            bigram.apply_w2v_undersampling(t)
+            cooccurrence.apply_w2v_undersampling(t)
 
 
 
 
     def test_count(self):
-        bigram = self.get_test_bigram_base()
-        self.assertTrue(bigram.count('banana', 'socks'), 3)
-        self.assertTrue(bigram.count('socks', 'car'), 1)
+        cooccurrence = self.get_test_cooccurrence()
+        self.assertTrue(cooccurrence.count('banana', 'socks'), 3)
+        self.assertTrue(cooccurrence.count('socks', 'car'), 1)
 
 
-    def test_density(self):
-        bigram = self.get_test_bigram_base()
-        self.assertEqual(bigram.density(), 0.5)
-        self.assertEqual(bigram.density(2), 0.125)
+    #def test_density(self):
+    #    cooccurrence = self.get_test_cooccurrence()
+    #    self.assertEqual(cooccurrence.density(), 0.5)
+    #    self.assertEqual(cooccurrence.density(2), 0.125)
 
 
     def test_get_sector(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        bigram_base, unigram, Nxx = h.corpus_stats.get_test_bigram_base()
+        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
 
         for sector in h.shards.Shards(3):
-            bigram_sector = bigram_base.get_sector(sector)
+            cooccurrence_sector = cooccurrence.get_sector(sector)
             self.assertTrue(isinstance(
-                bigram_sector, h.bigram.BigramSector))
+                cooccurrence_sector, h.cooccurrence.CooccurrenceSector))
             self.assertTrue(np.allclose(
-                bigram_sector.Nxx.toarray(),
-                bigram_base.Nxx[sector].toarray()
+                cooccurrence_sector.Nxx.toarray(),
+                cooccurrence.Nxx[sector].toarray()
             ))
 
 

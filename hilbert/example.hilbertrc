@@ -1,0 +1,5 @@
+{
+"cooccurrence_dir": "/home/user/cooccurrence",
+"embeddings_dir": "/home/user/embeddings",
+"corpus_dir": "/home/user/corpus"
+}

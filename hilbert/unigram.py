@@ -96,6 +96,11 @@ class Unigram(object):
         return len(self.Nx)
 
 
+    @property
+    def shape(self):
+        return (len(self),)
+
+
     def __copy__(self):
         return deepcopy(self)
 

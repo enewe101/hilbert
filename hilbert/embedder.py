@@ -31,13 +31,13 @@ class HilbertEmbedderSolver(object):
         seed=1917,
         device=None,
         learner='dense',
-        verbose=True
+        verbose=1,
     ):
         """
         This is the base class for a Hilbert Embedder model. It uses pytorch's
         automatic differentiation for the primary heavy lifting. The fundamental
         components of this class are:
-            (1) the loss function (hilbert_loss.py)
+            (1) the loss function (loss.py)
             (2) the optimizer *constructor* (from torch.optim)
             (3) the dimensionality (an integer for the size of the embeddings)
 
@@ -55,7 +55,7 @@ class HilbertEmbedderSolver(object):
         :param learn_bias: boolean, whether or not to learn bias values for each
                 vector and covector (like GloVe does!)
         :param seed: random seed number to use
-        :param verbose: verbose
+        :param verbose: 0 => print nothing;  1 => print some; 2 => print lots
         :param device: gpu or cpu
         """
         if shape is None and init_vecs is None:
@@ -187,13 +187,15 @@ class HilbertEmbedderSolver(object):
         return self.dictionary
 
 
-    def cycle(self, iters=1, shard_times=1, very_verbose=True):
+    # TODO: iters and shard_times can both go.  Let self.loader define an epoch
+    # and always run one epoch.  
+    def cycle(self, iters=1, shard_times=1):
         losses = []
 
         for it in range(iters):
             self.epoch_loss = 0
 
-            if very_verbose:
+            if self.verbose > 1:
                 bar = ChargingBar(
                     'Epoch: {:6}'.format(it), max=len(self.loader))
 
@@ -219,7 +221,7 @@ class HilbertEmbedderSolver(object):
                     # statistics
                     self.epoch_loss += loss.item()
 
-                    if very_verbose:
+                    if self.verbose > 1:
                         bar.next()
 
             losses.append(self.epoch_loss)

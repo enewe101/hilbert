@@ -12,11 +12,11 @@ except ImportError:
     stats = None
 
 import hilbert as h
-from .bigram_base import BigramBase
+from .cooccurrence import Cooccurrence
 
 
 def read_stats(path):
-    return BigramMutable.load(path)
+    return CooccurrenceMutable.load(path)
 
 
 def sectorize(path, sector_factor, out_path=None, verbose=True):
@@ -24,13 +24,13 @@ def sectorize(path, sector_factor, out_path=None, verbose=True):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
     start = time.time()
-    bigram = BigramMutable.load(path)
+    cooccurrence = CooccurrenceMutable.load(path)
     if verbose:
         print("Loaded ({} seconds)".format(time.time() - start))
     start = time.time()
     save_extras = True
     for i, sector in enumerate(h.shards.Shards(sector_factor)):
-        bigram.save_sector(out_path, sector, save_extras, save_extras)
+        cooccurrence.save_sector(out_path, sector, save_extras, save_extras)
         save_extras = False
         if verbose:
             print("Saved sector {} ({} seconds)".format(i, time.time() - start))
@@ -39,7 +39,7 @@ def sectorize(path, sector_factor, out_path=None, verbose=True):
 
 def write_marginals(path):
     """
-    An old version of BigramMutable did not save marginals.  This reads the old
+    An old version of CooccurrenceMutable did not save marginals.  This reads the old
     version, and writes out the marginal, so that they can be loaded according
     to the new version.
     """
@@ -52,14 +52,14 @@ def write_marginals(path):
 
 
 def truncate(in_path, out_path, k):
-    b = BigramMutable.load(in_path)
+    b = CooccurrenceMutable.load(in_path)
     b.truncate(k)
     b.save(out_path)
 
 
-class BigramMutable(BigramBase):
+class CooccurrenceMutable(Cooccurrence):
     """
-    Similar to BigramBase, but supporting various mutation and 
+    Similar to Cooccurrence, but supporting various mutation and 
     writing operations.  useful for accumulating cooccurrence 
     while reading through a corpus.
     """
@@ -68,14 +68,15 @@ class BigramMutable(BigramBase):
         self,
         unigram,
         Nxx=None,
+        marginalize=True,
         device=None,
         verbose=True
     ):
         if Nxx is None:
             Nxx = np.zeros((len(unigram), len(unigram)))
             Nxx = sparse.lil_matrix(Nxx)
-        super(BigramMutable, self).__init__(
-            unigram, Nxx=Nxx, device=device, verbose=verbose)
+        super(CooccurrenceMutable, self).__init__(
+            unigram, Nxx=Nxx, marginalize=True, device=device, verbose=verbose)
 
 
     def __copy__(self):
@@ -84,7 +85,7 @@ class BigramMutable(BigramBase):
 
     def __deepcopy__(self, memo):
         unigram_copy = deepcopy(self.unigram, memo)
-        result = BigramMutable(
+        result = CooccurrenceMutable(
             unigram=unigram_copy, Nxx=self.Nxx, verbose=self.verbose)
         memo[id(self)] = result
         return result
@@ -119,7 +120,7 @@ class BigramMutable(BigramBase):
 
     #def sort(self, force=False):
     #    """Adopt decreasing order of unigram frequency."""
-    #    raise NotImplementedError("`BigramMutable`s are always sorted.")
+    #    raise NotImplementedError("`CooccurrenceMutable`s are always sorted.")
     #    top_indices = self.unigram.sort()
     #    self.Nxx = self.Nxx.tocsr()[top_indices][:,top_indices].tocsr()
     #    self.Nx = self.Nx[top_indices]
@@ -188,8 +189,8 @@ class BigramMutable(BigramBase):
         Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
         sparse.save_npz(os.path.join(path, Nxx_fname), self.Nxx[sector].tocsr())
 
-        # Save the marginalized bigram statistics.  This differs from unigram
-        # statistics by approximately a factor of 2 * window_size - 1.
+        # Save the marginalized cooccurrence statistics.  This differs from
+        # unigram statistics by approximately a factor of 2 * window_size - 1.
         if save_marginal:
             self.save_marginals(path)
 
@@ -198,19 +199,20 @@ class BigramMutable(BigramBase):
 
 
     @staticmethod
-    def load(path, device=None, verbose=True):
+    def load(path, marginalize=True, device=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
         unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
-        return BigramMutable(unigram, Nxx, device=device, verbose=verbose)
+        return CooccurrenceMutable(
+            unigram, Nxx, marginalize=True, device=device, verbose=verbose)
 
 
     @staticmethod
     def load_unigram(path, device=None, verbose=True):
         unigram = h.unigram.Unigram.load(path)
-        return BigramMutable(unigram, device=device, verbose=verbose)
+        return CooccurrenceMutable(unigram, device=device, verbose=verbose)
 
 

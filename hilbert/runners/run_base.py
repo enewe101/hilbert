@@ -50,10 +50,7 @@ def init_and_run(
         print('epoch\t{}'.format(epoch))
 
         # cycle the solver, this is a big boy that backprops gradients.
-        losses = embsolver.cycle(
-            iters=iters_per_epoch, shard_times=shard_times,
-            very_verbose=True
-        )
+        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times)
 
         # saving data intermediately
         save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
@@ -98,8 +95,8 @@ def modify_args(args):
     args['save_embeddings_dir'] = os.path.join(
         EMBEDDINGS_DIR, args['save_embeddings_dir'])
 
-    args['bigram_path'] = os.path.join(
-        COOCCURRENCE_DIR, args['bigram_path'])
+    args['cooccurrence_path'] = os.path.join(
+        COOCCURRENCE_DIR, args['cooccurrence_path'])
 
     if args['init_embeddings_path'] is not None:
         args['init_embeddings_path'] = os.path.join(
@@ -111,8 +108,8 @@ def modify_args(args):
 def get_base_argparser():
     parser = ArgumentParser()
     parser.add_argument(
-        '--bigram', '-b', required=True, dest='bigram_path',
-        help="Name of the bigrams subdirectory containing bigram statistics"
+        '--cooccurrence', '-b', required=True, dest='cooccurrence_path',
+        help="Name of the cooccurrence subdirectory containing cooccurrence statistics"
     )
     parser.add_argument(
         '--out-dir', '-o', required=True, dest='save_embeddings_dir',

@@ -6,9 +6,12 @@ import scipy
 import numpy as np
 import os
 
-BIGRAM_PATH = 'test-data/bigram-sectors/'
-SPARSE_BIGRAM_PATH = 'test-data/bigram'
+
 SECTOR_FACTOR = 3
+COOCCURRENCE_PATH = os.path.join(
+    h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors/')
+SPARSE_COOCCURRENCE_PATH = os.path.join(
+    h.CONSTANTS.TEST_DIR, 'cooccurrence')
 
 
 def key_requirements_satisfied(mdict, mname):
@@ -56,8 +59,8 @@ class TestLoader(TestCase):
         zk = 100
         n_batches = 123
 
-        preloader = h.bigram.TupSparsePreloader(
-            SPARSE_BIGRAM_PATH,
+        preloader = h.cooccurrence.TupSparsePreloader(
+            SPARSE_COOCCURRENCE_PATH,
             zk=zk,
             n_batches=n_batches,
             filter_repeats=False,
@@ -69,16 +72,16 @@ class TestLoader(TestCase):
         for i, bslice in enumerate(preloader.preload_iter()):
             self.assertTrue(type(bslice) == slice)
 
-            batch_id, bigram_data, unigram_data = preloader.prepare(bslice)
+            batch_id, cooccurrence_data, unigram_data = preloader.prepare(bslice)
 
             # grab the things
             self.assertEqual(batch_id.shape[0], 2)
             self.assertEqual(len(batch_id), 2)
-            self.assertEqual(len(bigram_data), 4)
+            self.assertEqual(len(cooccurrence_data), 4)
             self.assertEqual(unigram_data, None)
 
             # make sure they have the correct shapes and sizes
-            all_nij, nx, nxt, n = bigram_data
+            all_nij, nx, nxt, n = cooccurrence_data
             self.assertEqual(all_nij.shape, nx.shape)
             self.assertEqual(all_nij.shape, nxt.shape)
             self.assertEqual(len(all_nij.shape), 1)
@@ -111,11 +114,11 @@ class TestLoader(TestCase):
         device = torch.device('cpu')
 
         model_constructors = [
-            # (ml.GloveLoader, 'glv'),
-            # (ml.Word2vecLoader, 'w2v'),
-            (ml.MaxLikelihoodLoader, 'mle'),
-            # (ml.MaxPosteriorLoader, 'map'),
-            # (ml.KLLoader, 'kl')
+            (h.loaders.GloveLoader, 'glv'),
+            (h.loaders.Word2vecLoader, 'w2v'),
+            (h.loaders.MaxLikelihoodLoader, 'mle'),
+            (h.loaders.MaxPosteriorLoader, 'map'),
+            (h.loaders.KLLoader, 'kl')
         ]
 
         zk = 100
@@ -123,13 +126,13 @@ class TestLoader(TestCase):
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                h.bigram.TupSparsePreloader(
-                    SPARSE_BIGRAM_PATH,
+                h.cooccurrence.TupSparsePreloader(
+                    SPARSE_COOCCURRENCE_PATH,
                     zk=zk,
                     n_batches=n_batches,
                     filter_repeats=False,
                     device=device,
-                    include_unigram_data=False
+                    include_unigram_data=True
                 ),
                 verbose=False,
                 device='cpu'
@@ -137,11 +140,13 @@ class TestLoader(TestCase):
             n_expected_iters = model_loader.preloader.n_batches
 
             # double checking that the construction fills it up!
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # check that resetting works as intended
             model_loader.preload_all_batches()
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # testing model batch iteration
             all_batch_ids = []
@@ -150,7 +155,10 @@ class TestLoader(TestCase):
 
                 self.assertEqual(batch_id.shape[0], 2)
                 if i < n_batches - 1:
-                    self.assertEqual(batch_id.shape[1], model_loader.preloader.batch_size + zk)
+                    self.assertEqual(
+                        batch_id.shape[1],
+                        model_loader.preloader.batch_size + zk
+                    )
                 self.assertTrue(key_requirements_satisfied(data_dict, mname))
 
             # ensuring batching is properly done
@@ -164,8 +172,8 @@ class TestLoader(TestCase):
         filter_repeats = False
         zk = 100
 
-        preloader = h.bigram.LilSparsePreloader(
-            SPARSE_BIGRAM_PATH,
+        preloader = h.cooccurrence.LilSparsePreloader(
+            SPARSE_COOCCURRENCE_PATH,
             zk=zk,
             filter_repeats=filter_repeats,
             device=device,
@@ -174,11 +182,11 @@ class TestLoader(TestCase):
         all_batches = []
         for i in preloader.preload_iter():
             torch.manual_seed(i)
-            batch_id, bigram_data, unigram_data = preloader.prepare(i)
+            batch_id, cooccurrence_data, unigram_data = preloader.prepare(i)
             all_batches.append(batch_id[0])
 
-            self.assertEqual(len(bigram_data), 4)
-            nijs, ni, njs, n = bigram_data
+            self.assertEqual(len(cooccurrence_data), 4)
+            nijs, ni, njs, n = cooccurrence_data
 
             # check that it's going correctly
             self.assertEqual(len(nijs), len(njs))
@@ -189,11 +197,14 @@ class TestLoader(TestCase):
                 i, all_js = batch_id
                 a_nijs = preloader.sparse_nxx[i][1] # values
 
-                # these are z-samples we will draw, given that we hardcode the seed
+                # these are z-samples we will draw, given that we hardcode the
+                # seed
                 torch.manual_seed(i)
-                expected_zs = torch.randint(preloader.n_batches,
-                                            device=device,
-                                            size=(min(len(a_nijs), zk,),)).sort()[0]
+                expected_zs = torch.randint(
+                    preloader.n_batches,
+                    device=device,
+                    size=(min(len(a_nijs), zk,),)
+                ).sort()[0]
 
                 got_z_nijs = nijs[-len(expected_zs):]
                 self.assertEqual(len(expected_zs), len(got_z_nijs))
@@ -207,31 +218,34 @@ class TestLoader(TestCase):
 
     def test_model_with_sparse_preloader(self):
         model_constructors = [
-            (h.model_loaders.GloveLoader, 'glv'),
-            (h.model_loaders.Word2vecLoader, 'w2v'),
-            (h.model_loaders.MaxLikelihoodLoader, 'mle'),
-            (h.model_loaders.MaxPosteriorLoader, 'map'),
-            (h.model_loaders.KLLoader, 'kl')
+            (h.loaders.GloveLoader, 'glv'),
+            (h.loaders.Word2vecLoader, 'w2v'),
+            (h.loaders.MaxLikelihoodLoader, 'mle'),
+            (h.loaders.MaxPosteriorLoader, 'map'),
+            (h.loaders.KLLoader, 'kl')
         ]
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                h.bigram.LilSparsePreloader(SPARSE_BIGRAM_PATH,
-                                   zk=1000,
-                                   filter_repeats=True,
-                                   device='cpu',
-                                   include_unigram_data=mname=='w2v'),
+                h.cooccurrence.LilSparsePreloader(
+                    SPARSE_COOCCURRENCE_PATH,
+                    zk=1000,
+                    filter_repeats=True,
+                    device='cpu',
+                    include_unigram_data=mname=='w2v'),
                 verbose=False,
                 device='cpu'
             )
             n_expected_iters = model_loader.preloader.n_batches
 
             # double checking that the construction fills it up!
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # check that resetting works as intended
             model_loader.preload_all_batches()
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # testing model shard iteration
             all_batch_ids = []
@@ -255,15 +269,16 @@ class TestLoader(TestCase):
 
         # iterate over each combo
         for sef, shf, t, al in test_combos:
-            preloader = h.bigram.DenseShardPreloader(
-                BIGRAM_PATH, sef, shf,
+            preloader = h.cooccurrence.DenseShardPreloader(
+                COOCCURRENCE_PATH, sef, shf,
                 t_clean_undersample=t,
                 alpha_unigram_smoothing=al,
+                verbose=False
             )
 
             n_expected_iters = (sef ** 2) * (shf ** 2)
             all_shard_ids = []
-            for shard, bigram, unigram in preloader.preload_iter():
+            for shard, cooccurrence, unigram in preloader.preload_iter():
                 all_shard_ids.append((shard.i, shard.j))
 
             self.assertEqual(len(all_shard_ids), n_expected_iters)
@@ -275,27 +290,31 @@ class TestLoader(TestCase):
         n_expected_iters = (SECTOR_FACTOR ** 2) * (shard_factor ** 2)
 
         model_constructors = [
-            (ml.GloveLoader, 'glv'),
-            (ml.Word2vecLoader, 'w2v'),
-            (ml.MaxLikelihoodLoader, 'mle'),
-            (ml.MaxPosteriorLoader, 'map'),
-            (ml.KLLoader, 'kl')
+            (h.loaders.GloveLoader, 'glv'),
+            (h.loaders.Word2vecLoader, 'w2v'),
+            (h.loaders.MaxLikelihoodLoader, 'mle'),
+            (h.loaders.MaxPosteriorLoader, 'map'),
+            (h.loaders.KLLoader, 'kl')
         ]
 
         for constructor, mname in model_constructors:
             model_loader = constructor(
-                h.bigram.DenseShardPreloader(BIGRAM_PATH, SECTOR_FACTOR, shard_factor,
-                                    None, None),
+                h.cooccurrence.DenseShardPreloader(
+                    COOCCURRENCE_PATH, SECTOR_FACTOR, shard_factor, None, None,
+                    verbose=False
+                ),
                 verbose=False,
                 device='cpu'
             )
 
             # double checking that the construction fills it up!
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # check that resetting works as intended
             model_loader.preload_all_batches()
-            self.assertEqual(len(model_loader.preloaded_batches), n_expected_iters)
+            self.assertEqual(
+                len(model_loader.preloaded_batches), n_expected_iters)
 
             # testing model shard iteration
             all_shard_ids = []

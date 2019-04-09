@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.optim as op
 import hilbert as h
-from hilbert.bigram import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
+from hilbert.cooccurrence import DenseShardPreloader, LilSparsePreloader, TupSparsePreloader
 
 
 def get_opt(string):
@@ -24,7 +24,7 @@ def get_init_embs(pth):
 
 
 def build_preloader(
-        bigram_path,
+        cooccurrence_path,
         sector_factor=1,
         shard_factor=1,
         t_clean_undersample=None,
@@ -38,14 +38,14 @@ def build_preloader(
     if datamode == 'dense':
 
         preloader = DenseShardPreloader(
-            bigram_path, sector_factor, shard_factor,
+            cooccurrence_path, sector_factor, shard_factor,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
         )
 
     elif datamode == 'tupsparse':
         preloader = TupSparsePreloader(
-            bigram_path, zk=zk, n_batches=n_batches,
+            cooccurrence_path, zk=zk, n_batches=n_batches,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
             filter_repeats=False,
@@ -55,7 +55,7 @@ def build_preloader(
 
     elif datamode == 'lilsparse':
         preloader = LilSparsePreloader(
-            bigram_path, zk=zk,
+            cooccurrence_path, zk=zk,
             t_clean_undersample=t_clean_undersample,
             alpha_unigram_smoothing=alpha_unigram_smoothing,
             filter_repeats=False,
@@ -70,7 +70,7 @@ def build_preloader(
 
 ### Word2vec ###
 def construct_w2v_solver(
-        bigram_path,
+        cooccurrence_path,
         init_embeddings_path=None,
         d=300,
         k=15,
@@ -93,7 +93,7 @@ def construct_w2v_solver(
 
     # make the preloader
     preloader = build_preloader(
-        bigram_path,
+        cooccurrence_path,
         sector_factor=sector_factor,
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -106,7 +106,7 @@ def construct_w2v_solver(
     )
 
     # Make the loader
-    loader = h.model_loaders.Word2vecLoader(
+    loader = h.loaders.Word2vecLoader(
         preloader,
         verbose=verbose,
         device=device,
@@ -114,10 +114,10 @@ def construct_w2v_solver(
     )
 
     # Make the loss.  
-    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary_path = os.path.join(cooccurrence_path, 'dictionary')
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     vocab = len(dictionary)
-    loss = h.hilbert_loss.Word2vecLoss(
+    loss = h.loss.Word2vecLoss(
         keep_prob=update_density, ncomponents=vocab**2, 
     )
 
@@ -151,7 +151,7 @@ def construct_w2v_solver(
 
 ### GLOVE ###
 def construct_glv_solver(
-        bigram_path,
+        cooccurrence_path,
         init_embeddings_path=None,
         d=300,
         alpha=0.75,
@@ -180,7 +180,7 @@ def construct_glv_solver(
 
     # make the preloader
     preloader = build_preloader(
-        bigram_path,
+        cooccurrence_path,
         sector_factor=sector_factor,
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -192,8 +192,8 @@ def construct_glv_solver(
         device=device
     )
 
-    # Make bigram loader
-    loader = h.model_loaders.GloveLoader(
+    # Make cooccurrence loader
+    loader = h.loaders.GloveLoader(
         preloader,
         verbose=verbose,
         device=device,
@@ -202,10 +202,10 @@ def construct_glv_solver(
     )
 
     # Make the loss
-    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary_path = os.path.join(cooccurrence_path, 'dictionary')
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     vocab = len(dictionary)
-    loss = h.hilbert_loss.MSELoss(
+    loss = h.loss.MSELoss(
         keep_prob=update_density, ncomponents=vocab**2, 
     )
 
@@ -236,7 +236,7 @@ def construct_glv_solver(
 
 
 def construct_max_likelihood_sample_based_solver(
-    bigram_path,
+    cooccurrence_path,
     init_embeddings_path=None,
     d=300,
     temperature=1,
@@ -261,9 +261,9 @@ def construct_max_likelihood_sample_based_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-    # Make bigram loader
-    loader = h.bigram.BigramSampleLoader(
-        bigram_path=bigram_path, 
+    # Make cooccurrence loader
+    loader = h.cooccurrence.SampleLoader(
+        cooccurrence_path=cooccurrence_path, 
         sector_factor=sector_factor,
         temperature=temperature,
         batch_size=batch_size,
@@ -275,12 +275,12 @@ def construct_max_likelihood_sample_based_solver(
     # Make the loss.  This sample based loss is simpler than the others:
     # it doesn't need to know the vocabulary size nor does it make use of
     # update_density.
-    loss = h.hilbert_loss.SampleMaxLikelihoodLoss()
+    loss = h.loss.SampleMaxLikelihoodLoss()
 
     # initialize the vectors
     init_vecs = get_init_embs(init_embeddings_path)
     shape = None
-    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary_path = os.path.join(cooccurrence_path, 'dictionary')
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     if init_vecs is None:
         vocab = len(dictionary)
@@ -310,7 +310,7 @@ def construct_max_likelihood_sample_based_solver(
 def _construct_tempered_solver(
     loader_class,
     loss_class,
-    bigram_path,
+    cooccurrence_path,
     init_embeddings_path=None,
     d=300,
     temperature=1,
@@ -333,7 +333,7 @@ def _construct_tempered_solver(
 
     # make the preloader
     preloader = build_preloader(
-        bigram_path,
+        cooccurrence_path,
         sector_factor=sector_factor,
         shard_factor=shard_factor,
         alpha_unigram_smoothing=alpha_unigram_smoothing,
@@ -353,7 +353,7 @@ def _construct_tempered_solver(
     )
 
     # Make the loss
-    dictionary_path = os.path.join(bigram_path, 'dictionary')
+    dictionary_path = os.path.join(cooccurrence_path, 'dictionary')
     dictionary = h.dictionary.Dictionary.load(dictionary_path)
     vocab = len(dictionary)
     loss = loss_class(
@@ -396,14 +396,14 @@ def construct_max_likelihood_solver(*args, verbose=True, **kwargs):
     """
     simple_loss = kwargs.pop('simple_loss', False)
     if simple_loss:
-        loss = h.hilbert_loss.SimpleMaxLikelihoodLoss
+        loss = h.loss.SimpleMaxLikelihoodLoss
         print("USING SIMPLE!")
     else:
         print("Nothing in life is simple...")
-        loss = h.hilbert_loss.MaxLikelihoodLoss
+        loss = h.loss.MaxLikelihoodLoss
 
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxLikelihoodLoader, loss,
+        h.loaders.MaxLikelihoodLoader, loss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
@@ -418,7 +418,7 @@ def construct_max_posterior_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.MaxPosteriorLoader, h.hilbert_loss.MaxPosteriorLoss,
+        h.loaders.MaxPosteriorLoader, h.loss.MaxPosteriorLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:
@@ -433,7 +433,7 @@ def construct_KL_solver(*args, verbose=True, **kwargs):
     provided here).
     """
     solver = _construct_tempered_solver(
-        h.model_loaders.KLLoader, h.hilbert_loss.KLLoss,
+        h.loaders.KLLoader, h.loss.KLLoss,
         *args, verbose=verbose, **kwargs
     )
     if verbose:

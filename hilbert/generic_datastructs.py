@@ -18,30 +18,30 @@ class Describable(abc.ABC):
 
 
 ######### Data structure functionality #########
-def get_unigram_data(bigram, include_unigram_data, device):
+def get_unigram_data(cooccurrence, include_unigram_data, device):
     uNx, uNxt, uN = None, None, None
     if include_unigram_data:
-        uNx = bigram.uNx.flatten().to(device)
-        uNxt = bigram.uNxt.flatten().to(device)
-        uN = bigram.uN.to(device)
+        uNx = cooccurrence.uNx.flatten().to(device)
+        uNxt = cooccurrence.uNxt.flatten().to(device)
+        uN = cooccurrence.uN.to(device)
     return uNx, uNxt, uN
 
 
-def build_sparse_lil_nxx(bigram, include_unigram_data, device):
+def build_sparse_lil_nxx(cooccurrence, include_unigram_data, device):
 
     # sparse linked-list representation of Nij
     sparse_nxx = []
 
     # number of rows
-    n_rows = len(bigram.Nxx.data)
+    n_rows = len(cooccurrence.Nxx.data)
 
     # Iterate over each row in the sparse matrix and get marginals
     Nx = torch.zeros((n_rows,), device=device)
     Nxt = torch.zeros((n_rows,), device=device)
 
-    for i in range(len(bigram.Nxx.data)):
-        js_tensor = torch.LongTensor(bigram.Nxx.rows[i]).to(device)
-        nijs_tensor = torch.FloatTensor(bigram.Nxx.data[i]).to(device)
+    for i in range(len(cooccurrence.Nxx.data)):
+        js_tensor = torch.LongTensor(cooccurrence.Nxx.rows[i]).to(device)
+        nijs_tensor = torch.FloatTensor(cooccurrence.Nxx.data[i]).to(device)
 
         # put in the marginal sums!
         Nx[i] = nijs_tensor.sum()
@@ -50,22 +50,22 @@ def build_sparse_lil_nxx(bigram, include_unigram_data, device):
         # store the implicit sparse matrix as a series
         # of tuples, J-indexes, then Nij values.
         sparse_nxx.append((js_tensor, nijs_tensor,))
-        bigram.Nxx.rows[i].clear()
-        bigram.Nxx.data[i].clear()
+        cooccurrence.Nxx.rows[i].clear()
+        cooccurrence.Nxx.data[i].clear()
 
     # now we need to store the other statistics
     N = Nx.sum().to(device)
     return sparse_nxx, (Nx, Nxt, N,), \
-           get_unigram_data(bigram, include_unigram_data, device)
+           get_unigram_data(cooccurrence, include_unigram_data, device)
 
 
 def get_Nxx_coo(
-    bigram_path, sector_factor, include_marginals=True, verbose=True
+    cooccurrence_path, sector_factor, include_marginals=True, verbose=True
 ):
     """
-    Reads in sectorized bigram data from disk, and converts it into a sparse
-    tensor representation using COO format.  If desired, marginal sums are 
-    included.
+    Reads in sectorized cooccurrence data from disk, and converts it into a
+    sparse tensor representation using COO format.  If desired, marginal sums
+    are included.
     """
 
     # Go though each sector and accumulate all of the non-zero data
@@ -81,7 +81,8 @@ def get_Nxx_coo(
             print('loading sector {}'.format(sector_id.serialize()))
 
         # Read the sector, and get the statistics in sparse COO-format
-        sector = h.bigram.BigramSector.load(bigram_path, sector_id)
+        sector = h.cooccurrence.CooccurrenceSector.load(
+            cooccurrence_path, sector_id)
         sector_coo = sector.Nxx.tocoo()
 
         # Tensorfy the data, and the row and column indices
@@ -109,23 +110,23 @@ def get_Nxx_coo(
 
 
 
-def build_sparse_tup_nxx(bigram, include_unigram_data, device):
+def build_sparse_tup_nxx(cooccurrence, include_unigram_data, device):
 
     # hold the ij indices and nij values separately
-    indices = torch.ones((2, bigram.Nxx.nnz,), device=device).int()
-    values = torch.zeros((bigram.Nxx.nnz,), device=device).float()
+    indices = torch.ones((2, cooccurrence.Nxx.nnz,), device=device).int()
+    values = torch.zeros((cooccurrence.Nxx.nnz,), device=device).float()
 
     # number of rows
-    n_rows = len(bigram.Nxx.data)
+    n_rows = len(cooccurrence.Nxx.data)
 
     # Iterate over each row in the sparse matrix and get marginals
     Nx = torch.zeros((n_rows,), device=device)
     Nxt = torch.zeros((n_rows,), device=device)
     start_fill = 0
 
-    for i in range(len(bigram.Nxx.data)):
-        js = torch.IntTensor(bigram.Nxx.rows[i]).to(device)
-        nijs = torch.FloatTensor(bigram.Nxx.data[i]).to(device)
+    for i in range(len(cooccurrence.Nxx.data)):
+        js = torch.IntTensor(cooccurrence.Nxx.rows[i]).to(device)
+        nijs = torch.FloatTensor(cooccurrence.Nxx.data[i]).to(device)
 
         # set the slice object we are using
         slice_ind = slice(start_fill, start_fill + len(js))
@@ -142,8 +143,8 @@ def build_sparse_tup_nxx(bigram, include_unigram_data, device):
         # put in the marginal sums and clear out
         Nx[i] = nijs.sum()
         Nxt[js.long()] += nijs
-        bigram.Nxx.rows[i].clear()
-        bigram.Nxx.data[i].clear()
+        cooccurrence.Nxx.rows[i].clear()
+        cooccurrence.Nxx.data[i].clear()
 
         # repeat
         start_fill += len(js)
@@ -151,4 +152,4 @@ def build_sparse_tup_nxx(bigram, include_unigram_data, device):
     # now we need to store the other statistics
     N = Nx.sum().to(device)
     return (indices, values,), (Nx, Nxt, N,), \
-           get_unigram_data(bigram, include_unigram_data, device)
+           get_unigram_data(cooccurrence, include_unigram_data, device)
