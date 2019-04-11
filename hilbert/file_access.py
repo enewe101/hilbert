@@ -60,7 +60,7 @@ def _open_chunk(path, chunk, num_chunks):
     total_bytes = os.path.getsize(path)
     start_point = math.ceil(total_bytes / num_chunks * chunk)
     end_point = math.ceil(total_bytes / num_chunks * (chunk + 1))
-    with open(path) as f:
+    with open(path, errors='replace') as f:
         f.seek(start_point)
 
         # We are generally landing midline, and we don't know where the 
@@ -90,7 +90,7 @@ def open_chunk_slow(path, chunk, num_chunks):
     total_bytes = os.path.getsize(path)
     start_point = math.ceil(total_bytes / num_chunks * chunk)
     end_point = math.ceil(total_bytes / num_chunks * (chunk + 1))
-    with open(path) as f:
+    with open(path, errors='replace') as f:
         cursor = f.tell()
         while cursor < start_point:
             f.readline()

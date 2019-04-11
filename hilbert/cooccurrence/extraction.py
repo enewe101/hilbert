@@ -96,7 +96,7 @@ def extract_cooccurrence(corpus_path, extractor, verbose=True):
     To do this more quickly using parallelization, use
     ``extract_cooccurrence_parallel`` instead.
     """
-    with codecs.open(corpus_path, 'r', 'utf8') as in_file:
+    with codecs.open(corpus_path, 'r', errors='replace') as in_file:
         start = time.time()
         for line_num, line in enumerate(in_file):
             if verbose and line_num % 1000 == 0:
