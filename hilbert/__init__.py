@@ -1,5 +1,5 @@
 import hilbert.CONSTANTS
-import hilbert.embedder
+import hilbert.solver
 import hilbert.cooccurrence
 import hilbert.calc_posterior
 import hilbert.corpus_stats
@@ -14,4 +14,6 @@ import hilbert.utils
 import hilbert.runners
 import hilbert.generic_datastructs
 import hilbert.file_access
+import hilbert.tracer
+import hilbert.exceptions
 import hilbert.tests

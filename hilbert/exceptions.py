@@ -1,0 +1,4 @@
+
+class DivergenceError(Exception):
+    pass
+

@@ -1,177 +1,138 @@
 import os
 import hilbert as h
 from argparse import ArgumentParser
-try:
-    import shared
-except ImportError:
-    shared = None
-
-COOCCURRENCE_DIR = (
-    shared.CONSTANTS.COOCCURRENCE_DIR 
-    if shared is not None else h.CONSTANTS.COOCCURRENCE_DIR
-)
-EMBEDDINGS_DIR = (
-    shared.CONSTANTS.EMBEDDINGS_DIR if shared is not None else
-    h.CONSTANTS.EMBEDDINGS_DIR
-)
-
-COMMON_KWARGS = {
-    'epochs': 100,
-    'iters_per_epoch': 100,
-    'init_embeddings_path': None,
-    'd': 300,
-    'update_density': 1.,
-    'learning_rate': 0.01,
-    'opt_str': 'adam',
-    'sector_factor': 1,
-    'shard_factor': 1,
-    'shard_times': 1,
-    'seed': 1,
-    'device': None,
-    'datamode': 'dense',
-}
-
-def kw_filter(kwargs):
-    ignore = {'epochs', 'iters_per_epoch', 'shard_times'}
-    return {k: v for k, v in kwargs.items() if k not in ignore}
-
-# Main thing that is imported
-def init_and_run(
-    embsolver, epochs, iters_per_epoch, shard_times, save_embeddings_dir
-):
-
-    # special things for initialization.
-    print(embsolver.describe())
-    init_workspace(embsolver, save_embeddings_dir)
-    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
-
-    # iterate over each epoch, after which we write results
-    for epoch in range(1, epochs+1):
-        print('epoch\t{}'.format(epoch))
-
-        # cycle the solver, this is a big boy that backprops gradients.
-        losses = embsolver.cycle(iters=iters_per_epoch, shard_times=shard_times)
-
-        # saving data intermediately
-        save_embeddings(embsolver, save_embeddings_dir, iters_per_epoch * epoch)
-        write_trace(trace_path, (epoch - 1) * iters_per_epoch, losses)
 
 
-# Helper functions.
-def init_workspace(embsolver, save_embeddings_dir):
-
-    # Work out the path at which embeddings will be saved.
-    if not os.path.exists(save_embeddings_dir):
-        os.makedirs(save_embeddings_dir)
-
-    # Write a description of this run within the embeddings save directory
-    trace_path = os.path.join(save_embeddings_dir, 'trace.txt')
-    with open(trace_path, 'w') as trace_file:
-        trace_file.write(embsolver.describe())
+def factory_args(args):
+    ignore = {'save_embeddings_dir', 'num_writes', 'num_updates'}
+    return {key:args[key] for key in args if key not in ignore}
 
 
-def save_embeddings(embsolver, save_embeddings_dir, count):
-    embeddings = h.embeddings.Embeddings(
-        V=embsolver.V, W=embsolver.W,
-        dictionary=embsolver.get_dictionary())
-
-    embeddings_save_path = os.path.join(
-        save_embeddings_dir,
-        'iter-{}'.format(count))
-
-    embeddings.save(embeddings_save_path)
 
 
-def write_trace(trace_path, crt_iter, losses):
-    with open(trace_path, 'a') as trace_file:
-        for i, loss in enumerate(losses):
-            trace_file.write('iter-{}: loss={}\n'.format(
-                i + crt_iter, loss))
+def init_and_run(solver, **args):
+    """
+    Use run the solver for many updates, and periodically write the model 
+    parameters to disk.
+    """
+
+    # Do some unpacking
+    num_writes = args['num_writes']
+    num_updates = args['num_updates']
+    save_dir = args['save_embeddings_dir']
+    verbose = args['verbose']
+
+    # Make sure the output dir exists.
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    # Make the tracer (whichs helps us print / log), and generate a preamble.
+    trace_path = os.path.join(save_dir, 'trace.txt')
+    tracer = h.tracer.Tracer(solver, trace_path, verbose)
+    tracer.start(args)
+
+    # Train train train!  Write to disk once in awhile!
+    updates_per_write = int(num_updates / num_writes)
+    for write_num in range(num_writes):
+        solver.cycle(updates_per_write)
+        num_updates = updates_per_write * (write_num+1)
+        save_path = os.path.join(save_dir, '{}'.format(num_updates))
+        solver.get_embeddings().save(save_path)
+        tracer.step()
 
 
-# For convenience, paths are relative to dedicated subdirectories in the
-# hilbert data folder.
-def modify_args(args):
-    args['save_embeddings_dir'] = os.path.join(
-        EMBEDDINGS_DIR, args['save_embeddings_dir'])
+class ModelArgumentParser(ArgumentParser):
+    def parse_args(self):
+        args = vars(super(ModelArgumentParser, self).parse_args())
+        args['save_embeddings_dir'] = os.path.join(
+            h.CONSTANTS.RC['embeddings_dir'], args['save_embeddings_dir'])
+        args['cooccurrence_path'] = os.path.join(
+            h.CONSTANTS.RC['cooccurrence_dir'], args['cooccurrence_path'])
+        if args['init_embeddings_path'] is not None:
+            args['init_embeddings_path'] = os.path.join(
+                h.CONSTANTS.RC['embeddings_dir'], args['init_embeddings_path'])
+        args['verbose'] = not args.pop('quiet')
+        return args
 
-    args['cooccurrence_path'] = os.path.join(
-        COOCCURRENCE_DIR, args['cooccurrence_path'])
 
-    if args['init_embeddings_path'] is not None:
-        args['init_embeddings_path'] = os.path.join(
-            EMBEDDINGS_DIR, args['init_embeddings_path'])
-
-
-# TODO: add number of zed-samples to CLI.
-# Argparser common across everything
 def get_base_argparser():
-    parser = ArgumentParser()
+    """
+    Create an argument parser that includes all of the common options and
+    knows how to relativise paths using the RC file.  More specialized 
+    paramters can be added by the caller.
+    """
+
+    parser = ModelArgumentParser()
     parser.add_argument(
         '--cooccurrence', '-b', required=True, dest='cooccurrence_path',
-        help="Name of the cooccurrence subdirectory containing cooccurrence statistics"
+        help=(
+            "Name of the cooccurrence subdirectory containing cooccurrence "
+            "statistics"
+        )
     )
     parser.add_argument(
         '--out-dir', '-o', required=True, dest='save_embeddings_dir',
         help="Name of embeddings subdirectory in which to store embeddings"
     )
+
     parser.add_argument(
-        '--device', default='cuda:0', dest='device',
-        help="Name of the processor we want to use for math (default is cuda:0)"
-    )
-    parser.add_argument(
-        '--init', '-i', dest="init_embeddings_path", default=None,
-        help="Name of embeddings subdirectory to use as initialization"
-    )
-    parser.add_argument(
-        '--seed', '-S', type=int, required=True, help="Random seed"
-    )
-    parser.add_argument(
-        '--solver', '-s', default='adam', help="Type of solver to use",
+        '--optimizer', '-s', default='adam', help="Type of optimizer to use",
         dest='opt_str'
     )
     parser.add_argument(
         '--learning-rate', '-l', type=float, default=0.01,
         help="Learning rate",
     )
+
+
     parser.add_argument(
-        '--epochs', '-e', type=int, default=100,
-        help="Number of epochs to run.  Embeddings are saved after each epoch."
+        '--writes', '-e', dest='num_writes', type=int, default=100,
+        help="Number of times to write intermediate model state to disk."
     )
     parser.add_argument(
-        '--iters-per-epoch', '-I', type=int, default=100,
-        help="Number of iterations per epoch"
+        '--updates', dest='num_updates', type=int, default=100000,
+        help="Total number of training updates to run."
     )
     parser.add_argument(
-        '--update-density', '-u', type=float, default=1,
-        help="proportion of samples to keep at each iteration (minibatching)"
+        '--batch-size', type=int, default=1000,
+        help=(
+            "Number of examples used to create one batch.  The preciece "
+            "interpretation of an 'example' depends on the type of model and "
+            "loader being used."
+        )
     )
     parser.add_argument(
-        '--sector-factor', '-g', type=int, default=1, 
-        help='Sharding factor used to generate cooccurrence data files on disk' 
+        '--shard-factor', type=int, default=1,
+        help= "Divide sectors by shard_factor**2 to make it fit on GPU."
+    )
+
+
+
+    #parser.add_argument(
+    #    '--dtype', choices=(64, 32, 16), default=32, dest='dtype',
+    #    help="Bit depth of floats used in the model."
+    #)
+
+    parser.add_argument(
+        '--device', default='cuda:0', dest='device',
+        help="Name of the processor we want to use for math (default is cuda:0)"
+    )
+
+
+    parser.add_argument(
+        '--init', '-i', dest="init_embeddings_path", default=None,
+        help="Name of embeddings subdirectory to use as initialization"
     )
     parser.add_argument(
-        '--shard-factor', '-f', type=int, default=1, 
-        help='Sharding factor used to generate minibatches from sectors' 
-    )
-    parser.add_argument(
-        '--shard-times', '-H', type=int, default=1, 
-        help='Number of update iterations before loading a new shard'
+        '--seed', '-S', type=int, default=1917, help="Random seed"
     )
     parser.add_argument(
         '--dimensions', '-d', type=int, default=300, dest='d',
         help='desired dimensionality of the embeddings being produced'
     )
     parser.add_argument(
-        '--datamode', '-D', default='dense', dest='datamode',
-        help='maybe you want to use sparse boi, rather than a dense boi'
+        '--quiet', '-q', default=False, action='store_true',
+        help="Don't print the trace to stdout."
     )
-    parser.add_argument(
-        '--nbatches', default=None, dest='tup_n_batches', type=int,
-        help='if using a tuple-sparse implementation you must define this int'
-    )
-    parser.add_argument(
-        '--zk', default=None, dest='zk', type=int,
-        help='numb of zed samples if using sparse implementation'
-    )
+
     return parser

@@ -1,9 +1,11 @@
+import re
 import os
 import warnings
 import numpy as np
 import torch
 import hilbert as h
 from scipy import sparse
+
 
 
 
@@ -344,6 +346,36 @@ class CooccurrenceSector(object):
         self.N += other.N
 
         return self
+
+    @staticmethod
+    def get_sector_factor(path):
+        sector_matcher = re.compile('Nxx-\d+-\d+-(\d+).npz')
+        sector_factors = [
+            int(sector_matcher.match(p).groups()[0]) for p in os.listdir(path) 
+            if sector_matcher.match(p)
+        ]
+        if len(sector_factors) == 0:
+            raise ValueError(
+                "No cooccurrence sectors found on disk at {}.".format(path)
+            )
+        sector_factor = sector_factors[0]
+        if not all([s == sector_factor for s in sector_factors]):
+            raise ValueError(
+                "Sector factor is ambiguous.  Did you write other files to "
+                "disk at {} that would match '{}'?".format(
+                    path, sector_matcher.pattern
+                )
+            )
+        if not len(sector_factors) == sector_factor**2:
+            raise ValueError(
+                "Some sectors appear to be missing.  Detected a sector "
+                "factor of {}, but only found {} sectors (expected {}).".format(
+                    sector_factor, len(sector_factors), sector_factor**2
+                )
+            )
+        return sector_factor
+
+
 
 
     def get_sector(self, *args):

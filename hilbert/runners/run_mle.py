@@ -1,50 +1,34 @@
-import hilbert.factories as proletariat
-from hilbert.runners.run_base import init_and_run, modify_args, get_base_argparser, kw_filter
 
 
-def run_mle(
-        cooccurrence_path,
-        save_embeddings_dir,
-        temperature=1.,
-        **kwargs
-    ):
-
-    embsolver = proletariat.construct_max_likelihood_solver(
-        cooccurrence_path=cooccurrence_path, temperature=temperature,
-        **kw_filter(kwargs)
-    )
-    init_and_run(embsolver,
-                 kwargs['epochs'],
-                 kwargs['iters_per_epoch'],
-                 kwargs['shard_times'],
-                 save_embeddings_dir)
+import hilbert as h
 
 
 if __name__ == '__main__':
-
-    base_parser = get_base_argparser()
-    base_parser.add_argument(
+    parser = h.runner.run_base.get_base_argparser()
+    parser.add_argument(
         '--temperature', '-t', type=float, default=1, dest='temperature',
         help=(
             "equalizes weighting for loss from individual token pairs.  "
             "Use temperature > 1 for more equal weights."
         )
     )
-    base_parser.add_argument(
+    parser.add_argument(
         '--simple-loss', '-j', action='store_true', 
         help=(
             "Whether to use the simpler loss function, obtained by neglecting "
             "the denominator of the full loss function after differentiation."
         )
     )
-    all_args = vars(base_parser.parse_args())
-    modify_args(all_args)
-    run_mle(**all_args)
+    parser.add_argument(
+        '--bias', action='store_true', dest='bias'
+        help=(
+            "Set this flag to include biases in the model for each vector and "
+            "covector"
+        )
+    )
+    args = parser.parser_args()
+    solver = h.factories.build_mle_solver(
+        **h.runners.run_base.factory_args(args)
+    )
+    h.runners.run_base.init_and_run(solver, **args)
 
-
-"""
-Example command:
-python run_mle.py -u 1.0 -l 0.01 -s adam -I 100 --init
-    std-w2v-s1-t1-v10k-iter5/vectors-init --epochs 150 --seed 1 --cooccurrence
-    5w-dynamic-10k/thresh1 -t 1 -o testmle
-"""

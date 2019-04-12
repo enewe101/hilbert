@@ -8,7 +8,7 @@ class SampleLoader(h.generic_datastructs.Describable):
 
     def __init__(
         self, cooccurrence_path, sector_factor, temperature=1,
-        batch_size=100000, batches_per_epoch=1000, device=None, verbose=True
+        batch_size=100000, device=None, verbose=True
     ):
         self.cooccurrence_path = cooccurrence_path
         Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
@@ -38,7 +38,7 @@ class SampleLoader(h.generic_datastructs.Describable):
         self.J = J.to(self.device)
 
         self.batch_size = batch_size
-        self.batches_per_epoch = batches_per_epoch
+        self.num_batches = num_batches
         self.batch_num = None
 
 
@@ -49,14 +49,14 @@ class SampleLoader(h.generic_datastructs.Describable):
         IJ_sample = torch.empty(
             (batch_size*2,2), device=self.device, dtype=torch.int64)
 
-        # Randomly draw positive outcomes, and map those outcomes to ij pairs
+        # Randomly draw positive outcomes, and map them to ij pairs
         positive_choices = self.positive_sampler.sample(
             sample_shape=(batch_size,))
         IJ_sample[:batch_size,0] = self.I[positive_choices]
         IJ_sample[:batch_size,1] = self.J[positive_choices]
 
-        # Randomly draw positive outcomes.  These outcomes are already ij
-        # indices, so unlike positive samples don't need to be mapped.
+        # Randomly draw negative outcomes.  These outcomes are already ij
+        # indices, so unlike positive outcomes they don't need to be mapped.
         IJ_sample[batch_size:,0] = self.negative_sampler.sample(
             sample_shape=(batch_size,))
         IJ_sample[batch_size:,1] = self.negative_sampler_t.sample(
@@ -66,7 +66,7 @@ class SampleLoader(h.generic_datastructs.Describable):
 
 
     def __len__(self):
-        return self.batches_per_epoch
+        return 1
 
 
     def __iter__(self):
@@ -76,7 +76,7 @@ class SampleLoader(h.generic_datastructs.Describable):
 
     def __next__(self):
         self.batch_num += 1
-        if self.batch_num >= self.batches_per_epoch:
+        if self.batch_num >= self.num_batches:
             raise StopIteration
         return self.sample(self.batch_size), None
 

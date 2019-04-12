@@ -36,7 +36,7 @@ def random(
         np.random.seed(seed)
 
     W = None
-    v_bias, w_bias = None, None
+    vb, wb = None, None
     if distribution == 'uniform':
         V = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
         if include_covectors:
@@ -48,10 +48,10 @@ def random(
             W = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
 
     if include_biases:
-        v_bias, w_bias = torch.zeros(vocab), torch.zeros(vocab)
+        vb, wb = torch.zeros(vocab), torch.zeros(vocab)
 
     return Embeddings(
-        V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary,
+        V, W=W, vb=vb, wb=wb, dictionary=dictionary,
         device=device, verbose=verbose
     ) 
     
@@ -77,32 +77,32 @@ class Embeddings:
     """
 
     def __init__(
-        self, V, W=None, v_bias=None, w_bias=None, dictionary=None,
+        self, V, W=None, vb=None, wb=None, dictionary=None,
         device=None, normalize=False, verbose=True
     ):
 
         self.verbose = verbose
 
         # Store the choice of device, use (but don't save) default if needed.
-        self.device = device
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
+        self.device = h.utils.get_device(device)
+        self.dtype = h.utils.get_dtype()
 
         # Own the provided tensors (note, this copies)
-        self.V = torch.tensor(V, dtype=dtype, device=device)
+        self.V = torch.tensor(V, dtype=self.dtype, device=self.device)
         self.W = (None if W is None else torch.tensor(
-            W, dtype=dtype, device=device))
-        self.v_bias = (None if v_bias is None else torch.tensor(
-            v_bias, dtype=dtype, device=device))
-        self.w_bias = (None if w_bias is None else torch.tensor(
-            w_bias, dtype=dtype, device=device))
+            W, dtype=self.dtype, device=self.device))
+        self.vb = (None if vb is None else torch.tensor(
+            vb, dtype=self.dtype, device=self.device))
+        self.wb = (None if wb is None else torch.tensor(
+            wb, dtype=self.dtype, device=self.device))
         self.set_dictionary(dictionary)
 
         self.validate()
 
         self._unkV = None
         self._unkW = None
-        self._unkv_bias = None
-        self._unkw_bias = None
+        self._unkvb = None
+        self._unkwb = None
         self.check_normalized()
         if normalize:
             self.normalize()
@@ -111,17 +111,17 @@ class Embeddings:
         # Note, most validation is performed here, but validating that the
         # dictionary length is correct (if provided) is done within
         # `set_dictionary()`
-        if self.W is None and self.w_bias is not None:
+        if self.W is None and self.wb is not None:
             raise ValueError(
-                'Embeddings should not include covector biases (``w_bias``) '
+                'Embeddings should not include covector biases (``wb``) '
                 'if covectors (``W``) were not provided.'
             )
 
-        if self.v_bias is not None and self.V.shape[0] != self.v_bias.shape[0]:
+        if self.vb is not None and self.V.shape[0] != self.vb.shape[0]:
             raise ValueError(
                 'The number of vector embeddings and vector biases do not '
                 'match.  Got {} vectors and {} biases'.format(
-                    self.V.shape[0], self.v_bias.shape[0]
+                    self.V.shape[0], self.vb.shape[0]
                 )
             )
 
@@ -138,19 +138,19 @@ class Embeddings:
                 )
             )
 
-        one_bias_not_none = self.w_bias is not None or self.v_bias is not None 
-        both_not_none = self.w_bias is not None and self.v_bias is not None 
+        one_bias_not_none = self.wb is not None or self.vb is not None 
+        both_not_none = self.wb is not None and self.vb is not None 
         if one_bias_not_none and not both_not_none:
             raise ValueError(
                 'Embeddings that have covectors should either '
                 'have biases for both vectors and covectors, or neither.'
             )
 
-        if self.w_bias is not None and self.W.shape[0] != self.w_bias.shape[0]:
+        if self.wb is not None and self.W.shape[0] != self.wb.shape[0]:
             raise ValueError(
                 'The number of covector embeddings and covector biases do not '
                 'match.  Got {} covectors and {} biases'.format(
-                    self.W.shape[0], self.w_bias.shape[0]
+                    self.W.shape[0], self.wb.shape[0]
                 )
             )
             
@@ -189,25 +189,25 @@ class Embeddings:
 
 
     @property
-    def unkv_bias(self, for_W=False):
+    def unkvb(self, for_W=False):
         """
         The bias for unkown (out-of-vocabulary) tokens.  Equal to the mean
         vector bias.
         """
-        if self._unkv_bias is None:
-            self._unkv_bias = self.v_bias.mean(0)
-        return self._unkv_bias
+        if self._unkvb is None:
+            self._unkvb = self.vb.mean(0)
+        return self._unkvb
 
 
     @property
-    def unkw_bias(self, for_W=False):
+    def unkwb(self, for_W=False):
         """
         The bias for unkown (out-of-vocabulary) tokens.  Equal to the mean
         vector bias.
         """
-        if self._unkw_bias is None:
-            self._unkw_bias = self.w_bias.mean(0)
-        return self._unkw_bias
+        if self._unkwb is None:
+            self._unkwb = self.wb.mean(0)
+        return self._unkwb
 
 
     def sort_like(self, other, allow_mismatch=False):
@@ -276,10 +276,10 @@ class Embeddings:
         self.V = self.V[sort_ids]
         if self.W is not None:
             self.W = self.W[sort_ids]
-        if self.v_bias is not None:
-            self.v_bias = self.v_bias[sort_ids]
-        if self.w_bias is not None:
-            self.w_bias = self.w_bias[sort_ids]
+        if self.vb is not None:
+            self.vb = self.vb[sort_ids]
+        if self.wb is not None:
+            self.wb = self.wb[sort_ids]
 
         self.dictionary = h.dictionary.Dictionary(tokens)
 
@@ -305,8 +305,7 @@ class Embeddings:
         Returns ``True`` if vectors and covectors have unit norm.  
         Sets ``self.normed``
         """
-        device = self.device
-        ones = torch.ones(self.V.shape[0], device=device)
+        ones = torch.ones(self.V.shape[0], device=self.device)
         V_normed = torch.allclose(h.utils.norm(self.V, axis=1), ones)
         if self.W is None:
             self.normed = V_normed
@@ -428,11 +427,11 @@ class Embeddings:
         if self.W is not None:
             np.save(os.path.join(path, 'W.npy'), self.W.cpu().numpy())
 
-        if self.v_bias is not None:
-            np.save(os.path.join(path, 'v_bias.npy'), self.v_bias.cpu().numpy())
+        if self.vb is not None:
+            np.save(os.path.join(path, 'v_bias.npy'), self.vb.cpu().numpy())
 
-        if self.w_bias is not None:
-            np.save(os.path.join(path, 'w_bias.npy'), self.w_bias.cpu().numpy())
+        if self.wb is not None:
+            np.save(os.path.join(path, 'w_bias.npy'), self.wb.cpu().numpy())
 
         if self.dictionary is not None:
             self.dictionary.save(os.path.join(path, 'dictionary'))
@@ -507,12 +506,12 @@ class Embeddings:
         KeyError is raised.  But if ``oov_policy`` is ``'unk'``, then return 
         ``self.unk``.
         """
-        if self.v_bias is None:
+        if self.vb is None:
             raise ValueError("This embedding has biases.")
         if self.handle_out_of_vocab(key, oov_policy):
-            return self.unkv_bias
+            return self.unkvb
         slice_obj = self._as_slice(key)
-        return self.v_bias[slice_obj]
+        return self.vb[slice_obj]
 
 
 
@@ -529,12 +528,12 @@ class Embeddings:
         """
         if self.W is None:
             raise ValueError("This embedding has no co-vectors.")
-        if self.w_bias is None:
+        if self.wb is None:
             raise ValueError("This embedding has biases.")
         if self.handle_out_of_vocab(key, oov_policy):
-            return self.unkw_bias
+            return self.unkwb
         slice_obj = self._as_slice(key)
-        return self.w_bias[slice_obj]
+        return self.wb[slice_obj]
 
 
     def handle_out_of_vocab(self, key, policy):
@@ -586,7 +585,7 @@ class Embeddings:
         Static method for loading embeddings stored at ``path``.
         """
 
-        V, W, v_bias, w_bias, dictionary = None, None, None, None, None
+        V, W, vb, wb, dictionary = None, None, None, None, None
 
         dictionary_path = os.path.join(path, 'dictionary')
         if os.path.exists(dictionary_path):
@@ -595,12 +594,12 @@ class Embeddings:
         if os.path.exists(os.path.join(path, 'W.npy')):
             W = np.load(os.path.join(path, 'W.npy'))
         if os.path.exists(os.path.join(path, 'v_bias.npy')):
-            v_bias = np.load(os.path.join(path, 'v_bias.npy'))
+            vb = np.load(os.path.join(path, 'v_bias.npy'))
         if os.path.exists(os.path.join(path, 'w_bias.npy')):
-            w_bias = np.load(os.path.join(path, 'w_bias.npy'))
+            wb = np.load(os.path.join(path, 'w_bias.npy'))
 
         return Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary,
+            V, W=W, vb=vb, wb=wb, dictionary=dictionary,
             device=device
         )
 

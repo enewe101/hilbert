@@ -4,6 +4,15 @@ import torch
 from scipy import sparse
 
 
+def get_device(device=None):
+    return h.CONSTANTS.RC['device'] if device is None else device
+
+def get_dtype(dtype=None):
+    return h.CONSTANTS.RC['dtype'] if dtype is None else dtype
+
+
+
+
 def load_shard(
     source,
     shard=None,
