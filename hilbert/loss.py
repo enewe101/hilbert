@@ -46,7 +46,7 @@ class MSELoss(HilbertLoss):
 
 
 
-class Word2vecLoss(HilbertLoss):
+class SGNSLoss(HilbertLoss):
     def _forward(self, M_hat, batch_data):
         logfactor = torch.log(torch.exp(M_hat) + 1)
         term1 = batch_data['N_neg'] * logfactor
@@ -55,7 +55,7 @@ class Word2vecLoss(HilbertLoss):
 
 
 
-class MaxLikelihoodLoss(TemperedLoss):
+class MLELoss(TemperedLoss):
     def _forward_temper(self, M_hat, batch_data):
         Pxx_model = batch_data['Pxx_independent'] * torch.exp(M_hat)
         term1 = batch_data['Pxx_data'] * M_hat
@@ -63,13 +63,13 @@ class MaxLikelihoodLoss(TemperedLoss):
         return -(term1 + term2)
 
 
-class SampleMaxLikelihoodLoss(nn.Module):
+class SampleMLELoss(nn.Module):
     def forward(self, M_hat, batch_data):
         boundary = int(M_hat.shape[0] / 2)
         return - (M_hat[:boundary].sum() - torch.exp(M_hat[boundary:]).sum())
 
 
-class SimpleMaxLikelihoodLoss(TemperedLoss):
+class SimpleMLELoss(TemperedLoss):
     def _forward_temper(self, M_hat, batch_data):
         term1 = batch_data['Pxx_data'] * M_hat
         term2 = batch_data['Pxx_independent'] * torch.exp(M_hat)

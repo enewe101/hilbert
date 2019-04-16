@@ -4,9 +4,9 @@ import hilbert as h
 
 
 if __name__ == '__main__':
-    parser = h.runner.run_base.get_base_argparser()
+    parser = h.runners.run_base.get_base_argparser()
     parser.add_argument(
-        '--temperature', '-t', type=float, default=1, dest='temperature',
+        '--temperature', '-t', type=float, default=2, dest='temperature',
         help=(
             "equalizes weighting for loss from individual token pairs.  "
             "Use temperature > 1 for more equal weights."
@@ -20,15 +20,14 @@ if __name__ == '__main__':
         )
     )
     parser.add_argument(
-        '--bias', action='store_true', dest='bias'
+        '--bias', action='store_true', dest='bias',
         help=(
             "Set this flag to include biases in the model for each vector and "
             "covector"
         )
     )
-    args = parser.parser_args()
+    args = parser.parse_args()
     solver = h.factories.build_mle_solver(
         **h.runners.run_base.factory_args(args)
-    )
     h.runners.run_base.init_and_run(solver, **args)
 

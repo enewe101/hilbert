@@ -30,135 +30,6 @@ def get_init_embs(path, device):
     ]
 
 
-def build_sgns_solver(
-        cooccurrence_path,
-        init_embeddings_path=None,
-        d=300,
-        bias=False,
-        k=15,
-        undersampling=None,
-        smoothing=0.75,
-        learning_rate=0.01,
-        opt_str='adam',
-        batch_size=1000,
-        shard_factor=1,
-        seed=1917,
-        device=None,
-        verbose=True
-    ):
-
-    # Apply seed
-    np.random.seed(seed)
-    torch.random.manual_seed(seed)
-
-    preloader = h.cooccurrence.DenseShardPreloader(
-        cooccurrence_path=cooccurrence_path,
-        shard_factor=shard_factor,
-        undersampling=undersampling,
-        smoothing=smoothing,
-        verbose=verbose
-    )
-
-    loader = h.loaders.Word2vecLoader(
-        preloader, verbose=verbose, device=device, k=k)
-
-    dictionary = h.dictionary.Dictionary.load(
-           os.path.join(cooccurrence_path, 'dictionary'))
-
-    learner = h.solver.DenseLearner(
-        vocab=len(dictionary),
-        covocab=len(dictionary),
-        d=d,
-        bias=bias,
-        init=get_init_embs(init_embeddings_path, device),
-    )
-
-    loss = h.loss.Word2vecLoss(ncomponents=len(dictionary)**2)
-
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
-
-    solver = h.solver.Solver(
-        loader=loader,
-        optimizer=optimizer,
-        loss=loss,
-        learner=learner,
-        schedulers=[],
-        dictionary=dictionary,
-        verbose=verbose
-    )
-
-    return solver
-
-
-### GLOVE ###
-def build_glove_solver(
-        cooccurrence_path,
-        init_embeddings_path=None,
-        d=300,
-        alpha=0.75,
-        X_max=100,
-        undersampling=None,
-        smoothing=None,
-        learning_rate=0.01,
-        opt_str='adam',
-        seed=1,
-        bias=True,
-        batch_size=10000,
-        shard_factor=1,
-        device=None,
-        verbose=True
-    ):
-    if not bias:
-        print('NOTE: running GloVe without biases!')
-
-    # repeatability
-    np.random.seed(seed)
-    torch.random.manual_seed(seed)
-
-    preloader = h.cooccurrence.DenseShardPreloader(
-        cooccurrence_path,
-        shard_factor=shard_factor,
-        undersampling=undersampling,
-        smoothing=smoothing,
-        verbose=verbose
-    )
-
-    loader = h.loaders.GloveLoader(
-        preloader,
-        verbose=verbose,
-        device=device,
-        X_max=X_max,
-        alpha=alpha,
-    )
-
-    dictionary = h.dictionary.Dictionary.load(
-           os.path.join(cooccurrence_path, 'dictionary'))
-
-    learner = h.solver.DenseLearner(
-        vocab=len(dictionary),
-        covocab=len(dictionary),
-        d=d,
-        bias=bias,
-        init=get_init_embs(init_embeddings_path, device),
-    )
-
-    loss = h.loss.MSELoss(ncomponents=len(dictionary)**2)
-
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
-
-    solver = h.solver.Solver(
-        loader=loader,
-        loss=loss,
-        learner=learner,
-        optimizer=optimizer,
-        schedulers=[],
-        dictionary=dictionary,
-        verbose=verbose,
-
-    )
-    return solver
-
-
 def build_mle_sample_solver(
     cooccurrence_path,
     init_embeddings_path=None,
@@ -166,8 +37,6 @@ def build_mle_sample_solver(
     temperature=1,
     learning_rate=0.01,
     opt_str='adam',
-    num_writes=10000,
-    num_updates=1000,
     batch_size=10000,
     shard_factor=1,
     bias=False,
@@ -196,7 +65,7 @@ def build_mle_sample_solver(
     # Make the loss.  This sample based loss is simpler than the others:
     # it doesn't need to know the vocabulary size nor does it make use of
     # update_density.
-    loss = h.loss.SampleMaxLikelihoodLoss()
+    loss = h.loss.SampleMLELoss()
 
     # initialize the vectors
     init_vecs = get_init_embs(init_embeddings_path, device)
@@ -227,23 +96,72 @@ def build_mle_sample_solver(
     return embsolver
 
 
+def build_mle_sample_solver(**args):
+    
+    return build_solver(
+        loader_class=h.cooccurrence.SampleLoader,
+        loss_class=h.loss.SampleMLELoss,
+        loader_args={'temperature': args.pop('temperature',2)}
+        **args
+    )
 
-def _build_tempered_solver(
-    loader_class,
+
+def build_mle_solver(**args):
+    loss_str = args.pop('simple_loss')
+    return build_solver(
+        loss_class=h.loss.SimpleMLELoss if loss_str else h.loss.MLELoss,
+        loader_class=h.loaders.MLELoader,
+        loss_args={'temperature':args.pop('temperature'),2},
+        **args
+    )
+
+
+def build_sgns_solver(**args):
+    return build_solver(
+        loss_class=h.loss.SGNSLoss,
+        loader_class=h.loaders.SGNSLoader,
+        loader_args={'k':args.pop('k', 15)},
+        **args,
+    )
+
+
+def build_glove_solver(bias=True, **args):
+    """
+    Build a solver for the GloVe word embeddings model.  Biases are necessary
+    for good performance with GloVe so are on by default.
+    """
+    if not bias:
+        print('NOTE: running GloVe without biases!')
+    return build_solver(
+        h.loss.MSELoss,
+        h.loaders.GloveLoader,
+        loader_args = {
+            'X_max': args.pop('X_max', 100),
+            'alpha': args.pop('alpha', 0.75),
+        },
+        bias=bias,
+        **args
+    )
+
+
+
+def build_solver(
     loss_class,
+    #preloader_class,
+    loader_class,
+    #learner_class,
     cooccurrence_path,
+    loss_args=None, #e.g. temperature
+    loader_args=None, #e.g. X_max, alpha
     init_embeddings_path=None,
     d=300,
-    temperature=1,
-    undersamplint=None,
+    undersampling=None,
     smoothing=None,
     learning_rate=0.01,
     opt_str='adam',
-
     shard_factor=1,
     bias=False,
     batch_size=10000,
-
     seed=1,
     device=None,
     verbose=True
@@ -251,74 +169,244 @@ def _build_tempered_solver(
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-    # make the preloader
-    preloader = build_preloader(
+    preloader = h.cooccurrence.DenseShardPreloader(
         cooccurrence_path,
         shard_factor=shard_factor,
+        undersampling=undersampling,
         smoothing=smoothing,
-        undersamplint=undersamplint,
-        is_w2v=False,
-        device=device
+        verbose=verbose,
     )
 
-    # Now make the loader.
+    loader_args = {} if loader_args is None else loader_args
     loader = loader_class(
         preloader,
         verbose=verbose,
         device=device,
+        **loader_args,
     )
 
-    # Make the loss
-    dictionary_path = os.path.join(cooccurrence_path, 'dictionary')
-    dictionary = h.dictionary.Dictionary.load(dictionary_path)
-    vocab = len(dictionary)
-    loss = loss_class(
-        ncomponents=vocab**2,
-        temperature=temperature
+    dictionary = h.dictionary.Dictionary.load(
+        os.path.join(cooccurrence_path, 'dictionary'))
+
+    learner = h.solver.DenseLearner(
+        vocab=len(dictionary),
+        covocab=len(dictionary),
+        d=d,
+        bias=bias,
+        init=get_init_embs(init_embeddings_path, device),
     )
 
-    # Get initial embeddings.
-    init_vecs = get_init_embs(init_embeddings_path, device)
-    shape = (vocab, vocab) if init_vecs is None else None
+    loss_args = {} if loss_args is None else loss_args
+    loss = loss_class(ncomponents=len(dictionary)**2, **loss_args)
 
-    # Build the main daddyboi!
-    embsolver = h.solver.Solver(
+    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+
+    solver = h.solver.Solver(
         loader=loader,
         loss=loss,
-        optimizer_constructor=get_opt(opt_str),
-        d=d,
-        learning_rate=learning_rate,
-        init_vecs=init_vecs,
+        learner=learner,
+        optimizer=optimizer,
+        schedulers=[],
         dictionary=dictionary,
-        shape=shape,
-        one_sided=False,
-        learn_bias=False,
-        seed=seed,
-        device=device,
-        verbose=verbose
+        verbose=verbose,
     )
-    return embsolver
-
-
-def build_mle_solver(*args, verbose=True, **kwargs):
-    """
-    This factory accepts the same set of arguments as
-    _build_tempered_solver, except for sharder_class (which should not be
-    provided here).
-    """
-    simple_loss = kwargs.pop('simple_loss', False)
-    if simple_loss:
-        loss = h.loss.SimpleMaxLikelihoodLoss
-        print("USING SIMPLE!")
-    else:
-        print("Nothing in life is simple...")
-        loss = h.loss.MaxLikelihoodLoss
-
-    solver = _build_tempered_solver(
-        h.loaders.MaxLikelihoodLoader, loss,
-        *args, verbose=verbose, **kwargs
-    )
-    if verbose:
-        print('finished loading max-likelihood bad boi!')
     return solver
+
+
+
+#def build_mle_solver(
+#    cooccurrence_path,
+#    simple_loss=False,
+#    init_embeddings_path=None,
+#    d=300,
+#    temperature=1,
+#    undersampling=None,
+#    smoothing=None,
+#    learning_rate=0.01,
+#    opt_str='adam',
+#    shard_factor=1,
+#    bias=False,
+#    batch_size=10000,
+#    seed=1,
+#    device=None,
+#    verbose=True
+#):
+#    np.random.seed(seed)
+#    torch.random.manual_seed(seed)
+#
+#    preloader = h.cooccurrence.DenseShardPreloader(
+#        cooccurrence_path,
+#        shard_factor=shard_factor,
+#        undersampling=undersampling,
+#        smoothing=smoothing,
+#        verbose=verbose,
+#    )
+#
+#    loader = h.loaders.MLELoader(
+#        preloader,
+#        verbose=verbose,
+#        device=device,
+#    )
+#
+#    dictionary = h.dictionary.Dictionary.load(
+#        os.path.join(cooccurrence_path, 'dictionary'))
+#
+#    learner = h.solver.DenseLearner(
+#        vocab=len(dictionary),
+#        covocab=len(dictionary),
+#        d=d,
+#        bias=bias,
+#        init=get_init_embs(init_embeddings_path, device),
+#    )
+#
+#    loss_class = h.loss.SimpleMLELoss if simple_loss else h.loss.MLELoss
+#    loss = loss_class(
+#        ncomponents=len(dictionary)**2,
+#        temperature=temperature
+#    )
+#
+#    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+#
+#    solver = h.solver.Solver(
+#        loader=loader,
+#        loss=loss,
+#        learner=learner,
+#        optimizer=optimizer,
+#        schedulers=[],
+#        dictionary=dictionary,
+#        verbose=verbose,
+#    )
+#    return solver
+
+
+
+
+
+
+#def build_glove_solver(
+#        cooccurrence_path,
+#        init_embeddings_path=None,
+#        d=300,
+#        alpha=0.75,
+#        X_max=100,
+#        undersampling=None,
+#        smoothing=None,
+#        learning_rate=0.01,
+#        opt_str='adam',
+#        seed=1,
+#        bias=True,
+#        batch_size=10000,
+#        shard_factor=1,
+#        device=None,
+#        verbose=True
+#    ):
+#    if not bias:
+#        print('NOTE: running GloVe without biases!')
+#
+#    # repeatability
+#    np.random.seed(seed)
+#    torch.random.manual_seed(seed)
+#
+#    preloader = h.cooccurrence.DenseShardPreloader(
+#        cooccurrence_path,
+#        shard_factor=shard_factor,
+#        undersampling=undersampling,
+#        smoothing=smoothing,
+#        verbose=verbose
+#    )
+#
+#    loader = h.loaders.GloveLoader(
+#        preloader,
+#        verbose=verbose,
+#        device=device,
+#        X_max=X_max,
+#        alpha=alpha,
+#    )
+#
+#    dictionary = h.dictionary.Dictionary.load(
+#           os.path.join(cooccurrence_path, 'dictionary'))
+#
+#    learner = h.solver.DenseLearner(
+#        vocab=len(dictionary),
+#        covocab=len(dictionary),
+#        d=d,
+#        bias=bias,
+#        init=get_init_embs(init_embeddings_path, device),
+#    )
+#
+#    loss = h.loss.MSELoss(ncomponents=len(dictionary)**2)
+#
+#    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+#
+#    solver = h.solver.Solver(
+#        loader=loader,
+#        loss=loss,
+#        learner=learner,
+#        optimizer=optimizer,
+#        schedulers=[],
+#        dictionary=dictionary,
+#        verbose=verbose,
+#
+#    )
+#    return solver
+
+
+#def build_sgns_solver(
+#        cooccurrence_path,
+#        init_embeddings_path=None,
+#        d=300,
+#        bias=False,
+#        k=15,
+#        undersampling=None,
+#        smoothing=0.75,
+#        learning_rate=0.01,
+#        opt_str='adam',
+#        batch_size=1000,
+#        shard_factor=1,
+#        seed=1917,
+#        device=None,
+#        verbose=True
+#    ):
+#
+#    # Apply seed
+#    np.random.seed(seed)
+#    torch.random.manual_seed(seed)
+#
+#    preloader = h.cooccurrence.DenseShardPreloader(
+#        cooccurrence_path=cooccurrence_path,
+#        shard_factor=shard_factor,
+#        undersampling=undersampling,
+#        smoothing=smoothing,
+#        verbose=verbose
+#    )
+#
+#    loader = h.loaders.Word2vecLoader(
+#        preloader, verbose=verbose, device=device, k=k)
+#
+#    dictionary = h.dictionary.Dictionary.load(
+#           os.path.join(cooccurrence_path, 'dictionary'))
+#
+#    learner = h.solver.DenseLearner(
+#        vocab=len(dictionary),
+#        covocab=len(dictionary),
+#        d=d,
+#        bias=bias,
+#        init=get_init_embs(init_embeddings_path, device),
+#    )
+#
+#    loss = h.loss.Word2vecLoss(ncomponents=len(dictionary)**2)
+#
+#    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+#
+#    solver = h.solver.Solver(
+#        loader=loader,
+#        optimizer=optimizer,
+#        loss=loss,
+#        learner=learner,
+#        schedulers=[],
+#        dictionary=dictionary,
+#        verbose=verbose
+#    )
+#
+#    return solver
 

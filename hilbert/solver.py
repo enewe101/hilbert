@@ -114,6 +114,7 @@ class EmbeddingLearner(nn.Module):
             d=None,
             bias=False,
             init=None,
+            device=None
         ):
 
         super(EmbeddingLearner, self).__init__()
@@ -121,7 +122,10 @@ class EmbeddingLearner(nn.Module):
         # Own it
         self.V_shape = (vocab, d)
         self.W_shape = (covocab, d)
+        self.vb_shape = (1, vocab)
+        self.wb_shape = (1, covocab)
         self.bias = bias
+        self.device = h.utils.get_device(device)
 
         # Initialize the model parameters.
         if init is None:
@@ -149,11 +153,13 @@ class EmbeddingLearner(nn.Module):
 
 
     def reset(self):
-        self.V = nn.Parameter(xavier(self.V_shape), True)
-        self.W = nn.Parameter(xavier(self.W_shape), True)
+        self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
+        self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
         if self.bias:
-            self.vb = nn.Parameter(xavier((1, vshape[0])).squeeze(), True)
-            self.wb = nn.Parameter(xavier((1, wshape[0])).squeeze(), True)
+            self.vb = nn.Parameter(
+                xavier(self.vb_shape, self.device).squeeze(), True)
+            self.wb = nn.Parameter(
+                xavier(self.wb_shape, self.device).squeeze(), True)
 
 
     def get_embedding_params(self):
@@ -181,8 +187,8 @@ class DenseLearner(EmbeddingLearner):
         W = self.W[shard[0]].squeeze()
         M_hat = W @ V.t()
         if self.bias:
-            M_hat += self.v_bias[shard[1]].view(1, -1)
-            M_hat += self.w_bias[shard[0]].view(-1, 1)
+            M_hat += self.vb[shard[1]].view(1, -1)
+            M_hat += self.wb[shard[0]].view(-1, 1)
         return M_hat
 
 

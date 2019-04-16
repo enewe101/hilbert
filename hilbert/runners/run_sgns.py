@@ -1,11 +1,3 @@
-"""
-Example command:
-python run_hbt_w2v.py -l 0.01 -s adam -I 100 \
-    --init std-w2v-s1-t1-v10k-iter5/vectors-init --epochs 150 --seed 1 \
-    --cooccurrence 5w-dynamic-10k/thresh1 -t 2.45e-05 -o testw2v
-"""
-
-
 import hilbert as h
 
 

@@ -1,5 +1,3 @@
-
-
 import hilbert as h
 
 
