@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import codecs
+import shutil
 import argparse
 import itertools
 from collections import Counter
@@ -11,7 +12,6 @@ import hilbert as h
 import shared
 from multiprocessing import Pool
 from multiprocessing.managers import BaseManager
-
 
 
 # TODO: test min_count and vocab
@@ -113,10 +113,14 @@ def extract_cooccurrence(corpus_path, extractor, verbose=True):
 
 
 
+def worker_path(save_path, worker_id):
+    return os.path.join(save_path, "extract-worker-{}".format(worker_id))
+
+
 def extract_cooccurrence_parallel(
-    corpus_path, processes, unigram, 
+    corpus_path, save_path, processes, unigram, 
     extractor_str, window=None, min_count=None, 
-    weights=None, save_path=None, verbose=True
+    weights=None, verbose=True
 ):
     pool = Pool(processes)
     extractor_constructor_args = {
@@ -127,19 +131,35 @@ def extract_cooccurrence_parallel(
     }
     args = (
         (
-            corpus_path, worker_id, processes, unigram,
+            corpus_path, save_path, worker_id, processes, unigram,
             extractor_constructor_args, verbose
         ) 
         for worker_id in range(processes)
     )
-    cooccurrence = pool.map(extract_cooccurrence_parallel_worker, args)
 
-    merged_cooccurrence = cooccurrence[0]
-    for _cooccurrence in cooccurrence[1:]:
-        merged_cooccurrence.merge(_cooccurrence)
+    if verbose:
+        print('Extracting...')
+    pool.map(extract_cooccurrence_parallel_worker, args)
+    if verbose:
+        print('Merging...')
+
+    merged_cooccurrence = None
+    for worker_id in range(processes):
+        read_cooccurrence = h.cooccurrence.CooccurrenceMutable.load(
+            worker_path(save_path, worker_id))
+        if merged_cooccurrence is None:
+            merged_cooccurrence = read_cooccurrence
+        else:
+            merged_cooccurrence.merge(read_cooccurrence)
 
     if save_path is not None:
+        print('Saving...')
         merged_cooccurrence.save(save_path)
+
+    print('Cleaning up...')
+    for worker_id in range(processes):
+        shutil.rmtree(worker_path(save_path, worker_id))
+
     return merged_cooccurrence
 
 
@@ -147,7 +167,7 @@ def extract_cooccurrence_parallel(
 
 def extract_cooccurrence_parallel_worker(args):
     (
-        corpus_path, worker_id, processes, unigram, 
+        corpus_path, save_path, worker_id, processes, unigram, 
         extractor_constructor_args, verbose
     ) = args
     cooccurrence = h.cooccurrence.CooccurrenceMutable(unigram)
@@ -165,9 +185,7 @@ def extract_cooccurrence_parallel_worker(args):
         extractor.extract(line.split())
     if worker_id == 0 and verbose:
         print()
-    cooccurrence.Nxx = np.random.random((100000,100000))
-    print('here')
-    return cooccurrence
+    cooccurrence.save(worker_path(save_path, worker_id))
 
 
 
@@ -202,7 +220,7 @@ def extract_unigram_and_cooccurrence(
         print(l('Weights:'), weights)
         print(l('Window:'), window)
 
-    # Attempt to read unigram, if none exists, then train it and save to disc.
+    # Attempt to read unigram, if none exists, then extract it and save to disc.
     try:
 
         if verbose:
@@ -242,14 +260,11 @@ def extract_unigram_and_cooccurrence(
     # Extract the cooccurrence, and save it to disc.
     if verbose:
         print('\nCollecting cooccurrence data...')
-    cooccurrence = extract_cooccurrence_parallel(
+    extract_cooccurrence_parallel(
         corpus_path=corpus_path, processes=processes, unigram=unigram,
         extractor_str=extractor_str, window=window,
         min_count=min_count, weights=weights, save_path=save_path,
         verbose=verbose
     )
-    if verbose:
-        print('\nSaving cooccurrence data...')
-    cooccurrence.save(save_path)
 
 
