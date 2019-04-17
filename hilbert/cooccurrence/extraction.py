@@ -165,40 +165,10 @@ def extract_cooccurrence_parallel_worker(args):
         extractor.extract(line.split())
     if worker_id == 0 and verbose:
         print()
+    cooccurrence.Nxx = np.random.random((100000,100000))
+    print('here')
     return cooccurrence
 
-
-def reproduce_error():
-    processes = 2
-    manager = CooccurrenceManager()
-    manager.start()
-    sharables = [manager.Sharable(), manager.Sharable()]
-    pool = Pool(processes)
-    args = [sharables[0], sharables[1]]
-    import pdb; pdb.set_trace()
-    results = pool.map(reproduce_error_worker, args)
-    for result in results:
-        print('ok')
-
-    import pdb; pdb.set_trace()
-
-
-
-class Sharable:
-    def __int__(self):
-        self.array = None
-    def make(self):
-        self.array = np.random.random((20000,20000))
-
-
-class CooccurrenceManager(BaseManager):
-    pass
-CooccurrenceManager.register('Sharable', Sharable, exposed=['make', 'array'])
-
-
-def reproduce_error_worker(sharable):
-    sharable.make()
-    #return np.random.random((20000,20000))
 
 
 
