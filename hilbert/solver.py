@@ -1,14 +1,5 @@
-import time
 import hilbert as h
 import torch
-import torch.nn as nn
-from progress.bar import ChargingBar
-
-
-
-# noinspection PyCallingNonCallable
-def xavier(shape, device):
-    return nn.init.xavier_uniform_(torch.zeros(shape, device=device))
 
 
 class Solver(object):
@@ -80,127 +71,22 @@ class Solver(object):
 
                 # Consider this batch and learn.
                 self.optimizer.zero_grad()
-                M_hat = self.learner(batch_id)
-                self.cur_loss = self.loss(M_hat, batch_data)
+                response = self.learner(batch_id)
+                self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
-                # Take steps
+                # Take some steps
                 self.optimizer.step()
                 for scheduler in self.schedulers:
                     scheduler.step()
 
-                # Nan police.
+                # Nan Police.
                 if torch.isnan(self.cur_loss):
                     # Drop your tensors! You're under arrest!
-                    del M_hat
+                    del response
                     del self.cur_loss
                     torch.cuda.empty_cache()
                     raise h.exceptions.DivergenceError('Model has diverged!')
 
 
-
-
-####
-####
-#### Main classes that integrates with Pytorch Autodiff API.
-####
-####
-class EmbeddingLearner(nn.Module):
-
-    def __init__(
-            self,
-            vocab=None,
-            covocab=None,
-            d=None,
-            bias=False,
-            init=None,
-            device=None
-        ):
-
-        super(EmbeddingLearner, self).__init__()
-
-        # Own it
-        self.V_shape = (vocab, d)
-        self.W_shape = (covocab, d)
-        self.vb_shape = (1, vocab)
-        self.wb_shape = (1, covocab)
-        self.bias = bias
-        self.device = h.utils.get_device(device)
-
-        # Initialize the model parameters.
-        if init is None:
-            self.V, self.W, self.vb, self.wb = None, None, None, None
-            self.reset()
-        else:
-            self.V = nn.Parameter(init[0], True)
-            self.W = nn.Parameter(init[1], True) 
-            self.vb = None if init[2] is None else nn.Parameter(init[2], True)
-            self.wb = None if init[3] is None else nn.Parameter(init[3], True)
-            self._validate_initialization()
-
-
-    def _validate_initialization(self):
-        """Error if the analyst passed in bad inits."""
-        if not self.bias and (self.vb is not None or self.wb is not None):
-            raise ValueError('No-bias model initialized with biases.')
-        elif self.bias and (self.vb is None or self.wb is None):
-            raise ValueError('Bias model initialized without biases.')
-        if self.V.shape != self.V_shape or self.W.shape != self.W_shape:
-            raise ValueError(
-                "Model parameters have initialized with incorrect shape. "
-                "Got {}, but expected {}.".format(self.V.shape, self.V_shape)
-            )
-
-
-    def reset(self):
-        self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
-        self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
-        if self.bias:
-            self.vb = nn.Parameter(
-                xavier(self.vb_shape, self.device).squeeze(), True)
-            self.wb = nn.Parameter(
-                xavier(self.wb_shape, self.device).squeeze(), True)
-
-
-    def get_embedding_params(self):
-        """Return just the model parameters that constitute "embeddings"."""
-        return self.V, self.W, self.vb, self.wb
-
-
-    # TODO: this shouldn't be necessary, self.parameters will automatically
-    # collect all tensors that are Parameters.
-    def get_params(self):
-        """Return *all* the model params."""
-        return self.V, self.W, self.vb, self.wb
-
-
-    def forward(self, *input):
-        raise NotImplementedError('Not implemented!')
-
-
-
-
-class DenseLearner(EmbeddingLearner):
-
-    def forward(self, shard):
-        V = self.V[shard[1]].squeeze()
-        W = self.W[shard[0]].squeeze()
-        M_hat = W @ V.t()
-        if self.bias:
-            M_hat += self.vb[shard[1]].view(1, -1)
-            M_hat += self.wb[shard[0]].view(-1, 1)
-        return M_hat
-
-
-
-class SparseLearner(EmbeddingLearner):
-
-    def forward(self, IJ):
-        tc_hat = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
-        if self.bias:
-            tc_hat += self.v_bias[IJ[:,0]]
-            tc_hat += self.w_bias[IJ[:,1]]
-
-        # andddd that's all folks!
-        return tc_hat
 

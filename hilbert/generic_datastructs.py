@@ -59,9 +59,7 @@ def build_sparse_lil_nxx(cooccurrence, include_unigram_data, device):
            get_unigram_data(cooccurrence, include_unigram_data, device)
 
 
-def get_Nxx_coo(
-    cooccurrence_path, sector_factor, include_marginals=True, verbose=True
-):
+def get_Nxx_coo(cooccurrence_path, include_marginals=True, verbose=True):
     """
     Reads in sectorized cooccurrence data from disk, and converts it into a
     sparse tensor representation using COO format.  If desired, marginal sums
@@ -75,6 +73,10 @@ def get_Nxx_coo(
     data = torch.tensor([], dtype=float_dtype, device=device)
     I = torch.tensor([], dtype=torch.int32, device=device)
     J = torch.tensor([], dtype=torch.int32, device=device)
+
+    sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
+        cooccurrence_path)
+
     for sector_id in h.shards.Shards(sector_factor):
 
         if verbose:
