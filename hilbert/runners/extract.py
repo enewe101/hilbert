@@ -96,7 +96,6 @@ if __name__ == '__main__':
         help="Don't print to stdout during execution."
     )
 
-
     # Parse the arguments
     args = vars(parser.parse_args())
     absolutize_paths(args)

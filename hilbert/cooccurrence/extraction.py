@@ -3,6 +3,7 @@ import sys
 import math
 import random
 import codecs
+import shutil
 import argparse
 import itertools
 from collections import Counter
@@ -11,7 +12,7 @@ import numpy as np
 import hilbert as h
 import shared
 from multiprocessing import Pool
-
+from multiprocessing.managers import BaseManager
 
 
 # TODO: test min_count and vocab
@@ -79,34 +80,53 @@ def extract_and_write_cooccurrence_parallel(
     }
     args = (
         (
-            corpus_path, worker_id, processes, unigram,
+            corpus_path, save_path, worker_id, processes, unigram,
             extractor_constructor_args, verbose
         ) 
         for worker_id in range(processes)
     )
-    cooccurrence = pool.map(extract_cooccurrence_parallel_worker, args)
 
-    merged_cooccurrence = cooccurrence[0]
-    for _cooccurrence in cooccurrence[1:]:
-        merged_cooccurrence.merge(_cooccurrence)
+    if verbose:
+        print('Extracting...')
+    pool.map(extract_cooccurrence_parallel_worker, args)
+    if verbose:
+        print('Merging...')
+
+    merged_cooccurrence = None
+    for worker_id in range(processes):
+        read_cooccurrence = h.cooccurrence.CooccurrenceMutable.load(
+            worker_path(save_path, worker_id))
+        if merged_cooccurrence is None:
+            merged_cooccurrence = read_cooccurrence
+        else:
+            merged_cooccurrence.merge(read_cooccurrence)
 
     max_sector_size = h.CONSTANTS.RC['max_sector_size']
     sector_factor = int(math.ceil(len(unigram) / max_sector_size))
     sectors = h.shards.Shards(sector_factor)
     if save_path is not None:
+
         if save_sectorized:
             merged_cooccurrence.save_sectors(save_path, sectors)
-        if save_monolithic:
-            merged_cooccurrence.save_cooccurrences(save_path)
+            if save_monolithic:
+                merged_cooccurrence.save_cooccurrences(save_path)
+        else:
+            merged_cooccurrence.save(save_path)
 
-        #merged_cooccurrence.save(save_path)
-    return merged_cooccurrence
+        print('Saving...')
+        merged_cooccurrence.save(save_path)
+
+    print('Cleaning up...')
+    for worker_id in range(processes):
+        shutil.rmtree(worker_path(save_path, worker_id))
+
+
 
 
 
 def extract_cooccurrence_parallel_worker(args):
     (
-        corpus_path, worker_id, processes, unigram, 
+        corpus_path, save_path, worker_id, processes, unigram, 
         extractor_constructor_args, verbose
     ) = args
     cooccurrence = h.cooccurrence.CooccurrenceMutable(unigram)
@@ -125,7 +145,10 @@ def extract_cooccurrence_parallel_worker(args):
         extractor.extract(line.split())
     if worker_id == 0 and verbose:
         print()
-    return cooccurrence
+    cooccurrence.save(worker_path(save_path, worker_id))
+
+
+
 
 
 def l(s):
@@ -156,7 +179,7 @@ def extract_unigram_and_cooccurrence(
         print(l('Weights:'), weights)
         print(l('Window:'), window)
 
-    # Attempt to read unigram, if none exists, then train it and save to disc.
+    # Attempt to read unigram, if none exists, then extract it and save to disc.
     try:
 
         if verbose:
@@ -199,7 +222,7 @@ def extract_unigram_and_cooccurrence(
     # Extract the cooccurrence, and save it to disc.
     if verbose:
         print('\nCollecting cooccurrence data...')
-    cooccurrence = extract_and_write_cooccurrence_parallel(
+    extract_cooccurrence_parallel(
         corpus_path=corpus_path, processes=processes, unigram=unigram,
         extractor_str=extractor_str, window=window,
         min_count=min_count, weights=weights, save_path=save_path,
