@@ -15,6 +15,22 @@ except ImportError:
     sparse = None
 
 
+
+
+def get_test_cooccurrence(device=None, verbose=True):
+    """
+    For testing purposes, builds a cooccurrence from constituents (not using
+    it's own load function) and returns the cooccurrence along with the
+    constituents used to make it.
+    """
+    path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+    unigram = h.unigram.Unigram.load(path, verbose=verbose)
+    Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
+    cooccurrence = h.cooccurrence.Cooccurrence(unigram, Nxx, verbose=verbose)
+
+    return cooccurrence, unigram, Nxx
+
+
 class TestCooccurrence(TestCase):
 
     def get_test_cooccurrence(self):
@@ -32,7 +48,7 @@ class TestCooccurrence(TestCase):
 
     def test_cooccurrence(self):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
         array = torch.tensor(Nxx.toarray(), dtype=dtype)
 
         # CooccurrenceSector's length and shape are correct.
@@ -113,7 +129,7 @@ class TestCooccurrence(TestCase):
         shards = h.shards.Shards(3)
 
         dictionary, Nxx, unigram = self.get_test_cooccurrence_stats()
-        cooccurrence = h.cooccurrence.Cooccurrence(unigram, Nxx, verbose=False, device=device)
+        cooccurrence = h.cooccurrence.Cooccurrence(unigram, Nxx, verbose=False)
 
         Nxx = torch.tensor(Nxx, device=device, dtype=dtype)
         Nx = torch.sum(Nxx, dim=1, keepdim=True)
@@ -171,7 +187,7 @@ class TestCooccurrence(TestCase):
 
     def test_apply_unigram_smoothing(self):
         alpha = 0.6
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
 
         expected_uNx = cooccurrence.uNx**alpha
         expected_uNxt = cooccurrence.uNxt**alpha
@@ -187,7 +203,7 @@ class TestCooccurrence(TestCase):
     def test_apply_w2v_undersampling(self):
 
         t = 1e-5
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
 
         # Initially the counts reflect the provided cooccurrence matrix
         Nxx, Nx, Nxt, N = cooccurrence.load_shard()
@@ -195,19 +211,15 @@ class TestCooccurrence(TestCase):
         self.assertTrue(np.allclose(Nxx, cooccurrence.Nxx.toarray()))
 
         # Now apply undersampling
-        p_i = h.corpus_stats.w2v_prob_keep(uNx, uN, t)
-        p_j = h.corpus_stats.w2v_prob_keep(uNxt, uN, t)
+        p_i = h.cooccurrence.cooccurrence.w2v_prob_keep(uNx, uN, t)
+        p_j = h.cooccurrence.cooccurrence.w2v_prob_keep(uNxt, uN, t)
         expected_Nxx = Nxx * p_i * p_j
 
         expected_Nx = torch.sum(expected_Nxx, dim=1, keepdim=True)
         expected_Nxt = torch.sum(expected_Nxx, dim=0, keepdim=True)
         expected_N = torch.sum(expected_Nxx)
 
-        #pre_PMI = h.corpus_stats.calc_PMI((Nxx, Nx, Nxt, N))
         cooccurrence.apply_w2v_undersampling(t)
-        #nNxx, nNx, nNxt, nN = cooccurrence.load_shard()
-        #post_PMI = h.corpus_stats.calc_PMI((nNxx, nNx, nNxt, nN))
-        #diff = torch.sum((pre_PMI - post_PMI) / pre_PMI) / (500*500)
 
         found_Nxx, found_Nx, found_Nxt, found_N = cooccurrence.load_shard()
 
@@ -222,7 +234,7 @@ class TestCooccurrence(TestCase):
 
         # Attempting to call apply_undersampling when in posession of a 
         # smoothed unigram would produce incorrect results, and is an error.
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
         alpha = 0.6
         unigram.apply_smoothing(alpha)
         with self.assertRaises(ValueError):
@@ -237,15 +249,9 @@ class TestCooccurrence(TestCase):
         self.assertTrue(cooccurrence.count('socks', 'car'), 1)
 
 
-    #def test_density(self):
-    #    cooccurrence = self.get_test_cooccurrence()
-    #    self.assertEqual(cooccurrence.density(), 0.5)
-    #    self.assertEqual(cooccurrence.density(2), 0.125)
-
-
     def test_get_sector(self):
         dictionary, array, unigram = self.get_test_cooccurrence_stats()
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
 
         for sector in h.shards.Shards(3):
             cooccurrence_sector = cooccurrence.get_sector(sector)

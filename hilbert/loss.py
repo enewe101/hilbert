@@ -19,14 +19,23 @@ class HilbertLoss(nn.Module):
 # Special tempered base class for losses that use Pij under independence.
 class TemperedLoss(HilbertLoss):
     def __init__(self, ncomponents, temperature=1.):
-        self.temperature = temperature
         super(TemperedLoss, self).__init__(ncomponents)
+        self.temperature = temperature
+        self.pxx_independent = None
+
     def _forward(self, M_hat, batch_data):
-        untempered = self._forward_temper(M_hat, batch_data)
+        untempered, pxx_independent = self._forward_temper(M_hat, batch_data)
         if self.temperature != 1:
-            tempering = batch_data['Pxx_independent']**(1/self.temperature-1)
+            # Generally already computed, and could be memoised on self.
+            tempering = pxx_independent**(1/self.temperature-1)
             return untempered * tempering
         return untempered
+
+    def get_pxx_independent(self, batch_data):
+        cooccurrence_data, unigram_data = batch_data
+        Nxx, Nx, Nxt, N = cooccurrence_data
+        return (Nx / N) * (Nxt / N)
+
     def _forward_temper(self, M_hat, batch_data):
         raise NotImplementedError("Subclasses must override `_forward_temper`.")
 
@@ -38,7 +47,8 @@ class GloveLoss(HilbertLoss):
         super(GloveLoss, self).__init__(ncomponents)
         self.X_max = X_max
         self.alpha = alpha
-    def _forward(self, response, cooccurrence_data):
+    def _forward(self, response, batch_data):
+        cooccurrence_data, unigram_data = batch_data
         Nxx, Nx, Nxt, N = cooccurrence_data
         expected_response = torch.log(Nxx)
         Nxx_is_zero = (Nxx==0)
@@ -47,15 +57,15 @@ class GloveLoss(HilbertLoss):
         weights = torch.clamp(weights, max=1.)
         weights[Nxx_is_zero] = 0
         weights = weights * 2
-        weights = batch_data.get('weights', 1)
         return 0.5 * weights * ((response - expected_response) ** 2)
 
 
 
 class SGNSLoss(HilbertLoss):
     REQUIRES_UNIGRAMS = True
-    def __init__(self, ncomponents, k=15):
+    def __init__(self, ncomponents, k=15, device=None):
         super(SGNSLoss, self).__init__(ncomponents)
+        self.device = h.utils.get_device(device)
         self.k = torch.tensor(
             k, device=self.device, dtype=h.CONSTANTS.DEFAULT_DTYPE)
     def _forward(self, response, batch_data):
@@ -79,11 +89,11 @@ class MLELoss(TemperedLoss):
         cooccurrence_data, unigram_data = batch_data
         Nxx, Nx, Nxt, N = cooccurrence_data
         Pxx_data = Nxx / N
-        Pxx_independent = (Nx / N) * (Nxt / N)
-        Pxx_model = Pxx_independent * torch.exp(response)
+        pxx_independent = self.get_pxx_independent(batch_data)
+        Pxx_model = pxx_independent * torch.exp(response)
         term1 = Pxx_data * response
         term2 = (1 - Pxx_data) * torch.log(1 - Pxx_model)
-        return -(term1 + term2)
+        return -(term1 + term2), pxx_independent
 
 
 
@@ -93,10 +103,10 @@ class SimpleMLELoss(TemperedLoss):
         cooccurrence_data, unigram_data = batch_data
         Nxx, Nx, Nxt, N = cooccurrence_data
         Pxx_data = Nxx / N
-        Pxx_independent = (Nx / N) * (Nxt / N)
         term1 = Pxx_data * response
-        term2 = Pxx_independent * torch.exp(response)
-        return -(term1 - term2)
+        pxx_independent = self.get_pxx_independent(batch_data)
+        term2 = pxx_independent * torch.exp(response)
+        return - (term1 - term2), pxx_independent
 
 
 

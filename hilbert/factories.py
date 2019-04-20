@@ -4,6 +4,14 @@ import torch
 import hilbert as h
 
 
+def get_constructor(model_str):
+    return {
+        'mle': build_mle_solver,
+        'glove': build_glove_solver,
+        'sgns': build_sgns_solver,
+        'mle_sample': build_mle_sample_solver
+    }[model_str]
+
 
 def get_optimizer(opt_str, parameters, learning_rate):
     optimizers = {
@@ -32,20 +40,43 @@ def get_init_embs(path, device):
     ]
 
 
+def yields_recallable(f):
+    """
+    Given a function f, define a *recallable* function g, such that g returns
+    always the same value as f, plus it returns another function h (the
+    recall function).  The recall function is defined as follows:
+
+        Given that h is the recall function produced at x:
+        g(x) = f(x), h
+        Then calling h with no parameters is like calling f at x:
+        h() = f(x)
+
+        I.e. h is like f curried with arguments x.
+
+    h can nevertheless be supplied overriding kwargs for arguments initially
+    supplied as kwargs to g, and this will evaluate f at the original set of
+    arguments, but with any newly supplied kwargs overriding original values.
+    """
+    def recallable(*args, **kwargs):
+        result = f(*args, **kwargs)
+        def recall(**kwargs_mod):
+            new_kwargs = {**kwargs, **kwargs_mod}
+            return f(*args, **new_kwargs)
+        return result, recall
+
+    return recallable
+
 
 def build_mle_sample_solver(
-        cooccurrence_path
-        save_embeddings_dir,
-        simple_loss=False,   # MLE option
-        temperature=2,       # MLE option
-        batch_size=10000,    # Dense option
+        cooccurrence_path,
+        simple_loss=False,        # MLE option
+        temperature=2,            # MLE option
+        batch_size=10000,         # Dense option
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
         learning_rate=0.01,
         opt_str='adam',
-        num_writes=100,
-        num_updates=100000,
         seed=1917,
         device=None,
         verbose=True,
@@ -66,13 +97,13 @@ def build_mle_sample_solver(
     learner = h.learner.SampleLearner(
         vocab=len(dictionary),
         covocab=len(dictionary),
-        d=d,
+        d=dimensions,
         bias=bias,
         init=get_init_embs(init_embeddings_path, device),
         device=device
     )
 
-    loader = h.cooccurrence.SampleLoader(
+    loader = h.loader.SampleLoader(
         cooccurrence_path=cooccurrence_path, 
         temperature=temperature,
         batch_size=batch_size,
@@ -91,13 +122,13 @@ def build_mle_sample_solver(
         dictionary=dictionary,
         verbose=verbose,
     )
+
     return solver
 
 
 
 def build_mle_solver(
-        cooccurrence_path
-        save_embeddings_dir,
+        cooccurrence_path,
         simple_loss=False,  # MLE option
         temperature=2,      # MLE option
         shard_factor=1,     # Dense option
@@ -106,9 +137,6 @@ def build_mle_solver(
         dimensions=300,
         learning_rate=0.01,
         opt_str='adam',
-        num_writes=100,
-        num_updates=100000,
-        #batch_size,
         seed=1917,
         device=None,
         verbose=True,
@@ -128,7 +156,7 @@ def build_mle_solver(
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
         covocab=len(dictionary),
-        d=d,
+        d=dimensions,
         bias=bias,
         init=get_init_embs(init_embeddings_path, device),
         device=device
@@ -137,8 +165,8 @@ def build_mle_solver(
     loader = h.loader.DenseLoader(
         cooccurrence_path,
         shard_factor,
-        include_unigrams=loss.INCLUDE_UNIGRAMS,
-        device=device
+        include_unigrams=loss.REQUIRES_UNIGRAMS,
+        device=device,
         verbose=verbose,
     )
 
@@ -157,8 +185,7 @@ def build_mle_solver(
 
 
 def build_sgns_solver(
-        cooccurrence_path
-        save_embeddings_dir,
+        cooccurrence_path,
         k=15,                   # SGNS option
         undersampling=2.45e-5,  # SGNS option
         smoothing=0.75,         # SGNS option
@@ -168,9 +195,6 @@ def build_sgns_solver(
         dimensions=300,
         learning_rate=0.01,
         opt_str='adam',
-        num_writes=100,
-        num_updates=100000,
-        #batch_size,
         seed=1917,
         device=None,
         verbose=True,
@@ -187,7 +211,7 @@ def build_sgns_solver(
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
         covocab=len(dictionary),
-        d=d,
+        d=dimensions,
         bias=bias,
         init=get_init_embs(init_embeddings_path, device),
         device=device
@@ -196,10 +220,10 @@ def build_sgns_solver(
     loader = h.loader.DenseLoader(
         cooccurrence_path,
         shard_factor,
-        include_unigrams=loss.INCLUDE_UNIGRAMS,
+        include_unigrams=loss.REQUIRES_UNIGRAMS,
         undersampling=undersampling,
         smoothing=smoothing,
-        device=device
+        device=device,
         verbose=verbose,
     )
 
@@ -219,8 +243,7 @@ def build_sgns_solver(
 
 
 def build_glove_solver(
-        cooccurrence_path
-        save_embeddings_dir,
+        cooccurrence_path,
         X_max=100,      # Glove option
         alpha=3/4,      # Glove option
         shard_factor=1, # Dense option
@@ -229,9 +252,6 @@ def build_glove_solver(
         dimensions=300,
         learning_rate=0.01,
         opt_str='adam',
-        num_writes=100,
-        num_updates=100000,
-        #batch_size,
         seed=1917,
         device=None,
         verbose=True,
@@ -246,22 +266,22 @@ def build_glove_solver(
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
         covocab=len(dictionary),
-        d=d,
+        d=dimensions,
         bias=bias,
         init=get_init_embs(init_embeddings_path, device),
         device=device
     )
 
+    loss = h.loss.GloveLoss(
+        ncomponents=len(dictionary)**2, X_max=100, alpha=3/4)
+
     loader = h.loader.DenseLoader(
         cooccurrence_path,
         shard_factor,
-        include_unigrams=learner.INCLUDE_UNIGRAMS,
-        device=device
+        include_unigrams=loss.REQUIRES_UNIGRAMS,
+        device=device,
         verbose=verbose,
-    ):
-
-    loss = h.loss.GloveLoss(
-        ncomponents=len(dictionary)**2, X_max=100, alpha=3/4):
+    )
 
     optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
 

@@ -23,12 +23,14 @@ class TestCooccurrenceSampleLoader(TestCase):
         batch_size = 10000000
         sector_factor = 3
 
-        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.cooccurrence.SampleLoader(
-            cooccurrence_path, sector_factor, temperature=temperature,
-            batch_size=batch_size, verbose=False)
-        Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
-            cooccurrence_path, sector_factor, verbose=False)
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        sampler = h.loader.SampleLoader(
+            cooccurrence_path, temperature=temperature,
+            batch_size=batch_size, verbose=False
+        )
+        Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
+            cooccurrence_path, verbose=False)
 
         positive_counts = torch.zeros(
             (Nx.shape[0], Nxt.shape[1]), dtype=torch.int32)
@@ -90,34 +92,33 @@ class TestCooccurrenceSampleLoader(TestCase):
 
     def test_cooccurrence_sample_loader_interface(self):
         """
-        Draw a large number of samples, and calculate the empirical probability
-        for each outcome.  It should be close to the probability vector with
-        which Categorical was created.
+        Even though test_cooccurrence_sampler does not yield multiple batches,
+        It is implemented as an iterator, for consistency with DenseLoader.
+        Test that the iterator interface is satisfied.
         """
         torch.manual_seed(3141592)
         batch_size = 3
         sector_factor = 3
-        batches_per_epoch = 10
+        num_batches = 10
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.cooccurrence.SampleLoader(
-            cooccurrence_path, sector_factor, 
-            batch_size=batch_size, batches_per_epoch=10, verbose=False
-        )
+        sampler = h.loader.SampleLoader(
+            cooccurrence_path, batch_size=batch_size, verbose=False)
 
         # Figure out the number of batches we expect, given the total number
         # of cooccurrence counts in the data, and the chosen batch_size.
-        Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
+        Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
             cooccurrence_path, sector_factor, verbose=False)
 
         # Confirm the shape, number, and dtype of batches.
-        num_batches = 0
-        for batch_id, batch_data in sampler:
-            num_batches += 1
-            self.assertEqual(batch_id.shape, (batch_size*2, 2))
-            self.assertEqual(batch_data, None)
-            self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
+        num_batches_seen = 0
+        for batch_num in range(num_batches):
+            for batch_id, batch_data in sampler:
+                num_batches_seen += 1
+                self.assertEqual(batch_id.shape, (batch_size*2, 2))
+                self.assertEqual(batch_data, None)
+                self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
+        self.assertEqual(num_batches_seen, num_batches)
 
-        self.assertEqual(num_batches, batches_per_epoch)
 

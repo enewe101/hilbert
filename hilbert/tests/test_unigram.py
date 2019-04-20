@@ -11,6 +11,12 @@ except ImportError:
     torch = None
 
 
+def load_test_tokens():
+    return load_tokens(h.CONSTANTS.TEST_TOKEN_PATH)
+def load_tokens(path):
+    with open(path) as f:
+        return f.read().split()
+
 
 
 
@@ -26,14 +32,14 @@ class TestUnigram(TestCase):
         self.assertTrue(unigram.sorted)
 
         # Add counts
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram.add(token)
 
         # Adding counts disrupts the sorting
         self.assertFalse(unigram.sorted)
 
         # The correct number of counts are registered for each token
-        counts = Counter(h.corpus_stats.load_test_tokens())
+        counts = Counter(load_test_tokens())
         for token in counts:
             token_id = unigram.dictionary.get_id(token)
             self.assertEqual(unigram.Nx[token_id], counts[token])
@@ -50,7 +56,7 @@ class TestUnigram(TestCase):
 
         # Make a unigram and fill it with tokens and counts.
         unigram = h.unigram.Unigram(verbose=False)
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram.add(token)
 
         counts = list(unigram.Nx)
@@ -67,7 +73,7 @@ class TestUnigram(TestCase):
 
 
     def test_unigram_creation_from_Nx(self):
-        tokens = h.corpus_stats.load_test_tokens()
+        tokens = load_test_tokens()
         dictionary = h.dictionary.Dictionary(tokens)
         Nx = [0] * len(dictionary)
         for token in tokens:
@@ -83,7 +89,7 @@ class TestUnigram(TestCase):
         self.assertFalse(unigram.sorted)
 
         # The correct number of counts are registered for each token
-        counts = Counter(h.corpus_stats.load_test_tokens())
+        counts = Counter(load_test_tokens())
         for token in counts:
             token_id = unigram.dictionary.get_id(token)
             self.assertEqual(unigram.Nx[token_id], counts[token])
@@ -103,8 +109,8 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram(device=device)
-        for token in h.corpus_stats.load_test_tokens():
+        unigram = h.unigram.Unigram()
+        for token in load_test_tokens():
             unigram.add(token)
 
         # To simplify the test, sor the unigram
@@ -153,7 +159,7 @@ class TestUnigram(TestCase):
 
         # Make a unigram and fill it with tokens and counts.
         unigram1 = h.unigram.Unigram()
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram1.add(token)
 
         unigram2 = copy(unigram1)
@@ -178,8 +184,8 @@ class TestUnigram(TestCase):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
 
         # Make a unigram and fill it with tokens and counts.
-        unigram = h.unigram.Unigram(device=device)
-        for token in h.corpus_stats.load_test_tokens():
+        unigram = h.unigram.Unigram()
+        for token in load_test_tokens():
             unigram.add(token)
 
         # To simplify the test, sor the unigram
@@ -201,12 +207,12 @@ class TestUnigram(TestCase):
     def test_sort_by_tokens(self):
 
         # Get tokens in alphabetical order
-        tokens = list(set(h.corpus_stats.load_test_tokens()))
+        tokens = list(set(load_test_tokens()))
         tokens.sort()
 
         # Make a unigram and fill it with tokens and counts.
         unigram = h.unigram.Unigram()
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram.add(token)
 
         # Unigram has same tokens, but is not in alphabetical order.
@@ -230,7 +236,7 @@ class TestUnigram(TestCase):
     def test_add(self):
         # Make a unigram and fill it with tokens and counts.
         unigram1 = h.unigram.Unigram()
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram1.add(token)
 
         unigram2 = h.unigram.Unigram()
@@ -239,7 +245,7 @@ class TestUnigram(TestCase):
             unigram2.add(token)
 
         expected_counts = Counter(
-            h.corpus_stats.load_test_tokens()+additional_tokens)
+            load_test_tokens()+additional_tokens)
 
         # Orginary addition
         unigram4 = unigram1 + unigram2
@@ -266,7 +272,7 @@ class TestUnigram(TestCase):
 
         # Make a unigram and fill it with tokens and counts.
         unigram1 = h.unigram.Unigram()
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram1.add(token)
 
         # Do a save and load cycle
@@ -294,7 +300,7 @@ class TestUnigram(TestCase):
 
         # Make a unigram and fill it with tokens and counts.
         unigram = h.unigram.Unigram()
-        for token in h.corpus_stats.load_test_tokens():
+        for token in load_test_tokens():
             unigram.add(token)
 
         expected_tokens = ['.', 'the', 'The', 'Eat', 'sandwich']

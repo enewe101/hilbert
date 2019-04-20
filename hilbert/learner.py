@@ -82,7 +82,6 @@ class EmbeddingLearner(nn.Module):
 
 
 
-
 class DenseLearner(EmbeddingLearner):
     def forward(self, shard):
         V = self.V[shard[1]].squeeze()
@@ -92,6 +91,7 @@ class DenseLearner(EmbeddingLearner):
             response += self.vb[shard[1]].view(1, -1)
             response += self.wb[shard[0]].view(-1, 1)
         return response
+
 
 
 class SampleLearner(EmbeddingLearner):

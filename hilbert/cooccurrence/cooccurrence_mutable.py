@@ -69,14 +69,13 @@ class CooccurrenceMutable(Cooccurrence):
         unigram,
         Nxx=None,
         marginalize=True,
-        device=None,
         verbose=True
     ):
         if Nxx is None:
             Nxx = np.zeros((len(unigram), len(unigram)))
             Nxx = sparse.lil_matrix(Nxx)
         super(CooccurrenceMutable, self).__init__(
-            unigram, Nxx=Nxx, marginalize=True, device=device, verbose=verbose)
+            unigram, Nxx=Nxx, marginalize=True, verbose=verbose)
 
 
     def __copy__(self):
@@ -140,9 +139,7 @@ class CooccurrenceMutable(Cooccurrence):
         self.unigram.truncate(k)
 
 
-    def save(
-        self, path, save_unigram=True
-    ):
+    def save(self, path, save_unigram=True, save_marginals=True):
         """
         Save the cooccurrence data to disk.  A new directory will be created
         at `path`, and two files will be created within it to store the 
@@ -152,10 +149,15 @@ class CooccurrenceMutable(Cooccurrence):
         if not os.path.exists(path):
             os.makedirs(path)
 
-        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
-
+        save_cooccurrences(path)
         if save_unigram:
             self.unigram.save(path)
+        if save_marginals:
+            self.save_marginals(path)
+
+
+    def save_cooccurrences(self, path):
+        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
 
 
     def save_marginals(self, path):
@@ -199,20 +201,20 @@ class CooccurrenceMutable(Cooccurrence):
 
 
     @staticmethod
-    def load(path, marginalize=True, device=None, verbose=True):
+    def load(path, marginalize=True, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+        unigram = h.unigram.Unigram.load(path, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
         return CooccurrenceMutable(
-            unigram, Nxx, marginalize=True, device=device, verbose=verbose)
+            unigram, Nxx, marginalize=True, verbose=verbose)
 
 
     @staticmethod
-    def load_unigram(path, device=None, verbose=True):
+    def load_unigram(path, verbose=True):
         unigram = h.unigram.Unigram.load(path)
-        return CooccurrenceMutable(unigram, device=device, verbose=verbose)
+        return CooccurrenceMutable(unigram, verbose=verbose)
 
 

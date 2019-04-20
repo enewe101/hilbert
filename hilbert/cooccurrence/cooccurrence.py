@@ -7,6 +7,17 @@ from scipy import sparse
 
 import time
 
+
+MEM_DEVICE = h.CONSTANTS.MEMORY_DEVICE
+
+
+def w2v_prob_keep(uNx, uN, t=1e-5):
+    freqs = uNx / uN
+    drop_probs = torch.clamp((freqs - t)/freqs - torch.sqrt(t/freqs), 0, 1)
+    keep_probs = 1 - drop_probs
+    return keep_probs
+
+
 class Cooccurrence(object):
 
     def __init__(
@@ -14,7 +25,6 @@ class Cooccurrence(object):
         unigram,
         Nxx,
         marginalize=True,
-        device=None,
         verbose=True
     ):
         """
@@ -39,20 +49,18 @@ class Cooccurrence(object):
             )
 
         # Own some things
-        self.device = device
         self.verbose = verbose
 
         dtype = h.CONSTANTS.DEFAULT_DTYPE
-        mem_device = h.CONSTANTS.MEMORY_DEVICE
 
         # Own unigram statistics.
         self.unigram = unigram
         self.uNx = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1, 1)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(-1, 1)
         self.uNxt = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(1, -1)
         self.uN = torch.tensor(
-            self.unigram.N, dtype=dtype, device=mem_device)
+            self.unigram.N, dtype=dtype, device=MEM_DEVICE)
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
@@ -97,17 +105,15 @@ class Cooccurrence(object):
 
 
     @staticmethod
-    def load(path, marginalize=True, device=None, verbose=True):
+    def load(path, marginalize=True, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+        unigram = h.unigram.Unigram.load(path, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
         return Cooccurrence(
-            unigram, Nxx, marginalize=marginalize, device=device,
-            verbose=verbose
-        )
+            unigram, Nxx, marginalize=marginalize, verbose=verbose)
 
 
     @property
@@ -193,7 +199,7 @@ class Cooccurrence(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device
+        device = h.utils.get_device(device)
 
         loaded_Nxx = h.utils.load_shard(
             self.Nxx, shard, device=device)
@@ -211,7 +217,7 @@ class Cooccurrence(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device
+        device = h.utils.get_device(device)
 
         loaded_uNx = h.utils.load_shard(self.uNx, shard[0], device=device)
         loaded_uNxt = h.utils.load_shard(
@@ -269,9 +275,9 @@ class Cooccurrence(object):
         self.undersampled = True
 
         # First calculate probability of dropping row-word and col-words
-        p_i = h.corpus_stats.w2v_prob_keep(self.uNx, self.uN, t)
+        p_i = w2v_prob_keep(self.uNx, self.uN, t)
         p_i = sparse.lil_matrix(p_i)
-        p_j = h.corpus_stats.w2v_prob_keep(self.uNxt, self.uN, t)
+        p_j = w2v_prob_keep(self.uNxt, self.uN, t)
         p_j = sparse.lil_matrix(p_j)
 
         # Calculate the expectation cooccurrence after undersampling
@@ -299,17 +305,16 @@ class Cooccurrence(object):
         dtype = h.CONSTANTS.DEFAULT_DTYPE
         mem_device = h.CONSTANTS.MEMORY_DEVICE
         self.uNx = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1, 1)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(-1, 1)
         self.uNxt = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(1, -1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(1, -1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=MEM_DEVICE)
 
 
-    def get_sector(self, sector, device=None, verbose=None):
-        device = device if device is not None else self.device
+    def get_sector(self, sector, verbose=None):
         verbose = verbose if verbose is not None else self.verbose
         return h.cooccurrence.CooccurrenceSector(
             self.unigram, self.Nxx[sector], self.Nx, self.Nxt, sector,
-            device=device, verbose=verbose
+            verbose=verbose
         )
 

@@ -14,7 +14,6 @@ class Unigram(object):
         self,
         dictionary=None,
         Nx=None,
-        device=None,
         verbose=True
     ):
         """
@@ -39,7 +38,6 @@ class Unigram(object):
             self.Nx = list(Nx)
             self.N = sum(self.Nx)
 
-        self.device = device
         self.verbose = verbose
 
         self.check_sorted()
@@ -81,7 +79,7 @@ class Unigram(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device
+        device = h.utils.get_device(device)
 
         loaded_Nx = h.utils.load_shard(
             self.Nx, shard[0], device=device).view(-1,1)
@@ -281,7 +279,7 @@ class Unigram(object):
 
 
     @staticmethod
-    def load(path, device=None, verbose=True):
+    def load(path, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
@@ -290,8 +288,7 @@ class Unigram(object):
             os.path.join(path, 'dictionary'))
         with open(os.path.join(path, 'Nx.txt')) as f_counts:
             Nx = [int(count) for count in f_counts]
-        return Unigram(
-            dictionary=dictionary, Nx=Nx, device=device, verbose=verbose)
+        return Unigram(dictionary=dictionary, Nx=Nx, verbose=verbose)
 
 
 

@@ -1,9 +1,8 @@
-import torch
-import hilbert.factories as proletariat
-from hilbert.runners import get_base_argparser
-from hilbert.embedder import DivergenceError
-from progress.bar import IncrementalBar
 from math import log10, floor
+import argparse
+import torch
+from progress.bar import IncrementalBar
+import hilbert as h
 
 """
 This program will take any hilbert embedder and automatically
@@ -51,7 +50,7 @@ def loss_check(losses):
             going_crazy = False
             break
     if going_crazy:
-        raise DivergenceError('Diverged!')
+        raise h.exceptions.DivergenceError('Diverged!')
 
 
 def loss_is_stationary(loss_values, minimum_rate=0.1):
@@ -63,23 +62,27 @@ def loss_is_stationary(loss_values, minimum_rate=0.1):
     return improvement_rate < minimum_rate
 
 
-def double_check(embsolver, obtained_losses, n_iters):
+def double_check(solver, obtained_losses, n_iters):
     if len(obtained_losses) < n_iters:
         return []
 
     # check if the embeddings are blowing up to be too big
-    avg_vnorm = torch.mean(embsolver.V.norm(dim=1))
-    avg_wnorm = torch.mean(embsolver.W.norm(dim=1))
+    avg_vnorm = torch.mean(solver.learner.V.norm(dim=1))
+    avg_wnorm = torch.mean(solver.learner.W.norm(dim=1))
     if avg_vnorm > 50 or avg_wnorm > 50:
         return []
 
     return obtained_losses
 
 
-def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
-    embsolver = constructor(**constr_kwargs)
-    print(embsolver.describe())
-    embsolver.verbose = False
+def autotune(
+        constructor,
+        constr_kwargs,
+        n_iters=100,
+        head_lr=1e5,
+        n_goods=10
+    ):
+
     div_lrs = []
     stationary_lrs = []
     good_lrs = []
@@ -89,20 +92,23 @@ def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
 
     while len(good_lrs) < n_goods and crt_lr is not None:
         print('\nNext test...')
-        embsolver.learning_rate = crt_lr
-        embsolver.restart()
+
+        kwargs = {**constr_kwargs, 'learning_rate':crt_lr}
+        solver = constructor(**kwargs)
+        print(solver.describe())
+
         bar = IncrementalBar('Cycling {:10}'.format(crt_lr), max=n_iters)
         losses = []
         for i in range(n_iters):
             try:
-                losses += embsolver.cycle(1, very_verbose=False)
+                losses += solver.cycle(1, keep_losses=True)
                 bar.next()
                 if len(losses) > 11:
                     loss_check(losses)
-            except DivergenceError:
+            except h.exceptions.DivergenceError:
                 break
         bar.finish()
-        losses = double_check(embsolver, losses, n_iters)
+        losses = double_check(solver, losses, n_iters)
 
         if len(losses) < n_iters:
             print('Diverged at lr = {}...'.format(crt_lr))
@@ -129,114 +135,43 @@ def autotune(constructor, constr_kwargs, n_iters=100, head_lr=1e5, n_goods=10):
 
 
 def main():
-    base_parser = get_base_argparser()
-    base_parser.add_argument(
-        '--model', '-m', type=str, default='mle',
-        help="what model to autotune: mle, glv, w2v?"
-    )
-    base_parser.add_argument(
-        '--n_iters', type=int, default=100,
+
+    # Make an argument parser; add some arguments that are always applicable.
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--n-iters', type=int, default=100,
         help='how many cycles to run for each LR tested'
     )
-    base_parser.add_argument(
-        '--head_lr', type=float, default=1e5,
+    parser.add_argument(
+        '--head-lr', type=float, default=1e5,
         help='estimate of what the maximum possible LR could be'
     )
 
-    # MLE hyper
-    base_parser.add_argument(
-        '--temperature', '-T', type=float, default=1, dest='temperature',
-        help="equalizes weighting for loss from individual token pairs."
+    # Add arguments needed to run each of the models
+    subparsers = parser.add_subparsers(dest='model')
+    mle_parser = subparsers.add_parser('mle')
+    h.runners.run_mle.add_model_args(mle_parser)
+    glove_parser = subparsers.add_parser('glove')
+    h.runners.run_glove.add_model_args(glove_parser)
+    sgns_parser = subparsers.add_parser('sgns')
+    h.runners.run_sgns.add_model_args(sgns_parser)
+    mle_sample_parser = subparsers.add_parser('mle_sample')
+    h.runners.run_mle_sample.add_model_args(mle_sample_parser)
+
+    # Separate the autotune args from model-specific args
+    args = vars(parser.parse_args())
+    n_iters = args.pop('n_iters')
+    head_lr = args.pop('head_lr')
+    model = args.pop('model')
+
+    print('Autotuning model {}!'.format(model))
+    constructor = h.factories.get_constructor(model)
+    autotune(
+        constructor,
+        args, 
+        head_lr=head_lr,
+        n_iters=n_iters
     )
-    base_parser.add_argument(
-        '--simple-loss', '-j', action='store_true',
-        help=(
-            "Whether to use the simpler loss function, obtained by neglecting "
-            "the denominator of the full loss function after differentiation."
-        )
-    )
-    base_parser.add_argument(
-        '--batch_size', type=int, default=100000,
-        help='batch size for the Sample-based MLE model'
-    )
-    base_parser.add_argument(
-        '--batches_per_epoch', type=int, default=100,
-        help=''
-    )
-
-    # GLV hypers
-    base_parser.add_argument(
-        '--X-max', '-x', type=float, default=100, dest='X_max',
-        help="xmax in glove weighting function"
-    )
-    base_parser.add_argument(
-        '--alpha', '-a', type=float, default=3 / 4,
-        help="exponent in the weighting function for glove"
-    )
-
-    # W2V hypers
-    base_parser.add_argument(
-        '--t-clean', '-t', type=float, default=2.45e-5, dest='t_clean_undersample',
-        help="Post-sampling (clean) Common word undersampling threshold"
-    )
-    base_parser.add_argument(
-        '--neg-samples', '-k', type=int, default=15, dest='k',
-        help="number of negative samples"
-    )
-    base_parser.add_argument(
-        '--alpha-smoothing', '-A', type=float, default=0.75, dest='alpha_unigram_smoothing',
-        help='context distribution smoothing of PMI'
-    )
-
-    # now gotta filter out the kwargs appropriately
-    filter_kwargs = {'model', 'n_iters', 'head_lr', 'batch_size',
-                     
-            'batches_per_epoch', 'datamode', 'tup_n_batches',
-            
-            'temperature', 'X_max', 'alpha', 'k', 
-                     
-                     'zk', 'simple_loss',
-                     
-                     'alpha_unigram_smoothing', 't_clean_undersample',
-                     'epochs', 'iters_per_epoch', 'shard_factor',
-                     'save_embeddings_dir', 'shard_times', 'update_density'}
-    bp_namespace = base_parser.parse_args()
-
-    if bp_namespace.model == 'mle':
-        filter_kwargs.remove('temperature')
-        constructor = proletariat.construct_max_likelihood_solver
-
-    elif bp_namespace.model == 'mle-sample':
-        filter_kwargs.remove('temperature')
-        filter_kwargs.remove('batch_size')
-        filter_kwargs.remove('batches_per_epoch')
-        constructor = proletariat.construct_max_likelihood_sample_based_solver
-
-    elif bp_namespace.model == 'glv':
-        filter_kwargs.remove('X_max')
-        filter_kwargs.remove('alpha')
-        constructor = proletariat.construct_glv_solver
-
-    elif bp_namespace.model == 'w2v':
-        filter_kwargs.remove('k')
-        filter_kwargs.remove('alpha_unigram_smoothing')
-        filter_kwargs.remove('t_clean_undersample')
-        constructor = proletariat.construct_w2v_solver
-
-    else:
-        raise NotImplementedError(
-            'Model {} not implemented!'.format(bp_namespace.model))
-
-    # filter out those kwargs
-    constr_kwargs = {**vars(bp_namespace)}
-    for kw in filter_kwargs:
-        del constr_kwargs[kw]
-
-    # now autotune like Kanye
-    print('Autotuning model {}!'.format(bp_namespace.model))
-    autotune(constructor, constr_kwargs,
-             head_lr=bp_namespace.head_lr,
-             n_iters=bp_namespace.n_iters)
 
 
 if __name__ == '__main__':

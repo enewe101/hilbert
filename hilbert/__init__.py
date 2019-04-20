@@ -1,13 +1,11 @@
 import hilbert.CONSTANTS
 import hilbert.solver
 import hilbert.cooccurrence
-import hilbert.calc_posterior
-import hilbert.corpus_stats
 import hilbert.dictionary
 import hilbert.embeddings
 import hilbert.factories
 import hilbert.loss
-import hilbert.loaders
+import hilbert.loader
 import hilbert.shards
 import hilbert.unigram
 import hilbert.utils
@@ -17,3 +15,4 @@ import hilbert.file_access
 import hilbert.tracer
 import hilbert.exceptions
 import hilbert.tests
+import hilbert.learner

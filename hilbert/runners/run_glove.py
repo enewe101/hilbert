@@ -1,8 +1,9 @@
 import hilbert as h
 
 
-if __name__ == '__main__':
-    parser = h.runners.run_base.get_base_argparser()
+def add_model_args(parser):
+    h.runners.run_base.add_common_constructor_args(parser)
+    h.runners.run_base.add_shard_factor_arg(parser)
     parser.add_argument(
         '--X-max', '-x', type=float, default=100, dest='X_max',
         help="xmax in glove weighting function"
@@ -15,7 +16,20 @@ if __name__ == '__main__':
         '--nobias', action='store_false', dest='bias',
         help='Set this flag to *remove* bias learning.' 
     )
-    args = parser.parse_args()
+    return parser
+
+
+def get_argparser():
+    parser = h.runners.run_base.get_argparser()
+    add_model_args(parser)
+    return parser
+
+
+def run(**args):
     solver = h.factories.build_glove_solver(
         **h.runners.run_base.factory_args(args))
     h.runners.run_base.init_and_run(solver, **args)
+
+
+if __name__ == '__main__':
+    run(get_argparser().parse_args())

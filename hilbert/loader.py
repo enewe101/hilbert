@@ -3,7 +3,7 @@ from pytorch_categorical import Categorical
 import hilbert as h
 
 
-class DenseLoader(h.generic_datastructs.Describable):
+class DenseLoader:
     """
     Base class for any LoaderModel that implements the common functionality,
     being, iteration over the preloaded shards.
@@ -16,7 +16,7 @@ class DenseLoader(h.generic_datastructs.Describable):
         include_unigrams=True,
         undersampling=None,
         smoothing=None,
-        device=None
+        device=None,
         verbose=True,
     ):
 
@@ -27,7 +27,7 @@ class DenseLoader(h.generic_datastructs.Describable):
         self.undersampling = undersampling
         self.smoothing = smoothing
         self.verbose = verbose
-        self.device = device
+        self.device = h.utils.get_device(device)
 
         # these will be used for preloading and loading
         self.cooccurrence_sector = None
@@ -59,6 +59,7 @@ class DenseLoader(h.generic_datastructs.Describable):
         sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
             self.cooccurrence_path)
         for i, sector_id in enumerate(h.shards.Shards(sector_factor)):
+
             if self.verbose:
                 print('loading sector {}'.format(i))
 
@@ -88,9 +89,9 @@ class DenseLoader(h.generic_datastructs.Describable):
 
 
     def _load(self, preloaded):
-        batch_id, (cooccurence_data, ungram_data) = preloaded
+        batch_id, (cooccurrence_data, unigram_data) = preloaded
         cooccurrence_data = tuple(
-            tensor.to(self.device) for tensor in batch_data)
+            tensor.to(self.device) for tensor in cooccurrence_data)
         if self.include_unigrams:
             unigram_data = tuple(
                 tensor.to(self.device) for tensor in unigram_data)
@@ -119,7 +120,7 @@ class DenseLoader(h.generic_datastructs.Describable):
 
 
 
-class SampleLoader(h.generic_datastructs.Describable):
+class SampleLoader:
 
     def __init__(
         self,
@@ -130,15 +131,15 @@ class SampleLoader(h.generic_datastructs.Describable):
         verbose=True
     ):
         self.cooccurrence_path = cooccurrence_path
-        Nxx_data, I, J, Nx, Nxt = h.generic_datastructs.get_Nxx_coo(
+        Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
             cooccurrence_path, verbose=verbose)
 
         self.temperature = temperature
-        self.device = device or h.CONSTANTS.RC['device']
+        self.device = h.utils.get_device(device)
 
         # Calculate the probabilities and then temper them.
         # After tempering, probabilities are scores -- they don't sum to one
-        # This is okay because the Categorical sampler automatically normalizes.
+        # The Categorical sampler will automatically normalize them.
         Pi = Nx.view((-1,)) / Nx.sum()
         Pi_raised = Pi**(1/temperature - 1)
         Pi_tempered = Pi_raised * Pi
@@ -157,8 +158,7 @@ class SampleLoader(h.generic_datastructs.Describable):
         self.J = J.to(self.device)
 
         self.batch_size = batch_size
-        self.num_batches = num_batches
-        self.batch_num = None
+        self.yielded = False
 
 
     def sample(self, batch_size):
@@ -189,14 +189,14 @@ class SampleLoader(h.generic_datastructs.Describable):
 
 
     def __iter__(self):
-        self.batch_num = -1
+        self.yielded = False
         return self
 
 
     def __next__(self):
-        self.batch_num += 1
-        if self.batch_num >= self.num_batches:
+        if self.yielded:
             raise StopIteration
+        self.yielded = True
         return self.sample(self.batch_size), None
 
 

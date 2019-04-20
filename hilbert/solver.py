@@ -2,6 +2,7 @@ import hilbert as h
 import torch
 
 
+
 class Solver(object):
 
     def __init__(
@@ -14,23 +15,25 @@ class Solver(object):
         dictionary=None,
         verbose=True,
     ):
-        """
-        This is the base class for a Hilbert Embedder model. It uses pytorch's
-        automatic differentiation for the primary heavy lifting. The fundamental
-        components of this class are:
-            (1) the loss function (loss.py)
-            (2) the optimizer *constructor* (from torch.optim)
-            (3) the dimensionality (an integer for the size of the embeddings)
 
-        :param loader: a Loader object that iterates gpu-loaded shards
-        :param optimizer: a constructor from torch.optim that we 
-                will build later
+        """
+        This class is responsible for putting "turning the crank" on the
+        learning process.  It takes the model through update steps, by
+        iterating bathes from the loader, calculating forward passes through
+        both the model and the loss function, calling the backwards pass,
+        and ticking forward the optimizer's state, along with ticking forward
+        any schedulers.
+
+        The main point is to conveniently package up all of the usual things
+        that go within the core training loop.  It lets callers of 
+        Solver.cycle() concisely ask to iterate forward by some number
+        of updates, without needing to know all the pieces of machinery in the
+        training loop and how they work together
         """
 
         # Own it like you do
         self.loader = loader
         self.loss = loss
-        self.optmizer = optimizer
         self.optimizer = optimizer
         self.learner = learner
         self.schedulers = schedulers or []
@@ -58,12 +61,15 @@ class Solver(object):
         
 
     def get_params(self):
-        return learner.get_params()
+        return self.learner.get_params()
 
 
-    def cycle(self, updates_per_cycle=1):
+    def cycle(self, updates_per_cycle=1, keep_losses=False):
 
         # Run a bunch of updates.
+        if keep_losses:
+            losses = []
+
         for update_id in range(updates_per_cycle):
 
             # Train on as many batches as the loader deems to be one update.
@@ -72,6 +78,7 @@ class Solver(object):
                 # Consider this batch and learn.
                 self.optimizer.zero_grad()
                 response = self.learner(batch_id)
+
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
@@ -88,5 +95,10 @@ class Solver(object):
                     torch.cuda.empty_cache()
                     raise h.exceptions.DivergenceError('Model has diverged!')
 
+            if keep_losses:
+                losses.append(self.cur_loss.item())
+
+        if keep_losses:
+            return losses
 
 

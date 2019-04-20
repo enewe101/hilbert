@@ -77,8 +77,15 @@ class Embeddings:
     """
 
     def __init__(
-        self, V, W=None, vb=None, wb=None, dictionary=None,
-        device=None, normalize=False, verbose=True
+        self,
+        V,
+        W=None,
+        vb=None,
+        wb=None,
+        dictionary=None,
+        device=None, 
+        normalize=False,
+        verbose=True
     ):
 
         self.verbose = verbose
