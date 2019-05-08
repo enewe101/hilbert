@@ -1,0 +1,7 @@
+# Effective weights similar to word2vec's dynamic window with size 5
+# but with a twist, the window is extended towards the left
+1.0 0.5 0.3333333333333333 0.25 0.2
+1.0 0.5 0.3333333333333333 0.25 0.2 0.1
+1.0
+# Notice that the left weights (the bottom) are ordered closest to furthest
+# just like the right weights.
