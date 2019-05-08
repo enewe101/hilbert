@@ -9,7 +9,6 @@ from collections import Counter
 import time
 import numpy as np
 import hilbert as h
-import shared
 from multiprocessing import Pool
 from multiprocessing.managers import BaseManager
 

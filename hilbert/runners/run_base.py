@@ -6,14 +6,8 @@ try:
 except ImportError:
     shared = None
 
-COOCCURRENCE_DIR = (
-    shared.CONSTANTS.COOCCURRENCE_DIR 
-    if shared is not None else h.CONSTANTS.COOCCURRENCE_DIR
-)
-EMBEDDINGS_DIR = (
-    shared.CONSTANTS.EMBEDDINGS_DIR if shared is not None else
-    h.CONSTANTS.EMBEDDINGS_DIR
-)
+COOCCURRENCE_DIR = h.CONSTANTS.RC['cooccurrence_dir']
+EMBEDDINGS_DIR = h.CONSTANTS.RC['embeddings_dir']
 
 COMMON_KWARGS = {
     'epochs': 100,
