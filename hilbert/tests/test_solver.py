@@ -14,7 +14,8 @@ class TestSolver(TestCase):
         too high, which is how we trigger it here.
         """
 
-        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors')
         learning_rate = 1000
         solver = h.factories.build_mle_solver(
             cooccurrence_path=cooccurrence_path,

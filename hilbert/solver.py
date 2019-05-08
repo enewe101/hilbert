@@ -45,7 +45,13 @@ class Solver(object):
 
 
     def describe(self):
-        return "I'm the solver."
+        s  = 'Loader:\n' + self.loader.describe()
+        s += 'Loss:\n' + self.loss.describe()
+        s += 'Optimizer:\n' + self.describe_optimizer(optimizer)
+        s += 'Learner:\n' + self.learner.describe()
+        s += 'Schedulers:\n' + self.describe_schedulers()
+        s += 'Dictionary:\n' + self.dictionary.describe()
+        tracer.trace(s)
 
 
     def get_embeddings(self):

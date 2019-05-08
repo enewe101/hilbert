@@ -75,16 +75,16 @@ if __name__ == '__main__':
         help="Minimum number of occurrences below which token is ignored",
     )
     parser.add_argument(
-        '--no-sectors', '-x', dest='save_sectorized' action='store_false'
+        '--no-sectors', '-x', dest='save_sectorized', action='store_false',
         help=(
             "Don't break up the data into individual sectors on disk. "
-            "(Sectors' file names look like 0-0-1-Nxx.npy)",
+            "(Sectors' file names look like 0-0-1-Nxx.npy) "
             "Note, if `--no-sectors` is used, then `--monolithic` is "
             "necessarily activated."
         )
     )
     parser.add_argument(
-        '--monolithic', '-m', dest='save_monolithic' action='store_false'
+        '--monolithic', dest='save_monolithic', action='store_false',
         help=(
             "Write one file `Nxx.npz` containing all of the data across all "
             "shards.  This option is necessarily active if `--no-sectors` is "

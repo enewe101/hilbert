@@ -58,6 +58,7 @@ class DenseLoader:
 
         sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
             self.cooccurrence_path)
+
         for i, sector_id in enumerate(h.shards.Shards(sector_factor)):
 
             if self.verbose:

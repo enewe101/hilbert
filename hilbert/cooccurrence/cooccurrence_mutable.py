@@ -111,10 +111,14 @@ class CooccurrenceMutable(Cooccurrence):
 
 
     def add_id(self, focal_ids, context_ids, count=1):
-        self.Nxx[focal_ids, context_ids] += np.array([count])
-        self.Nx[focal_ids] += count
-        self.Nxt[0][context_ids] += count
-        self.N += count
+        # I wrote this originally hoping that I could "vectorize" the addition
+        # of counts, and hence avoid the for-loop.  Doing so is faster, but it
+        # repeated indices in a vectorized addition are not accumulated.
+        for focal_id, context_id in zip(focal_ids, context_ids):
+            self.Nxx[focal_id, context_id] += np.array([count])
+            self.Nx[focal_id] += count
+            self.Nxt[0][context_id] += count
+            self.N += count
 
 
     #def sort(self, force=False):
@@ -149,7 +153,7 @@ class CooccurrenceMutable(Cooccurrence):
         if not os.path.exists(path):
             os.makedirs(path)
 
-        save_cooccurrences(path)
+        self.save_cooccurrences(path)
         if save_unigram:
             self.unigram.save(path)
         if save_marginals:

@@ -23,9 +23,7 @@ def get_argparser():
 
 
 def run(**args):
-    solver = h.factories.build_mle_solver(
-        **h.runners.run_base.factory_args(args))
-    h.runners.run_base.init_and_run(solver, **args)
+    h.runners.run_base.run(h.factories.build_mle_solver, **args)
 
 
 if __name__ == '__main__':

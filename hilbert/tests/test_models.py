@@ -42,7 +42,8 @@ class TestModels(TestCase):
         bias=False
 
         # Changed from being cooccurrence-sector.
-        cooccurrence_path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence')
         dictionary = h.dictionary.Dictionary.load(
             os.path.join(cooccurrence_path, 'dictionary'))
 

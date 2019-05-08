@@ -1,5 +1,6 @@
 import os
 import hilbert as h
+from hilbert.tracer import tracer
 from argparse import ArgumentParser
 
 
@@ -8,11 +9,26 @@ def factory_args(args):
     return {key:args[key] for key in args if key not in ignore}
 
 
-def init_and_run(solver, **args):
+def run(solver_factory, **args):
     """
     Use run the solver for many updates, and periodically write the model 
     parameters to disk.
     """
+
+    # Make the tracer (whichs helps us print / log), and generate a preamble.
+    tracer.open(os.path.join(save_dir, 'trace.txt'))
+    tracer.verbose = verbose
+
+    # Make a little preamble in the trace.  Todays date, and the exact
+    # command used
+    tracer.today()
+    tracer.command()
+    tracer.declare_many(
+        {'solver_factory':solver_factory.__name__, **args}
+    )
+
+    solver = factory(**h.runners.run_base.factory_args(args))
+    solver.describe()
 
     # Do some unpacking
     num_writes = args['num_writes']
@@ -23,11 +39,6 @@ def init_and_run(solver, **args):
     # Make sure the output dir exists.
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-
-    # Make the tracer (whichs helps us print / log), and generate a preamble.
-    trace_path = os.path.join(save_dir, 'trace.txt')
-    tracer = h.tracer.Tracer(solver, trace_path, verbose)
-    tracer.start(args)
 
     # Train train train!  Write to disk once in awhile!
     updates_per_write = int(num_updates / num_writes)

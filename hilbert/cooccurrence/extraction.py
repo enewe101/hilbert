@@ -88,7 +88,7 @@ def extract_and_write_cooccurrence_parallel(
 
     if verbose:
         print('Extracting...')
-    pool.map(extract_cooccurrence_parallel_worker, args)
+    pool.map(extract_and_write_cooccurrence_parallel_worker, args)
     if verbose:
         print('Merging...')
 
@@ -101,30 +101,36 @@ def extract_and_write_cooccurrence_parallel(
         else:
             merged_cooccurrence.merge(read_cooccurrence)
 
-    max_sector_size = h.CONSTANTS.RC['max_sector_size']
-    sector_factor = int(math.ceil(len(unigram) / max_sector_size))
-    sectors = h.shards.Shards(sector_factor)
     if save_path is not None:
 
+        if verbose:
+            print('Saving...')
+
         if save_sectorized:
+            max_sector_size = h.CONSTANTS.RC['max_sector_size']
+            sector_factor = int(math.ceil(len(unigram) / max_sector_size))
+            sectors = h.shards.Shards(sector_factor)
             merged_cooccurrence.save_sectors(save_path, sectors)
             if save_monolithic:
                 merged_cooccurrence.save_cooccurrences(save_path)
         else:
             merged_cooccurrence.save(save_path)
 
-        print('Saving...')
-        merged_cooccurrence.save(save_path)
-
-    print('Cleaning up...')
+    if verbose:
+        print('Cleaning up...')
     for worker_id in range(processes):
         shutil.rmtree(worker_path(save_path, worker_id))
 
 
 
 
+def worker_path(save_path, worker_id):
+    return os.path.join(
+        save_path, "extract-worker-{}".format(worker_id)
+    )
 
-def extract_cooccurrence_parallel_worker(args):
+
+def extract_and_write_cooccurrence_parallel_worker(args):
     (
         corpus_path, save_path, worker_id, processes, unigram, 
         extractor_constructor_args, verbose
@@ -135,7 +141,6 @@ def extract_cooccurrence_parallel_worker(args):
     file_chunk = h.file_access.open_chunk(corpus_path, worker_id, processes)
     start = time.time()
     for line_num, line in enumerate(file_chunk):
-        print(worker_id, line)
         if worker_id == 0 and verbose and line_num % 1000 == 0:
             sys.stdout.write(
                 '\rTime elapsed: %0.f sec.;  '
@@ -169,7 +174,6 @@ def extract_unigram_and_cooccurrence(
     save_monolithic=False,
     verbose=True
 ):
-
     if verbose:
         print()
         print(l('Processes:'), processes)
@@ -222,7 +226,7 @@ def extract_unigram_and_cooccurrence(
     # Extract the cooccurrence, and save it to disc.
     if verbose:
         print('\nCollecting cooccurrence data...')
-    extract_cooccurrence_parallel(
+    extract_and_write_cooccurrence_parallel(
         corpus_path=corpus_path, processes=processes, unigram=unigram,
         extractor_str=extractor_str, window=window,
         min_count=min_count, weights=weights, save_path=save_path,
