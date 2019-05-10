@@ -69,7 +69,6 @@ def yields_recallable(f):
 
 def build_mle_sample_solver(
         cooccurrence_path,
-        simple_loss=False,        # MLE option
         temperature=2,            # MLE option
         batch_size=10000,         # Dense option
         bias=False,
@@ -129,7 +128,6 @@ def build_mle_sample_solver(
 
 def build_mle_solver(
         cooccurrence_path,
-        simple_loss=False,  # MLE option
         temperature=2,      # MLE option
         shard_factor=1,     # Dense option
         bias=False,
@@ -148,10 +146,7 @@ def build_mle_solver(
     dictionary = h.dictionary.Dictionary.load(
         os.path.join(cooccurrence_path, 'dictionary'))
 
-    if simple_loss:
-        loss = h.loss.SimpleMLELoss(ncomponents=len(dictionary)**2)
-    else:
-        loss = h.loss.MLELoss(ncomponents=len(dictionary)**2)
+    loss = h.loss.MLELoss(ncomponents=len(dictionary)**2)
 
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),

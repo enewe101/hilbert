@@ -7,12 +7,6 @@ def add_model_args(parser):
     h.runners.run_base.add_temperature_arg(parser)
     h.runners.run_base.add_bias_arg(parser)
     h.runners.run_base.add_shard_factor_arg(parser)
-    parser.add_argument(
-        '--simple-loss', '-j', action='store_true', help=(
-            "Whether to use the simpler loss function, obtained by neglecting "
-            "the denominator of the full loss function after differentiation."
-        )
-    )
     return parser
 
 

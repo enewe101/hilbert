@@ -89,20 +89,6 @@ class MLELoss(TemperedLoss):
         cooccurrence_data, unigram_data = batch_data
         Nxx, Nx, Nxt, N = cooccurrence_data
         Pxx_data = Nxx / N
-        pxx_independent = self.get_pxx_independent(batch_data)
-        Pxx_model = pxx_independent * torch.exp(response)
-        term1 = Pxx_data * response
-        term2 = (1 - Pxx_data) * torch.log(1 - Pxx_model)
-        return -(term1 + term2), pxx_independent
-
-
-
-class SimpleMLELoss(TemperedLoss):
-    REQUIRES_UNIGRAMS = False
-    def _forward_temper(self, response, batch_data):
-        cooccurrence_data, unigram_data = batch_data
-        Nxx, Nx, Nxt, N = cooccurrence_data
-        Pxx_data = Nxx / N
         term1 = Pxx_data * response
         pxx_independent = self.get_pxx_independent(batch_data)
         term2 = pxx_independent * torch.exp(response)
