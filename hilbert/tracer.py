@@ -37,10 +37,10 @@ class Tracer:
             print(string)
 
 
-    def declare(key, value):
+    def declare(self, key, value):
         self.trace('{} = {}'.format(key, value))
 
-    def declare_many(dictionary):
+    def declare_many(self, dictionary):
         for key, val in dictionary.items():
             self.declare(key, val)
 

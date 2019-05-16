@@ -10,9 +10,9 @@ import hilbert.shards
 import hilbert.unigram
 import hilbert.utils
 import hilbert.runners
-import hilbert.generic_datastructs
 import hilbert.file_access
 import hilbert.tracer
 import hilbert.exceptions
 import hilbert.tests
 import hilbert.learner
+import hilbert.scheduler

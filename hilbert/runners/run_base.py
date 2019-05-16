@@ -15,6 +15,16 @@ def run(solver_factory, **args):
     parameters to disk.
     """
 
+    # Do some unpacking
+    num_writes = args['num_writes']
+    num_updates = args['num_updates']
+    save_dir = args['save_embeddings_dir']
+    verbose = args['verbose']
+
+    # Make sure the output dir exists.
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
     # Make the tracer (whichs helps us print / log), and generate a preamble.
     tracer.open(os.path.join(save_dir, 'trace.txt'))
     tracer.verbose = verbose
@@ -27,27 +37,17 @@ def run(solver_factory, **args):
         {'solver_factory':solver_factory.__name__, **args}
     )
 
-    solver = factory(**h.runners.run_base.factory_args(args))
+    solver = solver_factory(**h.runners.run_base.factory_args(args))
     solver.describe()
-
-    # Do some unpacking
-    num_writes = args['num_writes']
-    num_updates = args['num_updates']
-    save_dir = args['save_embeddings_dir']
-    verbose = args['verbose']
-
-    # Make sure the output dir exists.
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
 
     # Train train train!  Write to disk once in awhile!
     updates_per_write = int(num_updates / num_writes)
     for write_num in range(num_writes):
-        solver.cycle(updates_per_write)
+        loss = solver.cycle(updates_per_write)
         num_updates = updates_per_write * (write_num+1)
         save_path = os.path.join(save_dir, '{}'.format(num_updates))
         solver.get_embeddings().save(save_path)
-        tracer.step()
+        tracer.declare('loss', loss)
 
 
 class ModelArgumentParser(ArgumentParser):
@@ -136,7 +136,7 @@ def add_common_constructor_args(parser):
         help='desired dimensionality of the embeddings being produced'
     )
     parser.add_argument(
-        '--quiet', '-q', default=False, action='store_false', dest='verbose',
+        '--quiet', '-q', action='store_false', dest='verbose',
         help="Don't print the trace to stdout."
     )
 

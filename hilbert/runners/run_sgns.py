@@ -44,6 +44,6 @@ def run(**args):
 
 
 if __name__ == '__main__':
-    run(get_argparser().pars_args())
+    run(**get_argparser().pars_args())
 
 

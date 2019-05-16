@@ -2,7 +2,6 @@ import hilbert as h
 import torch
 
 
-
 class Solver(object):
 
     def __init__(
@@ -45,13 +44,13 @@ class Solver(object):
 
 
     def describe(self):
-        s  = 'Loader:\n' + self.loader.describe()
-        s += 'Loss:\n' + self.loss.describe()
-        s += 'Optimizer:\n' + self.describe_optimizer(optimizer)
-        s += 'Learner:\n' + self.learner.describe()
-        s += 'Schedulers:\n' + self.describe_schedulers()
-        s += 'Dictionary:\n' + self.dictionary.describe()
-        tracer.trace(s)
+        s  = 'Loader: {}\n'.format(self.loader.__class__.__name__)
+        s += 'Loss: {}\n'.format(self.loss.__class__.__name__)
+        s += 'Optimizer: {}\n'.format(self.optimizer.__class__.__name__)
+        s += 'Learner: {}\n'.format(self.learner.__class__.__name__)
+        #s += 'Schedulers: {}\n'.format(self.describe_schedulers())
+        s += 'Dictionary: {} words\n'.format(len(self.dictionary))
+        h.tracer.tracer.trace(s)
 
 
     def get_embeddings(self):
@@ -70,12 +69,9 @@ class Solver(object):
         return self.learner.get_params()
 
 
-    def cycle(self, updates_per_cycle=1, keep_losses=False):
+    def cycle(self, updates_per_cycle=1):
 
         # Run a bunch of updates.
-        if keep_losses:
-            losses = []
-
         for update_id in range(updates_per_cycle):
 
             # Train on as many batches as the loader deems to be one update.
@@ -101,10 +97,6 @@ class Solver(object):
                     torch.cuda.empty_cache()
                     raise h.exceptions.DivergenceError('Model has diverged!')
 
-            if keep_losses:
-                losses.append(self.cur_loss.item())
-
-        if keep_losses:
-            return losses
+        return self.cur_loss.item()
 
 
