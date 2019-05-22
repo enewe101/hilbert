@@ -445,9 +445,8 @@ class TestEmbeddings(TestCase):
 
 
     def test_embeddings_recognize_loading_normalized(self):
-
         in_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
+            h.CONSTANTS.TEST_DIR, 'test-embeddings-normalized')
         embeddings = h.embeddings.Embeddings.load(in_path)
         self.assertTrue(embeddings.normed)
         self.assertTrue(embeddings.check_normalized())
