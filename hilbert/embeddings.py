@@ -17,7 +17,7 @@ def random(
     """
     Obtain ``Embeddings`` containing ``vocab`` number of ``d``-dimensional
     vectors, whose components are sampled randomly.  Optionaly provide a
-    `dictionary` to associate.   
+    ``dictionary`` to associate.   
 
     If include_covectors is ``True``, both vectors and covectors are sampled.
     If include biases is ``True``, then the embeddings will be initialized 

@@ -33,6 +33,7 @@ class Tracer:
     def trace(self, string):
         if self.trace_file is not None: 
             self.trace_file.write(string+'\n')
+            self.trace_file.flush()
         if self.verbose: 
             print(string)
 

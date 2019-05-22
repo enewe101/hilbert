@@ -1,4 +1,5 @@
 import hilbert as h
+from hilbert.tracer import tracer
 import torch
 
 
@@ -43,6 +44,14 @@ class Solver(object):
         self.cur_loss = None
 
 
+    def reset(self, lr=None):
+        """
+        Re-initialize the learner's parameters and the optimizer's state.
+        """
+        self.learner.reset()
+        self.optimizer.reset(lr)
+
+
     def describe(self):
         s  = 'Loader: {}\n'.format(self.loader.__class__.__name__)
         s += 'Loss: {}\n'.format(self.loss.__class__.__name__)
@@ -69,7 +78,7 @@ class Solver(object):
         return self.learner.get_params()
 
 
-    def cycle(self, updates_per_cycle=1):
+    def cycle(self, updates_per_cycle=1, monitor_closely=False):
 
         # Run a bunch of updates.
         for update_id in range(updates_per_cycle):
@@ -97,6 +106,11 @@ class Solver(object):
                     torch.cuda.empty_cache()
                     raise h.exceptions.DivergenceError('Model has diverged!')
 
+                if monitor_closely:
+                    tracer.declare('loss', self.cur_loss.item())
+
+        tracer.declare('loss', self.cur_loss.item())
         return self.cur_loss.item()
+
 
 

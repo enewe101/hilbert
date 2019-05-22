@@ -7,6 +7,7 @@ def read_rc():
         'cooccurrence_dir': None,
         'corpus_dir': None,
         'embeddings_dir':None,
+        'task_data_path': None,
         'device':'cuda',
         'dtype': '32',
         'max_sector_size': '12000',

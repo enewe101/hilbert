@@ -5,7 +5,10 @@ from argparse import ArgumentParser
 
 
 def factory_args(args):
-    ignore = {'save_embeddings_dir', 'num_writes', 'num_updates'}
+    ignore = {
+        'save_embeddings_dir', 'num_writes', 'num_updates',
+        'monitor_closely', 'debug'
+    }
     return {key:args[key] for key in args if key not in ignore}
 
 
@@ -16,6 +19,7 @@ def run(solver_factory, **args):
     """
 
     # Do some unpacking
+    monitor_closely = args['monitor_closely']
     num_writes = args['num_writes']
     num_updates = args['num_updates']
     save_dir = args['save_embeddings_dir']
@@ -25,7 +29,7 @@ def run(solver_factory, **args):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    # Make the tracer (whichs helps us print / log), and generate a preamble.
+    # Make the tracer (which helps us print / log), and generate a preamble.
     tracer.open(os.path.join(save_dir, 'trace.txt'))
     tracer.verbose = verbose
 
@@ -40,14 +44,17 @@ def run(solver_factory, **args):
     solver = solver_factory(**h.runners.run_base.factory_args(args))
     solver.describe()
 
+    # Trigger interactive debugger to explore solver behavior if desired.
+    if args['debug']:
+        import pdb; pdb.set_trace()
+
     # Train train train!  Write to disk once in awhile!
     updates_per_write = int(num_updates / num_writes)
     for write_num in range(num_writes):
-        loss = solver.cycle(updates_per_write)
+        solver.cycle(updates_per_write, monitor_closely)
         num_updates = updates_per_write * (write_num+1)
         save_path = os.path.join(save_dir, '{}'.format(num_updates))
         solver.get_embeddings().save(save_path)
-        tracer.declare('loss', loss)
 
 
 class ModelArgumentParser(ArgumentParser):
@@ -161,6 +168,15 @@ def get_argparser(**kwargs):
         '--updates', dest='num_updates', type=int, default=100000,
         help="Total number of training updates to run."
     )
+    parser.add_argument(
+        '--monitor-closely', '-M', action='store_true',
+        help="Get the loss after every single model batch"
+    )
+    parser.add_argument(
+        '--debug', '-D', action='store_true',
+        help="After making the solver, go into interactive debugger"
+    )
+
     #parser.add_argument(
     #    '--dtype', choices=(64, 32, 16), default=32, dest='dtype',
     #    help="Bit depth of floats used in the model."

@@ -13,7 +13,7 @@ def get_constructor(model_str):
     }[model_str]
 
 
-def get_optimizer(opt_str, parameters, learning_rate):
+def get_optimizer(opt_str, learner, learning_rate):
     optimizers = {
         'sgd': torch.optim.SGD,
         'adam': torch.optim.Adam,
@@ -25,8 +25,24 @@ def get_optimizer(opt_str, parameters, learning_rate):
         raise ValueError("Optimizer choice be one of '{}'. Got '{}'.".format(
             ', '.join(valid_opt_strs), opt_str
         ))
-    return optimizers[opt_str](parameters, lr=learning_rate)
 
+    return ResettableOptimizer(optimizers[opt_str], learner, learning_rate)
+
+
+class ResettableOptimizer:
+    # Create an underlying optimizer, and memorize the constructor arguments
+    def __init__(self, opt_class, learner, lr):
+        self.opt_class = opt_class
+        self.learner = learner
+        self.lr = lr
+        self.reset()
+    # Delegate everything not found here to the underlying optimizer
+    def __getattr__(self, attr):
+        return self.opt.__getattribute__(attr)
+    # Create the underlying optimizer
+    def reset(self, lr=None):
+        self.lr = self.lr if lr is None else lr
+        self.opt = self.opt_class(self.learner.parameters(), lr=self.lr)
 
 
 def get_init_embs(path, device):
@@ -110,7 +126,7 @@ def build_mle_sample_solver(
         verbose=verbose
     )
 
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     solver = h.solver.Solver(
         loader=loader,
@@ -165,7 +181,7 @@ def build_mle_solver(
         verbose=verbose,
     )
 
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     solver = h.solver.Solver(
         loader=loader,
@@ -222,7 +238,7 @@ def build_sgns_solver(
         verbose=verbose,
     )
 
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     solver = h.solver.Solver(
         loader=loader,
@@ -278,7 +294,7 @@ def build_glove_solver(
         verbose=verbose,
     )
 
-    optimizer = get_optimizer(opt_str, learner.parameters(), learning_rate)
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     solver = h.solver.Solver(
         loader=loader,

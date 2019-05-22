@@ -96,18 +96,14 @@ def autotune(
         kwargs = {**constr_kwargs, 'learning_rate':crt_lr}
         solver = constructor(**kwargs)
         print(solver.describe())
-
-        bar = IncrementalBar('Cycling {:10}'.format(crt_lr), max=n_iters)
         losses = []
         for i in range(n_iters):
             try:
-                losses += solver.cycle(1, keep_losses=True)
-                bar.next()
+                losses.append(solver.cycle(1))
                 if len(losses) > 11:
                     loss_check(losses)
             except h.exceptions.DivergenceError:
                 break
-        bar.finish()
         losses = double_check(solver, losses, n_iters)
 
         if len(losses) < n_iters:
@@ -134,12 +130,13 @@ def autotune(
     return good_lrs
 
 
-def main():
+
+def make_parser():
 
     # Make an argument parser; add some arguments that are always applicable.
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--n-iters', type=int, default=100,
+        '--n-iters', type=int, default=1000,
         help='how many cycles to run for each LR tested'
     )
     parser.add_argument(
@@ -147,7 +144,7 @@ def main():
         help='estimate of what the maximum possible LR could be'
     )
 
-    # Add arguments needed to run each of the models
+    # Add the runners for all models
     subparsers = parser.add_subparsers(dest='model')
     mle_parser = subparsers.add_parser('mle')
     h.runners.run_mle.add_model_args(mle_parser)
@@ -158,11 +155,24 @@ def main():
     mle_sample_parser = subparsers.add_parser('mle_sample')
     h.runners.run_mle_sample.add_model_args(mle_sample_parser)
 
+    return parser
+
+
+
+def main():
+
+    # Build a parser based on the command-line parsers for each model.
+    parser = make_parser()
+
     # Separate the autotune args from model-specific args
     args = vars(parser.parse_args())
     n_iters = args.pop('n_iters')
     head_lr = args.pop('head_lr')
     model = args.pop('model')
+
+    # Apply rc options for directories 
+    h.utils.cooc_path(args, 'cooccurrence_path')
+    h.utils.emb_path(args, 'init_embeddings_path')
 
     print('Autotuning model {}!'.format(model))
     constructor = h.factories.get_constructor(model)
@@ -176,10 +186,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-"""
-Example:
-python autotune.py -m mle --seed 1 -s adam -b 5w-dynamic-v10k -T 2.0 -o /dev/null
-/home/rldata/hilbert-embeddings/cooccurrence/5w-dynamic-v10k
-"""
