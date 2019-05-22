@@ -9,7 +9,7 @@ SECTOR_FACTOR = 3
 COOCCURRENCE_PATH = os.path.join(
     h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors/')
 SAVE_EMBEDDINGS_DIR = os.path.join(
-    h.CONSTANTS.TEST_DIR,'test-data/test-integration/')
+    h.CONSTANTS.TEST_DIR,'test-integration/')
 
 
 class TestIntegration(TestCase):
@@ -40,12 +40,12 @@ class TestIntegration(TestCase):
             'seed': 1917,
             'device': None,
             'verbose': False,
+            'monitor_closely': False,
+            'debug': False,
         }
 
         # Each factory also has its own particular arguments
-        mle_kwargs = {
-            **base_kwargs,
-            'shard_factor':1, 'simple_loss':False, 'temperature':2}
+        mle_kwargs = {**base_kwargs, 'shard_factor':1, 'temperature':2}
         glove_kwargs = {
             **base_kwargs, 'shard_factor':1, 'X_max':100., 'alpha':0.75}
         sgns_kwargs = {
@@ -67,7 +67,7 @@ class TestIntegration(TestCase):
             run(**kwargs)
 
         # Cleanup after the test.
-        shutil.rmtree(SAVE_EMBEDDINGS_DIR)
+        shutil.rmtree(SAVE_EMBEDDINGS_DIR, ignore_errors=True)
 
 
 

@@ -46,7 +46,7 @@ class TestLoss(TestCase):
         loss_term_1 = Nxx * torch.log(sigmoid(M_hat))
         loss_term_2 = N_neg * torch.log(1-sigmoid(M_hat))
         loss_array = -(loss_term_1 + loss_term_2)
-        expected_loss = torch.sum(loss_array) / float(ncomponents)
+        expected_loss = torch.sum(loss_array) #/ float(ncomponents)
 
         # They should be the same!
         self.assertTrue(torch.allclose(found_loss, expected_loss))
@@ -54,27 +54,29 @@ class TestLoss(TestCase):
 
 
     def test_mle_loss(self):
+
         cooccurrence, _, _ = get_test_cooccurrence()
         cooccurrence_data = cooccurrence.load_shard(
             None, h.CONSTANTS.MATRIX_DEVICE)
         Nxx, Nx, Nxt, N = cooccurrence_data
         ncomponents = np.prod(Nxx.shape)
-        keep_prob = 1
-
         M_hat = torch.ones_like(Nxx)
-        Pxx_data = Nxx / N
-        Pxx_independent = (Nx / N) * (Nxt / N)
-        Pxx_model = Pxx_independent * torch.exp(M_hat)
 
-        loss_term1 = Pxx_data * M_hat
-        loss_term2 = (1-Pxx_data) * torch.log(1 - Pxx_model)
-        loss_array = loss_term1 + loss_term2
 
         for temperature in [1,10]:
+
+            # Calculate expected loss for this test.
+            Pxx_data = Nxx / N
+            Pxx_independent = (Nx / N) * (Nxt / N)
+            Pxx_model = Pxx_independent * torch.exp(M_hat)
+            loss_array = -(Pxx_data * M_hat - Pxx_model)
             tempered_loss = loss_array * Pxx_independent**(1/temperature - 1)
-            expected_loss = -torch.sum(tempered_loss) / float(ncomponents)
+            expected_loss = torch.sum(tempered_loss) #/ float(ncomponents)
+
+            # Calculate loss calculated by the code being tested.
             loss_class = h.loss.MLELoss(ncomponents, temperature=temperature)
             found_loss = loss_class(M_hat, (cooccurrence_data, None))
+
             self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 

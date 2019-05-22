@@ -9,9 +9,9 @@ from torch.nn.functional import dropout
 class HilbertLoss(nn.Module):
     def __init__(self, ncomponents):
         super(HilbertLoss, self).__init__()
-        self.rescale = float(ncomponents)
+        #self.rescale = float(ncomponents)
     def forward(self, M_hat, batch_data):
-        return torch.sum(self._forward(M_hat, batch_data)) / self.rescale
+        return torch.sum(self._forward(M_hat, batch_data)) #/ self.rescale
     def _forward(self, M_hat, batch_data):
         raise NotImplementedError('Subclasses must override `_forward`.')
 
