@@ -1,7 +1,31 @@
+import os
 import hilbert as h
 import numpy as np
 import torch
 from scipy import sparse
+
+
+def cooc_path(args, key):
+    if args[key] is None: return
+    args[key] = os.path.join(h.CONSTANTS.RC['cooccurrence_dir'], args[key])
+
+
+def emb_path(args, key):
+    if args[key] is None: return
+    args[key] = os.path.join(h.CONSTANTS.RC['embeddings_dir'], args[key])
+
+
+def corpus_path(args, key):
+    if args[key] is None: return
+    args[key] = os.path.join(h.CONSTANTS.RC['embeddings_dir'], args[key])
+
+
+def get_device(device=None):
+    return h.CONSTANTS.RC['device'] if device is None else device
+
+
+def get_dtype(dtype=None):
+    return h.CONSTANTS.RC['dtype'] if dtype is None else dtype
 
 
 def load_shard(

@@ -69,14 +69,13 @@ class CooccurrenceMutable(Cooccurrence):
         unigram,
         Nxx=None,
         marginalize=True,
-        device=None,
         verbose=True
     ):
         if Nxx is None:
             Nxx = np.zeros((len(unigram), len(unigram)))
             Nxx = sparse.lil_matrix(Nxx)
         super(CooccurrenceMutable, self).__init__(
-            unigram, Nxx=Nxx, marginalize=True, device=device, verbose=verbose)
+            unigram, Nxx=Nxx, marginalize=True, verbose=verbose)
 
 
     def __copy__(self):
@@ -112,10 +111,14 @@ class CooccurrenceMutable(Cooccurrence):
 
 
     def add_id(self, focal_ids, context_ids, count=1):
-        self.Nxx[focal_ids, context_ids] += np.array([count])
-        self.Nx[focal_ids] += count
-        self.Nxt[0][context_ids] += count
-        self.N += count
+        # I wrote this originally hoping that I could "vectorize" the addition
+        # of counts, and hence avoid the for-loop.  Doing so is faster, but it
+        # repeated indices in a vectorized addition are not accumulated.
+        for focal_id, context_id in zip(focal_ids, context_ids):
+            self.Nxx[focal_id, context_id] += np.array([count])
+            self.Nx[focal_id] += count
+            self.Nxt[0][context_id] += count
+            self.N += count
 
 
     #def sort(self, force=False):
@@ -140,9 +143,7 @@ class CooccurrenceMutable(Cooccurrence):
         self.unigram.truncate(k)
 
 
-    def save(
-        self, path, save_unigram=True
-    ):
+    def save(self, path, save_unigram=True, save_marginals=True):
         """
         Save the cooccurrence data to disk.  A new directory will be created
         at `path`, and two files will be created within it to store the 
@@ -152,10 +153,15 @@ class CooccurrenceMutable(Cooccurrence):
         if not os.path.exists(path):
             os.makedirs(path)
 
-        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
-
+        self.save_cooccurrences(path)
         if save_unigram:
             self.unigram.save(path)
+        if save_marginals:
+            self.save_marginals(path)
+
+
+    def save_cooccurrences(self, path):
+        sparse.save_npz(os.path.join(path, 'Nxx.npz'), self.Nxx.tocsr())
 
 
     def save_marginals(self, path):
@@ -199,20 +205,20 @@ class CooccurrenceMutable(Cooccurrence):
 
 
     @staticmethod
-    def load(path, marginalize=True, device=None, verbose=True):
+    def load(path, marginalize=True, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
-        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+        unigram = h.unigram.Unigram.load(path, verbose=verbose)
         Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
         return CooccurrenceMutable(
-            unigram, Nxx, marginalize=True, device=device, verbose=verbose)
+            unigram, Nxx, marginalize=True, verbose=verbose)
 
 
     @staticmethod
-    def load_unigram(path, device=None, verbose=True):
+    def load_unigram(path, verbose=True):
         unigram = h.unigram.Unigram.load(path)
-        return CooccurrenceMutable(unigram, device=device, verbose=verbose)
+        return CooccurrenceMutable(unigram, verbose=verbose)
 
 

@@ -20,7 +20,72 @@ def approx_equal(a, b):
     return abs(a - b) <= 1
 
 
+def get_test_cooccurrence():
+    """
+    For testing purposes, builds a cooccurrence from constituents (not using
+    it's own load function) and returns the cooccurrence along with the
+    constituents used to make it.
+    """
+    path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
+    unigram = h.unigram.Unigram.load(path, verbose=False)
+    Nxx = sparse.load_npz(os.path.join(path, 'Nxx.npz')).tolil()
+    cooccurrence = h.cooccurrence.Cooccurrence(unigram, Nxx, verbose=False)
+
+    return cooccurrence, unigram, Nxx
+
+
+
 class TestCooccurrenceSector(TestCase):
+
+    def get_test_cooccurrence_stats(self):
+        dictionary = h.dictionary.Dictionary(['banana','socks','car','field'])
+        array = np.array([[0,3,1,1],[3,0,1,0],[1,1,0,0],[1,0,0,0]])
+        unigram = h.unigram.Unigram(dictionary, array.sum(axis=1))
+        return dictionary, array, unigram
+
+
+
+    def get_test_cooccurrence_stats2(self):
+        dictionary = h.dictionary.Dictionary([
+            'banana','socks','car','field','radio','hamburger'
+        ])
+        Nxx = np.array([
+            [0,3,1,1,0,0],
+            [3,0,1,0,1,0],
+            [1,1,0,0,0,1],
+            [1,0,0,1,0,0],
+            [0,1,0,0,0,1],
+            [0,0,1,0,1,0]
+        ])
+        unigram = h.unigram.Unigram(dictionary, Nxx.sum(axis=1))
+        return dictionary, Nxx, unigram
+
+
+    def test_load_coo(self):
+
+        # Settings for test
+        sector_factor = 3
+
+        # Create sharded cooccurrence data to test the loader
+        dictionary, Nxx, unigram = self.get_test_cooccurrence_stats2()
+        cooccurrence = h.cooccurrence.CooccurrenceMutable(unigram, Nxx)
+
+        # Save the cooccurrence data on disk in shards to test the loader
+        save_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        sectors = h.shards.Shards(sector_factor)
+        cooccurrence.save_sectors(save_path, sectors)
+
+        # Get the loader to re-produce the original matrix
+        Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
+            save_path, verbose=False)
+        Nxx_sparse = sparse.coo_matrix((
+            np.array(Nxx_data), (np.array(I), np.array(J))
+        ))
+        Nxx_dense = Nxx_sparse.toarray()
+
+        # Test equality
+        self.assertTrue(np.allclose(Nxx_dense, Nxx))
+
 
     def get_test_cooccurrence_sector(self):
         cooccurrence = h.cooccurrence.Cooccurrence.load(
@@ -39,13 +104,6 @@ class TestCooccurrenceSector(TestCase):
         }
         cooccurrence_sector = h.cooccurrence.CooccurrenceSector(**args)
         return cooccurrence_sector, cooccurrence
-
-
-    def get_test_cooccurrence_stats(self):
-        dictionary = h.dictionary.Dictionary(['banana','socks','car','field'])
-        array = np.array([[0,3,1,1],[3,0,1,0],[1,1,0,0],[1,0,0,0]])
-        unigram = h.unigram.Unigram(dictionary, array.sum(axis=1))
-        return dictionary, array, unigram
 
 
     #def get_bigger_test_cooccurrence(self):
@@ -196,7 +254,7 @@ class TestCooccurrenceSector(TestCase):
 
     def test_load(self):
 
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
 
         sector_factor = 3
         for sector in h.shards.Shards(sector_factor):
@@ -213,7 +271,9 @@ class TestCooccurrenceSector(TestCase):
 
             # Load the corresponding sector directly from disk.
             found_sector = h.cooccurrence.CooccurrenceSector.load(
-                os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors'), sector)
+                os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence-sectors'),
+                sector
+            )
 
             # Cooccurrence arrays should be equal
             self.assertTrue(np.allclose(
@@ -385,7 +445,7 @@ class TestCooccurrenceSector(TestCase):
     def test_apply_w2v_undersampling(self):
 
         t = 1e-5
-        cooccurrence, unigram, _Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, _Nxx = get_test_cooccurrence()
 
         sector_factor = 3
         for sector in h.shards.Shards(sector_factor):
@@ -409,15 +469,16 @@ class TestCooccurrenceSector(TestCase):
             self.assertTrue(np.allclose(Nxt[:,sector[1]], sNxt))
 
             # Now apply undersampling
-            p_i = h.corpus_stats.w2v_prob_keep(uNx, uN, t)
-            p_j = h.corpus_stats.w2v_prob_keep(uNxt, uN, t)
+            p_i = h.cooccurrence.cooccurrence.w2v_prob_keep(uNx, uN, t)
+            p_j = h.cooccurrence.cooccurrence.w2v_prob_keep(uNxt, uN, t)
             expected_Nx = Nx * p_i * torch.sum(uNxt/uN * p_j)
             expected_Nxt = Nxt * p_j * torch.sum(uNx/uN*p_i)
             expected_Nxx = Nxx * p_i * p_j
             expected_N = torch.sum(expected_Nx)
 
             cooccurrence_sector.apply_w2v_undersampling(t)
-            found_Nxx, found_Nx, found_Nxt, found_N = cooccurrence_sector.load_shard()
+            found_Nxx, found_Nx, found_Nxt, found_N = (
+                cooccurrence_sector.load_shard())
 
             self.assertTrue(torch.allclose(found_Nxx, expected_Nxx[sector]))
             self.assertTrue(torch.allclose(found_Nx, expected_Nx[sector[0]]))
@@ -448,7 +509,7 @@ class TestCooccurrenceSector(TestCase):
 
 
     def test_count(self):
-        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
+        cooccurrence, unigram, Nxx = get_test_cooccurrence()
         sector_factor = 3
         num_to_sample = 5
         for sector in h.shards.Shards(sector_factor):
@@ -469,27 +530,5 @@ class TestCooccurrenceSector(TestCase):
                     cooccurrence.count(row_token, col_token),
                     cooccurrence_sector.count(row_token, col_token)
                 )
-
-
-#    def test_density(self):
-#        cooccurrence, unigram, Nxx = h.corpus_stats.get_test_cooccurrence()
-#        sector_factor = 3
-#        num_to_sample = 5
-#        for sector in h.shards.Shards(sector_factor):
-#            args = {
-#                'unigram':unigram,
-#                'Nxx':Nxx[sector],
-#                'Nx':cooccurrence.Nx,
-#                'Nxt':cooccurrence.Nxt,
-#                'sector':sector
-#            }
-#            cooccurrence_sector = h.cooccurrence.CooccurrenceSector(**args)
-#            expected_sector = cooccurrence.Nxx[sector]
-#            size = np.prod(expected_sector.shape)
-#            for thresh in [0,1,25]:
-#                num_above_thresh = np.sum(expected_sector > thresh)
-#                expected_density = num_above_thresh / size
-#                self.assertEqual(
-#                    cooccurrence_sector.density(thresh), expected_density)
 
 

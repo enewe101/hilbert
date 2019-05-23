@@ -10,9 +10,8 @@ def get_test_dictionary():
     return h.dictionary.Dictionary.load(
         os.path.join(h.CONSTANTS.TEST_DIR, 'dictionary'))
 
+
 # TODO: include biases in tests
-
-
 class TestEmbeddings(TestCase):
 
     def test_creating_embeddings(self):
@@ -21,24 +20,24 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         device = h.CONSTANTS.MATRIX_DEVICE
         V = torch.rand(vocab, d, device=device)
-        v_bias = torch.rand(vocab, device=device)
+        vb = torch.rand(vocab, device=device)
         W = torch.rand(vocab, d, device=device)
-        w_bias = torch.rand(vocab, device=device)
+        wb = torch.rand(vocab, device=device)
 
 
-        # Create embeddings with V, W, v_bias, and w_bias
+        # Create embeddings with V, W, vb, and wb
         embeddings = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary,
+            V, W=W, vb=vb, wb=wb, dictionary=dictionary,
             device=device
         )
         self.assertFalse(embeddings.V is V)
         self.assertTrue(torch.allclose(embeddings.V, V))
         self.assertFalse(embeddings.W is W)
         self.assertTrue(torch.allclose(embeddings.W, W))
-        self.assertFalse(embeddings.v_bias is v_bias)
-        self.assertTrue(torch.allclose(embeddings.v_bias, v_bias))
-        self.assertFalse(embeddings.w_bias is w_bias)
-        self.assertTrue(torch.allclose(embeddings.w_bias, w_bias))
+        self.assertFalse(embeddings.vb is vb)
+        self.assertTrue(torch.allclose(embeddings.vb, vb))
+        self.assertFalse(embeddings.wb is wb)
+        self.assertTrue(torch.allclose(embeddings.wb, wb))
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Create embeddings with V, W, no bias
@@ -48,44 +47,44 @@ class TestEmbeddings(TestCase):
         self.assertTrue(torch.allclose(embeddings.V, V))
         self.assertFalse(embeddings.W is W)
         self.assertTrue(torch.allclose(embeddings.W, W))
-        self.assertTrue(embeddings.v_bias is None)
-        self.assertTrue(embeddings.w_bias is None)
+        self.assertTrue(embeddings.vb is None)
+        self.assertTrue(embeddings.wb is None)
         self.assertTrue(embeddings.dictionary is dictionary)
 
-        # Create embeddings with V, v_bias, no W or w_bias
+        # Create embeddings with V, vb, no W or wb
         embeddings = h.embeddings.Embeddings(
-            V, v_bias=v_bias, dictionary=dictionary, device=device)
+            V, vb=vb, dictionary=dictionary, device=device)
         self.assertFalse(embeddings.V is V)
         self.assertTrue(torch.allclose(embeddings.V, V))
         self.assertTrue(embeddings.W is None)
-        self.assertFalse(embeddings.v_bias is v_bias)
-        self.assertTrue(torch.allclose(embeddings.v_bias, v_bias))
-        self.assertTrue(embeddings.w_bias is None)
+        self.assertFalse(embeddings.vb is vb)
+        self.assertTrue(torch.allclose(embeddings.vb, vb))
+        self.assertTrue(embeddings.wb is None)
         self.assertTrue(embeddings.dictionary is dictionary)
 
-        # Create embeddings with V, v_bias, no W or w_bias
+        # Create embeddings with V, vb, no W or wb
         embeddings = h.embeddings.Embeddings(
-            V, v_bias=v_bias, dictionary=dictionary, device=device)
+            V, vb=vb, dictionary=dictionary, device=device)
         self.assertFalse(embeddings.V is V)
         self.assertTrue(torch.allclose(embeddings.V, V))
         self.assertTrue(embeddings.W is None)
-        self.assertFalse(embeddings.v_bias is v_bias)
-        self.assertTrue(torch.allclose(embeddings.v_bias, v_bias))
-        self.assertTrue(embeddings.w_bias is None)
+        self.assertFalse(embeddings.vb is vb)
+        self.assertTrue(torch.allclose(embeddings.vb, vb))
+        self.assertTrue(embeddings.wb is None)
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Cannot create embeddings with only one bias but not the other
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(
-                V, W=W, v_bias=v_bias, dictionary=dictionary, device=device)
+                V, W=W, vb=vb, dictionary=dictionary, device=device)
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(
-                V, W=W, w_bias=w_bias, dictionary=dictionary, device=device)
+                V, W=W, wb=wb, dictionary=dictionary, device=device)
 
-        # Cannot create embeddings with w_bias if there is no W
+        # Cannot create embeddings with wb if there is no W
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(
-                V, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary,
+                V, vb=vb, wb=wb, dictionary=dictionary,
                 device=device
             )
 
@@ -96,10 +95,10 @@ class TestEmbeddings(TestCase):
             embeddings = h.embeddings.Embeddings(V, W=W[:,:-1], device=device)
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(
-                V, W=W, v_bias=v_bias, w_bias=w_bias[:-1], device=device)
+                V, W=W, vb=vb, wb=wb[:-1], device=device)
         with self.assertRaises(ValueError):
             embeddings = h.embeddings.Embeddings(
-                V, W=W, v_bias=v_bias[:-1], w_bias=w_bias, device=device)
+                V, W=W, vb=vb[:-1], wb=wb, device=device)
 
         # Try making embeddings using an incorrectly-lengthed dictionary.
         V = V[:-5]
@@ -127,13 +126,13 @@ class TestEmbeddings(TestCase):
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can have random embeddings with biases.
-        zeros = torch.zeros(vocab)
+        zeros = torch.zeros(vocab, device=h.CONSTANTS.MATRIX_DEVICE)
         embeddings = h.embeddings.random(
             vocab, d, dictionary=dictionary, include_biases=True)
         self.assertEqual(embeddings.V.shape, (vocab, d))
         self.assertTrue(embeddings.W.shape, (vocab, d))
-        self.assertTrue(torch.allclose(embeddings.v_bias, zeros))
-        self.assertTrue(torch.allclose(embeddings.w_bias, zeros))
+        self.assertTrue(torch.allclose(embeddings.vb, zeros))
+        self.assertTrue(torch.allclose(embeddings.wb, zeros))
         self.assertTrue(embeddings.dictionary is dictionary)
 
         # Can omit the dictionary
@@ -223,21 +222,21 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         device = h.CONSTANTS.MATRIX_DEVICE
         V = torch.rand(vocab, d, device=device)
-        v_bias = torch.rand(vocab, device=device)
+        vb = torch.rand(vocab, device=device)
         W = torch.rand(vocab, d, device=device)
-        w_bias = torch.rand(vocab, device=device)
+        wb = torch.rand(vocab, device=device)
 
-        # Create embeddings with V, W, v_bias, and w_bias
+        # Create embeddings with V, W, vb, and wb
         embeddings = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary)
+            V, W=W, vb=vb, wb=wb, dictionary=dictionary)
 
         self.assertTrue(torch.allclose(embeddings.unk, embeddings.V.mean(0)))
         self.assertTrue(torch.allclose(embeddings.unkV, embeddings.V.mean(0)))
         self.assertTrue(torch.allclose(embeddings.unkW, embeddings.W.mean(0)))
         self.assertTrue(torch.allclose(
-            embeddings.unkv_bias, embeddings.v_bias.mean(0)))
+            embeddings.unkvb, embeddings.vb.mean(0)))
         self.assertTrue(torch.allclose(
-            embeddings.unkw_bias, embeddings.w_bias.mean(0)))
+            embeddings.unkwb, embeddings.wb.mean(0)))
 
         with self.assertRaises(KeyError):
             embeddings.get_vec('archaeopteryx')
@@ -260,11 +259,11 @@ class TestEmbeddings(TestCase):
         ))
         self.assertTrue(torch.allclose(
             embeddings.get_vec_bias('archaeopteryx', 'unk'),
-            embeddings.v_bias.mean(0)
+            embeddings.vb.mean(0)
         ))
         self.assertTrue(torch.allclose(
             embeddings.get_covec_bias('archaeopteryx', 'unk'),
-            embeddings.w_bias.mean(0)
+            embeddings.wb.mean(0)
         ))
 
 
@@ -275,11 +274,11 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
-        v_bias = np.random.random((vocab,))
-        w_bias = np.random.random((vocab,))
+        vb = np.random.random((vocab,))
+        wb = np.random.random((vocab,))
 
         embeddings = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias, dictionary=dictionary)
+            V, W=W, vb=vb, wb=wb, dictionary=dictionary)
 
         self.assertTrue(np.allclose(embeddings.get_vec(1000), V[1000]))
         self.assertTrue(np.allclose(
@@ -299,16 +298,16 @@ class TestEmbeddings(TestCase):
             V[dictionary.tokens.index('apple')]
         ))
 
-        self.assertTrue(np.allclose(embeddings.v_bias[1000], v_bias[1000]))
+        self.assertTrue(np.allclose(embeddings.vb[1000], vb[1000]))
         self.assertTrue(np.allclose(
             embeddings.get_vec_bias('apple'),
-            v_bias[dictionary.tokens.index('apple')]
+            vb[dictionary.tokens.index('apple')]
         ))
 
-        self.assertTrue(np.allclose(embeddings.w_bias[1000], w_bias[1000]))
+        self.assertTrue(np.allclose(embeddings.wb[1000], wb[1000]))
         self.assertTrue(np.allclose(
             embeddings.get_covec_bias('apple'),
-            w_bias[dictionary.tokens.index('apple')]
+            wb[dictionary.tokens.index('apple')]
         ))
 
         # KeyErrors are trigerred when trying to access embeddings that are
@@ -446,9 +445,8 @@ class TestEmbeddings(TestCase):
 
 
     def test_embeddings_recognize_loading_normalized(self):
-
         in_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'normalized-test-embeddings')
+            h.CONSTANTS.TEST_DIR, 'test-embeddings-normalized')
         embeddings = h.embeddings.Embeddings.load(in_path)
         self.assertTrue(embeddings.normed)
         self.assertTrue(embeddings.check_normalized())
@@ -622,19 +620,19 @@ class TestEmbeddings(TestCase):
         dictionary = get_test_dictionary()
         V = np.random.random((vocab, d))
         W = np.random.random((vocab, d))
-        v_bias = np.random.random((vocab,))
-        w_bias = np.random.random((vocab,))
+        vb = np.random.random((vocab,))
+        wb = np.random.random((vocab,))
 
         embeddings_pristine = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias,
+            V, W=W, vb=vb, wb=wb,
             dictionary=get_test_dictionary()
         )
         embeddings_to_be_sorted = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias,
+            V, W=W, vb=vb, wb=wb,
             dictionary=get_test_dictionary(), verbose=False
         )
         embeddings_to_sort_by = h.embeddings.Embeddings(
-            V, W=W, v_bias=v_bias, w_bias=w_bias, 
+            V, W=W, vb=vb, wb=wb, 
             dictionary=get_test_dictionary()
         )
         sort_tokens = embeddings_to_sort_by.dictionary.tokens
@@ -669,12 +667,12 @@ class TestEmbeddings(TestCase):
             embeddings_pristine.W.shape[0] - 5
         )
         self.assertEqual(
-            embeddings_to_be_sorted.v_bias.shape[0],
-            embeddings_pristine.v_bias.shape[0] - 5
+            embeddings_to_be_sorted.vb.shape[0],
+            embeddings_pristine.vb.shape[0] - 5
         )
         self.assertEqual(
-            embeddings_to_be_sorted.w_bias.shape[0],
-            embeddings_pristine.w_bias.shape[0] - 5
+            embeddings_to_be_sorted.wb.shape[0],
+            embeddings_pristine.wb.shape[0] - 5
         )
 
         # The embeddings are reordered but still bound to the same tokens.
@@ -707,11 +705,11 @@ class TestEmbeddings(TestCase):
                 embeddings_to_be_sorted.get_covec(token)
             ))
             self.assertTrue(torch.allclose(
-                embeddings_to_be_sorted.v_bias[i],
+                embeddings_to_be_sorted.vb[i],
                 embeddings_to_be_sorted.get_vec_bias(token)
             ))
             self.assertTrue(torch.allclose(
-                embeddings_to_be_sorted.w_bias[i],
+                embeddings_to_be_sorted.wb[i],
                 embeddings_to_be_sorted.get_covec_bias(token)
             ))
 

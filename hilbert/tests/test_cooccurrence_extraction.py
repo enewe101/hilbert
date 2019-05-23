@@ -1,15 +1,15 @@
 import os
+import math
+import copy
 import shutil
 import random
-from collections import Counter
-import copy
 import itertools
+from collections import Counter
+from unittest import main, TestCase
 
 import numpy as np
 from scipy import sparse
-from unittest import main, TestCase
 
-import shared
 import hilbert as h
 import data_preparation as dp
 
@@ -140,7 +140,7 @@ class TestUnigramExtraction(TestCase):
         expected_counts = Counter(tokens)
 
         # Try extraction with different numbers of workers
-        for num_workers in range(1,5):
+        for processes in range(1,5):
             unigram = h.cooccurrence.extraction.extract_unigram_parallel(
                 corpus_path, 1, verbose=False)
             self.assertEqual(len(unigram), len(expected_counts))
@@ -200,6 +200,8 @@ class TestCooccurrenceExtraction(TestCase):
 
 
 
+    # We're keeping around a function that extracts cooccurrences serially
+    # as opposed to in parallel.
     def test_extract_cooccurrence(self):
         corpus_path, unigram, documents = self.setup()
         for args in get_extractor_options(with_workers=False):
@@ -221,35 +223,10 @@ class TestCooccurrenceExtraction(TestCase):
             )
 
             # Check that the counts are as expected
-            counts_are_equal(unigram, cooccurrence, expected_counts)
+            self.assertTrue(
+                counts_are_equal(unigram, cooccurrence, expected_counts))
 
 
-    def test_extract_cooccurrence_parallel(self):
-        corpus_path, unigram, documents = self.setup()
-        for args in get_extractor_options():
-
-            # Run extraction code to get counts
-            del args['vocab']   # We don't want this in this test.
-            cooccurrence = (
-                h.cooccurrence.extraction.extract_cooccurrence_parallel(
-                    corpus_path=corpus_path, unigram=unigram, **args,
-                    verbose=False
-                )
-            )
-
-            # Calculate the counts we expect for this test
-            expected_counts = get_expected_counts(
-                documents=documents,
-                extractor_str=args['extractor_str'],
-                weights=args['weights'],
-                window=args['window'],
-            )
-
-            # Check that counts are as expected
-            counts_are_equal(unigram, cooccurrence, expected_counts)
-
-            # Verify that the unigram was not altered
-            self.assertTrue(np.array_equal(cooccurrence.unigram.Nx, unigram.Nx))
 
 
 def get_extractor_options(with_workers=True):
@@ -283,7 +260,7 @@ def get_extractor_options(with_workers=True):
     if not with_workers:
         return all_option_combos
     all_option_combos = [
-        {'num_workers':num_workers, **combo} for combo, num_workers
+        {'processes':processes, **combo} for combo, processes
         in itertools.product(all_option_combos, [1,2,5])
     ]
     return all_option_combos
@@ -292,6 +269,189 @@ def get_extractor_options(with_workers=True):
 
 class TestExtractUnigramAndCooccurrence(TestCase):
 
+    def test_sector_or_monolithic(self):
+        """
+        Writes Nxx.npz only if `save_monolithic`.
+        Writes sectors (e.g. 0-0-4.Nxx.npz) if `save_sectorized`.
+        Raises ValueError if `not save_monolithic and not save_sectorized`. 
+        """
+        corpus_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-doc-long.txt')
+        save_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-extract-unigram-and-cooccurrence.txt')
+        documents, unigram = read_test_corpus(corpus_path)
+        processes = 1
+        save_monolithic = True
+        min_count = None
+        vocab = None
+        window = 5
+        extractor_str = 'flat'
+        weights = None
+        h.CONSTANTS.RC['max_sector_size'] = 700
+
+        options = [(False, False), (False, True), (True, False), (True, True)]
+        for save_monolithic, save_sectorized in options:
+
+            # Cleanup anything left over from previous run or loop cycle.
+            if os.path.exists(save_path):
+                shutil.rmtree(save_path)
+
+            # Calculate the expected counts.
+            expected_counts = get_expected_counts(
+                documents=documents,
+                extractor_str=extractor_str,
+                weights=weights,
+                window=window
+            )
+
+            # Make sure any output from previous iterations is removed.
+            if os.path.exists(save_path):
+                shutil.rmtree(save_path)
+
+            # Run extraction provided at least one of the write modes is 
+            # active.  If neither is active, it should raise an error.
+            if not save_monolithic and not save_sectorized:
+                with self.assertRaises(ValueError):
+                    h.cooccurrence.extraction.extract_unigram_and_cooccurrence(
+                        corpus_path=corpus_path, save_path=save_path,
+                        processes=processes, window=window,
+                        extractor_str=extractor_str, weights=weights,
+                        min_count=min_count, vocab=vocab,
+                        save_sectorized=save_sectorized,
+                        save_monolithic=save_monolithic, verbose=False
+                    )
+                continue
+            else:
+                h.cooccurrence.extraction.extract_unigram_and_cooccurrence(
+                    corpus_path=corpus_path, save_path=save_path,
+                    processes=processes, window=window,
+                    extractor_str=extractor_str, weights=weights,
+                    min_count=min_count, vocab=vocab,
+                    save_sectorized=save_sectorized,
+                    save_monolithic=save_monolithic, verbose=False
+                )
+
+            # Read sectorized counts.  They should only exist if we asked for 
+            # them by setting `save_sectorized=True`.
+            # But first check that the number of sectors written is what we
+            # expect.
+            if save_sectorized:
+                found_sector_factor = (
+                    h.cooccurrence.CooccurrenceSector.get_sector_factor(
+                        save_path))
+                expected_sector_factor = (
+                    math.ceil(len(unigram) / h.CONSTANTS.RC['max_sector_size']))
+                self.assertEqual(found_sector_factor, expected_sector_factor)
+
+                Nxx = np.zeros((len(unigram), len(unigram)))
+                for sector in h.shards.Shards(expected_sector_factor):
+                    cooccurrence = h.cooccurrence.CooccurrenceSector.load(
+                        save_path, sector)
+                    Nxx[sector] += cooccurrence.Nxx.toarray()
+                found_unigram = cooccurrence.unigram
+                sect_cooccurrence = h.cooccurrence.Cooccurrence(
+                    found_unigram, Nxx)
+                self.assertTrue(counts_are_equal(
+                    unigram, sect_cooccurrence, expected_counts))
+            else:
+                with self.assertRaises(FileNotFoundError):
+                    Nxx = np.zeros((len(unigram), len(unigram)))
+                    for sector in h.shards.Shards(expected_sector_factor):
+                        cooccurrence = h.cooccurrence.CooccurrenceSector.load(
+                            save_path, sector)
+                        Nxx[sector] += cooccurrence.Nxx.toarray()
+
+            if save_monolithic:
+                monolithic_cooccurrence = h.cooccurrence.Cooccurrence.load(
+                    save_path)
+                self.assertTrue(counts_are_equal(
+                    unigram, monolithic_cooccurrence, expected_counts))
+            else:
+                with self.assertRaises(FileNotFoundError):
+                    monolithic_cooccurrence = h.cooccurrence.Cooccurrence.load(
+                        save_path)
+
+        # Cleanup
+        if os.path.exists(save_path):
+            shutil.rmtree(save_path)
+
+    def test_correct_sector_written(self):
+        """
+        If the vocabulary is larger than max_sector_size, it should choose a
+        sector factor that makes it so that the size of a sector is as big
+        as possible, but not bigger than max_sector_size.
+        """
+
+        corpus_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-doc-long.txt')
+        save_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-extract-unigram-and-cooccurrence.txt')
+        documents, unigram = read_test_corpus(corpus_path)
+        processes = 1
+        save_monolithic = True
+        min_count = None
+        vocab = None
+        window = 5
+        extractor_str = 'flat'
+        weights = None
+
+        for sector_size in [500, 700]:
+            h.CONSTANTS.RC['max_sector_size'] = sector_size
+
+            # Calculate the expected counts.
+            expected_counts = get_expected_counts(
+                documents=documents,
+                extractor_str=extractor_str,
+                weights=weights,
+                window=window
+            )
+
+            # Make sure any output from previous iterations is removed.
+            if os.path.exists(save_path):
+                shutil.rmtree(save_path)
+
+            # Run extraction (writes to disk), then load the result.
+            h.cooccurrence.extraction.extract_unigram_and_cooccurrence(
+                corpus_path=corpus_path, save_path=save_path,
+                processes=processes, window=window,
+                extractor_str=extractor_str, weights=weights,
+                min_count=min_count, vocab=vocab,
+                save_monolithic=save_monolithic, verbose=False
+            )
+
+            # Check that the number of sectors written is what we expect.
+            found_sector_factor = (
+                h.cooccurrence.CooccurrenceSector.get_sector_factor(save_path))
+            expected_sector_factor = (
+                math.ceil(len(unigram) / h.CONSTANTS.RC['max_sector_size']))
+            self.assertEqual(found_sector_factor, expected_sector_factor)
+
+            # Read counts from disk.  Accumulate over all the sectors.
+            Nxx = np.zeros((len(unigram), len(unigram)))
+            for sector in h.shards.Shards(expected_sector_factor):
+                cooccurrence = h.cooccurrence.CooccurrenceSector.load(
+                    save_path, sector)
+                Nxx[sector] += cooccurrence.Nxx.toarray()
+            found_unigram = cooccurrence.unigram
+            sect_cooccurrence = h.cooccurrence.Cooccurrence(found_unigram, Nxx)
+
+            # The counts stored monolithically, and the counts stored in
+            # sectors, should be equal.
+            monolithic_cooccurrence = h.cooccurrence.Cooccurrence.load(
+                save_path)
+            self.assertTrue(np.allclose(
+                sect_cooccurrence.Nxx.toarray(),
+                monolithic_cooccurrence.Nxx.toarray()
+            ))
+
+            # Compare counts from accumulating over all sectors to expected
+            # counts.
+            self.assertTrue(counts_are_equal(
+                unigram, sect_cooccurrence, expected_counts))
+
+        # Cleanup
+        if os.path.exists(save_path):
+            shutil.rmtree(save_path)
+
+
 
     def test_extract_unigram_and_cooccurrence(self):
         corpus_path = os.path.join(
@@ -299,7 +459,7 @@ class TestExtractUnigramAndCooccurrence(TestCase):
         save_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-extract-unigram-and-cooccurrence.txt')
         documents, unigram_pristine = read_test_corpus(corpus_path)
-        num_workers = 2
+        processes = 2
         for extractor_options in get_extractor_options(with_workers=False):
 
             # Make sure any output from previous iterations is removed.
@@ -309,9 +469,11 @@ class TestExtractUnigramAndCooccurrence(TestCase):
             # Run extraction (writes to disk), then load the result.
             h.cooccurrence.extraction.extract_unigram_and_cooccurrence(
                 corpus_path=corpus_path, save_path=save_path, 
-                num_workers=num_workers, **extractor_options, verbose=False
+                processes=processes, **extractor_options, verbose=False
             )
-            cooccurrence = h.cooccurrence.Cooccurrence.load(save_path)
+            sector = h.shards.Shards(1)[0]
+            cooccurrence = h.cooccurrence.CooccurrenceSector.load(
+                save_path, sector)
 
             # Calculate the expected counts
             expected_counts = get_expected_counts(
@@ -321,16 +483,8 @@ class TestExtractUnigramAndCooccurrence(TestCase):
                 window=extractor_options['window'],
             )
 
-            # Verify we got what we expected
-            #unigram = copy.copy(unigram_pristine)
-            #if extractor_options['vocab'] is not None:
-            #    unigram.truncate(extractor_options['vocab'])
-            #if extractor_options['min_count'] is not None:
-            #    unigram.prune(extractor_options['min_count'])
-            if not counts_are_equal(
-                unigram_pristine,cooccurrence,expected_counts
-            ):
-                import pdb; pdb.set_trace()
+            self.assertTrue(
+                counts_are_equal(unigram_pristine,cooccurrence,expected_counts))
 
         # Cleanup
         if os.path.exists(save_path):
@@ -345,7 +499,7 @@ class TestExtractUnigramAndCooccurrence(TestCase):
         documents, unigram_pristine = read_test_corpus(corpus_path)
         weights = ([1.0, 0.5, 0.25], [0.0, 0.0, 0.1])
         window = 3
-        num_workers = 2
+        processes = 2
         extractor_args = [
             {'weights': None, 'window':window, 'extractor_str':'flat'},
             {'weights': None, 'window':window, 'extractor_str':'harmonic'},
@@ -370,8 +524,8 @@ class TestExtractUnigramAndCooccurrence(TestCase):
             # Run extraction (writes to disk), then load the result.
             h.cooccurrence.extraction.extract_unigram_and_cooccurrence(
                 corpus_path=corpus_path, save_path=save_path, 
-                num_workers=num_workers, **extractor_arg, **vocab_arg,
-                verbose=False
+                processes=processes, **extractor_arg, **vocab_arg,
+                verbose=False, save_monolithic=True, save_sectorized=False
             )
             cooccurrence = h.cooccurrence.Cooccurrence.load(save_path)
             vocab = vocab_arg['vocab']

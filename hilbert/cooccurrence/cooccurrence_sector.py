@@ -1,3 +1,4 @@
+import re
 import os
 import warnings
 import numpy as np
@@ -7,10 +8,13 @@ from scipy import sparse
 
 
 
+
+MEM_DEVICE = h.CONSTANTS.MEMORY_DEVICE
+
 class CooccurrenceSector(object):
 
     def __init__(
-            self, unigram, Nxx, Nx, Nxt, sector, device=None, verbose=True
+            self, unigram, Nxx, Nx, Nxt, sector, verbose=True
         ):
         """
         CooccurrenceSector represents a subset of the cooccurrence data coming
@@ -25,24 +29,22 @@ class CooccurrenceSector(object):
                 'instance')
 
         # Own some things
-        self.device = device
+        self.dtype = h.utils.get_dtype()
         self.verbose = verbose
-
-        dtype = h.CONSTANTS.DEFAULT_DTYPE
-        mem_device = h.CONSTANTS.MEMORY_DEVICE
 
         # Store unigram data.
         self.unigram = unigram
         self._uNx = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1,1)
+            self.unigram.Nx, dtype=self.dtype, device=MEM_DEVICE).view(-1,1)
         self._uNxt = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(1,-1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+            self.unigram.Nx, dtype=self.dtype, device=MEM_DEVICE).view(1,-1)
+        self.uN = torch.tensor(
+            self.unigram.N, dtype=self.dtype, device=MEM_DEVICE)
 
         # Own cooccurrence statistics and marginalized totals.
         self.Nxx = sparse.lil_matrix(Nxx)
-        self._Nx = torch.tensor(Nx, dtype=dtype, device=mem_device)
-        self._Nxt = torch.tensor(Nxt, dtype=dtype, device=mem_device)
+        self._Nx = torch.tensor(Nx, dtype=self.dtype, device=MEM_DEVICE)
+        self._Nxt = torch.tensor(Nxt, dtype=self.dtype, device=MEM_DEVICE)
         self.N = torch.sum(self._Nx)
 
         self.sector = sector
@@ -59,16 +61,16 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load(path, sector, device=None, verbose=True):
+    def load(path, sector, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
         """
         # Read Unigram
-        unigram = h.unigram.Unigram.load(path, device=device, verbose=verbose)
+        unigram = h.unigram.Unigram.load(path, verbose=verbose)
 
         # Read Nxx, Nx, and Nxt.
-        if sector == h.shards.whole:
+        if sector is None:
             Nxx_fname = 'Nxx.npz'
         else:
             Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
@@ -77,9 +79,59 @@ class CooccurrenceSector(object):
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))
 
         return CooccurrenceSector(
-            unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector,
-            device=device, verbose=verbose
-        )
+            unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector, verbose=verbose)
+
+
+    @staticmethod
+    def load_coo(cooccurrence_path, include_marginals=True, verbose=True):
+        """ 
+        Reads in sectorized cooccurrence data from disk, and converts it
+        into a sparse tensor representation using COO format.  If desired,
+        marginal sums are included.
+        """
+
+        # Go though each sector and accumulate all of the non-zero data
+        # into a single sparse tensor representation.
+        data = torch.tensor([], dtype=h.utils.get_dtype(), device=MEM_DEVICE)
+        I = torch.tensor([], dtype=torch.int32, device=MEM_DEVICE)
+        J = torch.tensor([], dtype=torch.int32, device=MEM_DEVICE)
+
+        sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
+            cooccurrence_path)
+
+        for sector_id in h.shards.Shards(sector_factor):
+
+            if verbose:
+                print('loading sector {}'.format(sector_id.serialize()))
+
+            # Read the sector, and get the statistics in sparse COO-format
+            sector = h.cooccurrence.CooccurrenceSector.load(
+                cooccurrence_path, sector_id)
+            sector_coo = sector.Nxx.tocoo()
+
+            # Tensorfy the data, and the row and column indices
+            add_Nxx = torch.tensor(sector_coo.data, dtype=h.utils.get_dtype())
+            add_i_idxs = torch.tensor(sector_coo.row, dtype=torch.int)
+            add_j_idxs = torch.tensor(sector_coo.col, dtype=torch.int)
+
+            # Adjust the row and column indices to account for sharding
+            add_i_idxs = add_i_idxs * sector_id.step + sector_id.i
+            add_j_idxs = add_j_idxs * sector_id.step + sector_id.j
+
+            # Concatenate
+            data = torch.cat((data, add_Nxx))
+            I = torch.cat((I, add_i_idxs))
+            J = torch.cat((J, add_j_idxs))
+
+        if include_marginals:
+            # Every sector has global marginals, so get marginals from last
+            # sector.
+            Nx = torch.tensor(sector._Nx, dtype=h.utils.get_dtype())
+            Nxt = torch.tensor(sector._Nxt, dtype=h.utils.get_dtype())
+            return data, I, J, Nx, Nxt
+        else:
+            return data, I, J
+
 
     @property
     def shape(self):
@@ -202,7 +254,7 @@ class CooccurrenceSector(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device
+        device = h.utils.get_device(device)
 
         loaded_Nxx = h.utils.load_shard(
             self.Nxx, shard, device=device)
@@ -252,7 +304,7 @@ class CooccurrenceSector(object):
         if shard is None:
             shard = h.shards.whole
 
-        device = device or self.device
+        device = h.utils.get_device(device)
 
         loaded_uNx = h.utils.load_shard(
             self.uNx, shard[0], device=device)
@@ -277,21 +329,21 @@ class CooccurrenceSector(object):
 
         # We keep unigram data locally as a tensor, so we need to recopy it all
         dtype = h.CONSTANTS.DEFAULT_DTYPE
-        mem_device = h.CONSTANTS.MEMORY_DEVICE
         self._uNx = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(-1,1)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(-1,1)
         self._uNxt = torch.tensor(
-            self.unigram.Nx, dtype=dtype, device=mem_device).view(1,-1)
-        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=mem_device)
+            self.unigram.Nx, dtype=dtype, device=MEM_DEVICE).view(1,-1)
+        self.uN = torch.tensor(self.unigram.N, dtype=dtype, device=MEM_DEVICE)
 
 
     def apply_w2v_undersampling(self, t):
         """
         Simulate undersampling of common words, like how is done in word2vec.
         However, when applied here (as opposed to within the corpus sampler),
-        we are taking expectation values cooccurrence statistics under 
-        undersampling, and undersampling is applied in the "clean" way which
-        does not alter the effective size of the sample window.
+        we are taking expectation values given undersampling, rather than
+        actually undersampling.  This pseudo-ndersampling is applied in the
+        "clean" way which does not alter the effective size of the sample
+        window.
         """
 
         if t == 1 or t is None:
@@ -303,8 +355,8 @@ class CooccurrenceSector(object):
         # cooccurrence would still be observed given undersampling.
 
         # First calculate probability of dropping row-word and col-words
-        p_i = h.corpus_stats.w2v_prob_keep(self._uNx, self.uN, t)
-        p_j = h.corpus_stats.w2v_prob_keep(self._uNxt, self.uN, t)
+        p_i = h.cooccurrence.cooccurrence.w2v_prob_keep(self._uNx, self.uN, t)
+        p_j = h.cooccurrence.cooccurrence.w2v_prob_keep(self._uNxt, self.uN, t)
 
         # This approximates the effect of undersampling on marginal counts
         # without actually having to re-sum marginals (since a sector does not
@@ -344,6 +396,45 @@ class CooccurrenceSector(object):
         self.N += other.N
 
         return self
+
+    @staticmethod
+    def get_sector_factor(path):
+        # Check for presence of auxiliary files
+        found_files = set(os.listdir(path))
+        if 'Nx.npy' not in found_files:
+            raise ValueError()
+        elif 'Nxt.npy' not in found_files:
+            raise ValueError()
+
+        sector_matcher = re.compile('Nxx-\d+-\d+-(\d+).npz')
+        sector_factors = [
+            int(sector_matcher.match(p).groups()[0]) for p in os.listdir(path) 
+            if sector_matcher.match(p)
+        ]
+        if len(sector_factors) == 0:
+            if 'Nxx.npz' not in found_files:
+                raise ValueError(
+                    "No cooccurrence sectors found on disk at {}.".format(path)
+                )
+            return None
+        sector_factor = sector_factors[0]
+        if not all([s == sector_factor for s in sector_factors]):
+            raise ValueError(
+                "Sector factor is ambiguous.  Did you write other files to "
+                "disk at {} that would match '{}'?".format(
+                    path, sector_matcher.pattern
+                )
+            )
+        if not len(sector_factors) == sector_factor**2:
+            raise ValueError(
+                "Some sectors appear to be missing.  Detected a sector "
+                "factor of {}, but only found {} sectors (expected {}).".format(
+                    sector_factor, len(sector_factors), sector_factor**2
+                )
+            )
+        return sector_factor
+
+
 
 
     def get_sector(self, *args):

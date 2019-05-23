@@ -213,11 +213,20 @@ class Shards:
     def __init__(self, shard_factor):
         self.shard_factor = shard_factor
         self.shard_pointer = 0
-        self.num_shards = shard_factor * shard_factor
+        if shard_factor is None:
+            self.num_shards = 1
+        else:
+            self.num_shards = shard_factor * shard_factor
 
     def __getitem__(self, shard_num):
+
         if shard_num >= self.num_shards:
             raise IndexError('Shards index out of range: {}'.format(shard_num))
+
+        # Handle the case where we have a whole shard.
+        if self.shard_factor == None:
+            return whole
+
         if shard_num < 0:
             old_shard_num = shard_num
             shard_num += self.num_shards

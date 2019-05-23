@@ -17,8 +17,8 @@ class TestSectorize(TestCase):
 
     def test_sectorize(self):
         sector_factor = 3
-        path = os.path.join(h.CONSTANTS.TEST_DIR, 'cooccurrence')
-        out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sectorize')
+        path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sectorize')
+        out_path = os.path.join(h.CONSTANTS.TEST_DIR, 'test-sectorize2')
         sector_fnames = {
             'Nxx-{}-{}-{}.npz'.format(i,j,sector_factor)
             for i in range(sector_factor) for j in range(sector_factor)
