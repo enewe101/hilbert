@@ -161,7 +161,7 @@ def add_common_constructor_args(parser):
         help='desired dimensionality of the embeddings being produced'
     )
     parser.add_argument(
-        '--quiet', '-q', action='store_false', dest='verbose',
+        '--quiet', '-q', default=False, action='store_true', dest='verbose',
         help="Don't print the trace to stdout."
     )
 

@@ -96,6 +96,7 @@ class DenseLearner(EmbeddingLearner):
 
 class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
+        # term-wise multiplication
         response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
         if self.bias:
             response += self.vb[IJ[:,0]]

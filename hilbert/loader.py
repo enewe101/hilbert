@@ -144,17 +144,17 @@ class GPUSampleLoader:
         # After tempering, probabilities are scores -- they don't sum to one
         # The Categorical sampler will automatically normalize them.
         Pi = Nx.view((-1,)) / Nx.sum()
-        Pi_raised = Pi**(1/temperature - 1)
+        Pi_raised = Pi ** (1 / temperature - 1)
         Pi_tempered = Pi_raised * Pi
 
         Pj = Nxt.view((-1,)) / Nx.sum()
-        Pj_raised = Pj**(1/temperature - 1)
+        Pj_raised = Pj ** (1 / temperature - 1)
         Pj_tempered = Pj_raised * Pj
 
         Nxx_tempered = Nxx_data * Pi_raised[I.long()] * Pj_raised[J.long()]
 
         self.positive_sampler = Categorical(Nxx_tempered, device=self.device)
-        self.negative_sampler = Categorical(Pi_tempered, self.device)
+        self.negative_sampler = Categorical(Pi_tempered, device=self.device)
         self.negative_sampler_t = Categorical(Pj_tempered, device=self.device)
 
         self.I = I.to(self.device)
