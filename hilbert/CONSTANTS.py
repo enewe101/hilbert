@@ -7,7 +7,10 @@ def read_rc():
         'cooccurrence_dir': None,
         'corpus_dir': None,
         'embeddings_dir':None,
-        'device':'cuda'
+        'task_data_path': None,
+        'device':'cuda',
+        'dtype': '32',
+        'max_sector_size': '12000',
     }
     try:
         with open(os.path.expanduser('~/.hilbertrc')) as rc_file:
@@ -19,6 +22,17 @@ def read_rc():
                 RC[key] = found_rc[key]
     except OSError:
         pass
+
+    # Interpret ints
+    for int_field in ['max_sector_size']:
+        RC[int_field] = int(RC[int_field])
+
+    # Convert dtype specification into an actual torch dtype.
+    RC['dtype'] = {
+        'half': torch.float16, 'float': torch.float32, 'double': torch.float64,
+        '16': torch.float16, '32': torch.float32, '64': torch.float64,
+    }[RC['dtype']]
+
     return RC
 
 

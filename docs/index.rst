@@ -101,6 +101,7 @@ tokens, between cooccurring tokens.  Using ``--sampler harmonic`` counts
 cooccurrences identically to GloVe, assigning a cooccurrence weight of
 ``1/separation``.
 
+
 Corpus file format
 ..................
 The corpus file should be in the following format: tokens should be
@@ -127,7 +128,7 @@ one of the runner scripts found in ``hilbert/hilbert/runners/``.
 The command for running Hilbert-MLE using good hyperparameter defaults was
 quoted above.  And we recommend using that because of its stable training
 dynamics and good all-round performance.  But, if you would like to run
-Hilbert-SGNS with good defaults, do:
+Hilbert-SGNS with good defaults, by all means do:
 
 .. code-block:: bash
 
@@ -136,6 +137,7 @@ Hilbert-SGNS with good defaults, do:
         --out-dir /path/to/vectors/ \
         --learning-rate 0.025 \
         --epochs 100 \
+        --batches 100 \
         --dimensions 300
 
 ...and to run Hilbert-GloVe with good defaults do:
@@ -147,6 +149,7 @@ Hilbert-SGNS with good defaults, do:
         --out-dir /path/to/vectors/ \
         --learning-rate 0.025 \
         --epochs 100 \
+        --batches 100 \
         --dimensions 300
 
 Where ``/path/to/bigram-statistics`` should point to the directory created by
@@ -157,6 +160,119 @@ learn about all of the options, run ``python run_mle.py -h``.
 The runtime depends on the vocabulary size.  Training the top 50k most frequent
 words in a concatenation of Gigaword and a Wikipedia 2018 dump takes about
 3hrs for each of the models.
+
+
+Dense vs. Sample-based
+......................
+There are two alternative ways to organize the training of a word embedding
+using ``hilbert``: a *dense* approach and a *sample-based* approach.  
+These approaches differ in their notion of a batch and an epoch.
+
+To begin it helps to recall that we can take the viewpoint that linear word
+embedding is matrix factorization.  Suppose that we take the inner product
+between a matrix $W$, consisting of all of the covectors as rows, and a vector
+$V$ consisting of all of the vectors as columns.  Then, $(WV)_{i,j} = \langle i
+| j \rangle$, and the loss can be written as $\mathcal{L} = \sum f((VW)_{i,j},
+M_{i,j})$, where $M$ is some matrix of target association scores which need
+to be learned by the embeddings.
+
+In general, the matrix $M_{ij}$ won't fit into memory all at once.  But, 
+because the loss function is being taken as a sum across elements of the 
+target matrix $M$ and the embedding product matrix $VW$, we are always
+free to spread the calculation of terms in this sum across multiple batches.
+
+The most obvious way to do this, the *dense* approach, loads *shards* of these
+two matrices into memory.  We do this by selecting a subset of rows
+and a subset of columns, and then loading all cells that lie at the intersection
+of these rows and columns.  Notice that our *shard* will always be a rectange
+of shape ``num_rows * num_columns``.
+
+In the dense approach, we break up the large matrices into shards that 
+fully cover the original matrices, and once we have computed the loss on all
+individual patches, then we have computed the loss for the entire matrix.
+
+Alternatively, rather than selecting row and column subsets, which always
+gives us rectangular shaped patches, we can just sample individual cells in an
+unrestricted way---unrestricted in the sense that their intersections aren't
+the cartesian product of subsets of rows and columns.  In general, its possible
+that only one cell from a given row or column appears in a given sample.
+
+The sample-based approach seems less efficient in the sense that it doesn't
+make use of the compact matrix data-structure.  We need to specify every
+$(i,j)$ pair rather than just the individual $I$, $J$ subsets.  
+
+However, the sample-based approach is more flexible.  It allows us to leverage
+the fact cells in the target matrix are not equally informative when estimating
+the loss and its gradient.  For example, for very rare words $i$ and $j$, we
+have little statistical evidence on which to base the target association value
+(e.g. PMI), and so it might make sense to consider them less often 
+when estimating the gradient.  
+
+
+Epochs and batches
+..................
+In the dense approach, each shard is essentially a minibatch, except that
+rather than batching by subsampling a list of examples, we're subsampling
+in two dimensions---rows and columns.  We can choose shards to be as
+large as our GPU memory will allow.  Once we have computed the loss across
+all shards, it makes sense to say that we have completed one "epoch", because
+we have used all of the information in the full dataset to make updates.
+but unlike in other modelling contexts one epoch can be executed very quickly,
+because of how compactly the matrix represents all of the cooccurrence
+statistics from a large corpus.  For this reason, we consider one epoch in the
+dense approach to constitute a single meaningful update (although technically
+an update is executed on each shard indivicually).
+
+In the sample-based approach, there is really no notion of "an epoch", 
+because we don't systematically sample all cells in the matrix.  Even after 
+updates across many many samples, there may be cells in the matrix that are
+never accessed---most likely those deemed not very important.  So, in this
+approach we consider a single sample to constitute a meaningful update,
+and we eschew any notion of "epoch" altogether.
+
+
+Writes, Updates-Per-Write, and Batch-Size
+`````````````````````````````````````````
+In the end, all that matters is that you can control how long your model 
+trains, how often you save intermediate results to disk, and how much data you
+can stick on the GPU at once.
+
+Therefore we parametrize the batching behavior in terms of concepts that 
+isolate these needs.  We have (1) the total number of meaningful updates to do
+(2) the frequency with which we write to disk, and (3) the size of data to 
+load onto the GPU at once.
+
+
+===========================  ===================  =============
+Concept                      Dense Option         Sample Option
+===========================  ===================  =============
+(1) number of writes         --writes             --writes
+(2) total number of updates  --updates            --updates
+(3) GPU size factor          --shard-factor       --batch-size
+===========================  ===================  =============
+
+Notice that the number of writes has nothing to do with long you run the
+model.  One write will happen every ``num_updates / num_writes``.  Normally
+just leave this at 100 to be able to see how your model performance changes
+throughout training.
+
+In the dense case, ``--updates`` corresponds to what we could
+reasonably call the number of epochs.  But for the sample-based approach, 
+this is the number of individual samples we draw.
+
+Finally, for saturating GPU memory, we rely on a ``--shard-factor`` in the 
+dense case, and a ``--batch-size`` in the sample-based case.  The shard factor
+the number of row-subsets or number of column-subsets into which we divide
+the matrix.  Notice that this means that there will be $shard_factor^2$ number
+of shards.  Make this number *bigger* if you're running out of GPU memory.
+In the sample based case, the ``--batch-size`` is literally
+the number of matrix cells we sample each time.  Make this *smaller* if you 
+run out of GPU memory.
+
+
+
+
+
 
 .. todo::
     default learning rate and number of epochs for each model

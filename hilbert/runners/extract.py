@@ -75,6 +75,23 @@ if __name__ == '__main__':
         help="Minimum number of occurrences below which token is ignored",
     )
     parser.add_argument(
+        '--no-sectors', '-x', dest='save_sectorized', action='store_false',
+        help=(
+            "Don't break up the data into individual sectors on disk. "
+            "(Sectors' file names look like 0-0-1-Nxx.npy) "
+            "Note, if `--no-sectors` is used, then `--monolithic` is "
+            "necessarily activated."
+        )
+    )
+    parser.add_argument(
+        '--monolithic', dest='save_monolithic', action='store_false',
+        help=(
+            "Write one file `Nxx.npz` containing all of the data across all "
+            "shards.  This option is necessarily active if `--no-sectors` is "
+            "used."
+        )
+    )
+    parser.add_argument(
         '--quiet', '-q', dest='verbose', default=True, action='store_false',
         help="Don't print to stdout during execution."
     )
@@ -86,6 +103,11 @@ if __name__ == '__main__':
     if weights_file is not None:
         args['weights'] = h.cooccurrence.extractor.read_weights_file(
                 weights_file)
+
+    # If we aren't saving sectorized, then we must save monolithic.
+    # We can also choose to save monolithic when we are saving sectorized.
+    args['save_monolithic'] = (
+        args['save_monolithic'] or not args['save_sectorized'])
 
     h.cooccurrence.extraction.extract_unigram_and_cooccurrence(**args)
 
