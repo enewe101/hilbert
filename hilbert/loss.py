@@ -96,12 +96,17 @@ class MLELoss(TemperedLoss):
 
 
 
-
 class SampleMLELoss(nn.Module):
     def forward(self, response, batch_data):
         boundary = int(response.shape[0] / 2)
         term1 = response[:boundary].sum()
         term2 = torch.exp(response[boundary:]).sum()
         return - (term1 - term2) / float(boundary)
+
+
+class BalancedSampleMLELoss(nn.Module):
+    def forward(self, response, batch_data):
+        deviations = torch.exp(response) - batch_data['exp_pmi'] * response
+        return deviations.sum() / response.shape[0]
 
 

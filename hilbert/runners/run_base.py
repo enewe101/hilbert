@@ -90,6 +90,16 @@ def add_temperature_arg(parser):
     )
 
 
+def add_balanced_arg(parser):
+    parser.add_argument(
+        '--balanced', '-B', action='store_true',
+        help=(
+            "Sample positive and negative samples together, using importance "
+            "sampling with the independence distribution as proposal."
+        )
+    )
+
+
 def add_batch_size_arg(parser):
     parser.add_argument(
         '--batch-size', '-p', type=int, default=10000,

@@ -6,7 +6,7 @@ import numpy as np
 
 import os
 
-class TestCooccurrenceSampleLoader(TestCase):
+class TestCooccurrenceGPUSampleLoader(TestCase):
 
     def test_cooccurrence_sample_loader_probabilities(self):
         for temperature in [1,2,5,10]:
@@ -25,7 +25,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, temperature=temperature,
             batch_size=batch_size, verbose=False
         )
@@ -103,7 +103,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, batch_size=batch_size, verbose=False)
 
         # Figure out the number of batches we expect, given the total number

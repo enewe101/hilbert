@@ -1,6 +1,7 @@
 import torch
 from pytorch_categorical import Categorical
 import hilbert as h
+import scipy
 
 
 class DenseLoader:
@@ -121,7 +122,7 @@ class DenseLoader:
 
 
 
-class SampleLoader:
+class GPUSampleLoader:
 
     def __init__(
         self,
@@ -207,5 +208,82 @@ class SampleLoader:
         s += '\ttemperature = {}\n'.format(self.temperature)
         return s
         
+
+
+class CPUSampleLoader:
+
+    def __init__(
+        self,
+        cooccurrence_path,
+        temperature=1,
+        batch_size=100000,
+        device=None,
+        verbose=True
+    ):
+
+        # Ownage.
+        self.cooccurrence_path = cooccurrence_path
+        self.batch_size = batch_size
+        self.yielded = False
+
+        cooc = h.cooccurrence.Cooccurrence.load(cooccurrence_path)
+        Nxx, Nx, Nxt, N = cooc.Nxx, cooc.Nx, cooc.Nxt, cooc.N
+
+        self.temperature = temperature
+        self.device = h.utils.get_device(device)
+
+        # Calculate the probabilities and then temper them.
+        # After tempering, probabilities are scores -- they don't sum to one
+        # The Categorical sampler will automatically normalize them.
+        Pi = Nx / Nx.sum()
+        Pi_tempered = (Pi ** (1/temperature)).view((-1,))
+        Pj = Nxt / Nx.sum()
+        Pj_tempered = (Pj ** (1/temperature)).view((-1,))
+
+        # Calculate the exponential of PMI for ij pairs, according to the
+        # corpus. These are needed because we are importance-sampling
+        # the corpus distribution using the independent distribution.
+        self.exp_pmi = Nxx.multiply(
+            1/N).multiply(1/Pi.numpy()).multiply(1/Pj.numpy()).tolil()
+
+        # Make samplers for the independent distribution.
+        self.I_sampler = Categorical(Pi_tempered, device='cpu')
+        self.J_sampler = Categorical(Pj_tempered, device='cpu')
+        breakpoint()
+
+
+    def sample(self, batch_size):
+        # Randomly draw independent outcomes.
+        IJ = torch.zeros((batch_size, 2), dtype=torch.int64)
+        IJ[:,0] = self.I_sampler.sample(sample_shape=(batch_size,))
+        IJ[:,1] = self.J_sampler.sample(sample_shape=(batch_size,))
+        exp_pmi = torch.tensor(
+            self.exp_pmi[IJ[:,0],IJ[:,1]].toarray().reshape((-1,)),
+            dtype=torch.float32, device=self.device
+        )
+        return IJ, {'exp_pmi':exp_pmi}
+
+
+    def __len__(self):
+        return 1
+
+
+    def __iter__(self):
+        self.yielded = False
+        return self
+
+
+    def __next__(self):
+        if self.yielded:
+            raise StopIteration
+        self.yielded = True
+        return self.sample(self.batch_size)
+
+
+    def describe(self):
+        s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
+        s += '\tbatch_size = {}\n'.format(self.batch_size)
+        s += '\ttemperature = {}\n'.format(self.temperature)
+        return s
 
 
