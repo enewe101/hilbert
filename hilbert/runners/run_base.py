@@ -4,11 +4,17 @@ from hilbert.tracer import tracer
 from argparse import ArgumentParser
 
 
-def factory_args(args):
-    ignore = {
-        'save_embeddings_dir', 'num_writes', 'num_updates',
-        'monitor_closely', 'debug'
-    }
+def factory_args(args, keep_updates=True):
+    if keep_updates:
+        ignore = {
+            'save_embeddings_dir', 'num_writes',
+            'monitor_closely', 'debug'
+        }
+    else:
+        ignore = {
+            'save_embeddings_dir', 'num_writes', 'num_updates',
+            'monitor_closely', 'debug'
+        }
     return {key:args[key] for key in args if key not in ignore}
 
 
@@ -41,7 +47,10 @@ def run(solver_factory, **args):
         {'solver_factory':solver_factory.__name__, **args}
     )
 
-    solver = solver_factory(**h.runners.run_base.factory_args(args))
+    if solver_factory.__name__ == 'build_mle_sample_solver':
+        solver = solver_factory(**h.runners.run_base.factory_args(args))
+    else:
+        solver = solver_factory(**h.runners.run_base.factory_args(args, keep_updates=False))
     solver.describe()
 
     # Trigger interactive debugger to explore solver behavior if desired.
@@ -51,11 +60,18 @@ def run(solver_factory, **args):
     # Train train train!  Write to disk once in awhile!
     updates_per_write = int(num_updates / num_writes)
     for write_num in range(num_writes):
-        solver.cycle(updates_per_write, monitor_closely)
+        try:
+            solver.cycle(updates_per_write, monitor_closely)
+        except h.exceptions.DivergenceError:
+            print("\n\nDied at {} epoch.".format(write_num))
+            tracer.declare(key='wrote_num', value=write_num+1)
+            raise h.exceptions.DivergenceError("Model has diverged")
         num_updates = updates_per_write * (write_num+1)
         save_path = os.path.join(save_dir, '{}'.format(num_updates))
         solver.get_embeddings().save(save_path)
 
+    print("Yayy, didn't die in the middle. Finished all epochs.")
+    tracer.declare(key='wrote_num', value=write_num + 1)
 
 class ModelArgumentParser(ArgumentParser):
     def parse_args(self):
@@ -122,8 +138,41 @@ def add_batch_size_arg(parser):
 def add_shard_factor_arg(parser):
     parser.add_argument(
         '--shard-factor', type=int, default=1,
-        help= "Divide sectors by shard_factor**2 to make it fit on GPU."
+        help="Divide sectors by shard_factor**2 to make it fit on GPU."
     )
+
+def add_remove_cooc_arg(parser):
+    parser.add_argument(
+        '--remove-threshold', '-thres', type=int, default=10, dest='remove_threshold',
+        help="A small number threshold of cooc counts to be removed to fit into the "
+             "GPU memory."
+    )
+
+def add_LR_scheduler_arg(parser):
+    # can't have both LR and LR scheduler??
+    parser.add_argument(
+        '--LR-scheduler', '-scheduler', default=None, choices=['linear', 'inverse', 'None'], dest='scheduler_str',
+        help="Type of learning rate scheduler"
+    )
+    parser.add_argument(
+        '--LR-scheduler-startLR', '-ls', type=float, default=None, dest='start_lr',
+        help="The start learning rate for linear learning rate scheduler"
+    )
+    parser.add_argument(
+        '--LR-scheduler-endLR', '-le', type=float, default=0.0, dest='end_lr',
+        help="The end learning rate for linear learning rate scheduler"
+    )
+    parser.add_argument(
+        '--constant-fraction', '-frac', type=float, default=0.1, dest='constant_fraction',
+        help="Required for inverse LR scheduler. Control the number of updates for which learning rate stays constant."
+    )
+
+def add_gradient_accumulation_arg(parser):
+    parser.add_argument(
+        '--gradient-accumulation', '-ga', type=int, default=1, dest='gradient_accumulation',
+        help="Accumulate gradients for number of updates."
+    )
+
 
 
 def add_common_constructor_args(parser):
@@ -161,9 +210,10 @@ def add_common_constructor_args(parser):
         help='desired dimensionality of the embeddings being produced'
     )
     parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true', dest='verbose',
+        '--quiet', '-q', action='store_false', dest='verbose',
         help="Don't print the trace to stdout."
     )
+
 
 
 

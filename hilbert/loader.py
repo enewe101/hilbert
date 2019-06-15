@@ -131,11 +131,12 @@ class GPUSampleLoader:
         temperature=1,
         batch_size=100000,
         device=None,
-        verbose=True
+        verbose=True,
+        remove_threshold=None,
     ):
         self.cooccurrence_path = cooccurrence_path
         Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
-            cooccurrence_path, verbose=verbose)
+            cooccurrence_path, rm_thres=remove_threshold, verbose=verbose)
 
         self.temperature = temperature
         self.device = h.utils.get_device(device)

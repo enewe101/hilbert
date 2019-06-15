@@ -61,7 +61,7 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load(path, sector, rm=True, verbose=True):
+    def load(path, sector, rm_thres=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
@@ -78,9 +78,9 @@ class CooccurrenceSector(object):
         Nx = np.load(os.path.join(path, 'Nx.npy'))
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))
         # Remove low cooccurrence counts
-        if rm:
+        if rm_thres is not None:
             Nxx = sparse.load_npz(os.path.join(path, Nxx_fname))
-            Nxx = h.cooccurrence.CooccurrenceSector.remove_small_numbers(Nxx, 10)
+            Nxx = h.cooccurrence.CooccurrenceSector.remove_small_numbers(Nxx, rm_thres)
         else:
             Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
 
@@ -89,7 +89,7 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load_coo(cooccurrence_path, include_marginals=True, verbose=True):
+    def load_coo(cooccurrence_path, include_marginals=True, verbose=True, rm_thres=None):
         """ 
         Reads in sectorized cooccurrence data from disk, and converts it
         into a sparse tensor representation using COO format.  If desired,
@@ -104,16 +104,16 @@ class CooccurrenceSector(object):
 
         sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
             cooccurrence_path)
-        print("sector/shard factor is: ",sector_factor)
+        if verbose:
+            print("sector/shard factor is: ",sector_factor)
 
         for sector_id in h.shards.Shards(sector_factor):
-
             if verbose:
                 print('coo loader is loading sector {}'.format(sector_id.serialize()))
 
             # Read the sector, and get the statistics in sparse COO-format
             sector = h.cooccurrence.CooccurrenceSector.load(
-                cooccurrence_path, sector_id)
+                cooccurrence_path, sector_id, rm_thres=rm_thres)
             # reduced_sector = h.cooccurrence.CooccurrenceSector.remove_small_numbers(sector.Nxx)
             sector_coo = sector.Nxx.tocoo()
 
@@ -143,7 +143,7 @@ class CooccurrenceSector(object):
         else:
             return data, I, J
     @staticmethod
-    def remove_small_numbers(cooc, threshold=10):
+    def remove_small_numbers(cooc, threshold):
         return sparse.lil_matrix(np.where(cooc.todense() > threshold, cooc.todense(), 0))
 
     @property
@@ -414,6 +414,7 @@ class CooccurrenceSector(object):
     def get_sector_factor(path):
         # Check for presence of auxiliary files
         found_files = set(os.listdir(path))
+        print("the path is ", path)
         if 'Nx.npy' not in found_files:
             raise ValueError()
         elif 'Nxt.npy' not in found_files:

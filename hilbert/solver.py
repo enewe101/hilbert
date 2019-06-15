@@ -14,6 +14,7 @@ class Solver(object):
         schedulers=None,
         dictionary=None,
         verbose=True,
+        gradient_accumulation=1
     ):
 
         """
@@ -28,7 +29,9 @@ class Solver(object):
         that go within the core training loop.  It lets callers of 
         Solver.cycle() concisely ask to iterate forward by some number
         of updates, without needing to know all the pieces of machinery in the
-        training loop and how they work together
+        training loop and how they work together.
+
+        Solver.cycle() also support gradient accumulation calculation.
         """
 
         # Own it like you do
@@ -36,9 +39,10 @@ class Solver(object):
         self.loss = loss
         self.optimizer = optimizer
         self.learner = learner
-        self.schedulers = schedulers or []
+        self.schedulers = schedulers
         self.dictionary = dictionary
         self.verbose = verbose
+        self.gradient_accumulation = gradient_accumulation
 
         # Other solver state
         self.cur_loss = None
@@ -77,24 +81,64 @@ class Solver(object):
     def get_params(self):
         return self.learner.get_params()
 
+    def get_batch_words(self, batch_id):
+        pos_pairs = []
+        neg_pairs = []
 
-    def cycle(self, updates_per_cycle=1, monitor_closely=False):
+        boundary = self.loader.batch_size
+        print(boundary)
+        for i, ij in enumerate(batch_id):
+            if i < boundary:
+                pos_pairs.append((self.dictionary.get_token(ij[0]), self.dictionary.get_token(ij[1])))
+            else:
+                neg_pairs.append((self.dictionary.get_token(ij[0]), self.dictionary.get_token(ij[1])))
+
+        return pos_pairs, neg_pairs
+
+
+    def cycle(self, updates_per_cycle=1, monitor_closely=False, gradient_clipping=True):
 
         # Run a bunch of updates.
         for update_id in range(updates_per_cycle):
-
             # Train on as many batches as the loader deems to be one update.
             for batch_id, batch_data in self.loader:
-
+                # IJ sample dictionary ID, None
                 # Consider this batch and learn.
-                self.optimizer.zero_grad()
                 response = self.learner(batch_id)
+
+                # clear gradient
+                if update_id == 0:
+                    self.optimizer.zero_grad()
 
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
+                if gradient_clipping:
+                    # Gradient clipping
+                    # TODO: add GC as an argument to argparse
+                    torch.nn.utils.clip_grad_value_(self.learner.parameters(), clip_value=100)
+
+                if monitor_closely:
+                    try:
+                        if self.cur_loss.item() > 1e4:
+                            # print("The last loss is: ", self.cur_loss)
+                            pos_pairs, neg_pairs = self.get_batch_words(batch_id)
+
+                            UserWarning("Extreme loss value is detected. current loss is greater than 1e4,\n"
+                                        "Positive sample word pairs are :{}\n"
+                                        "Negative sample word pairs are :{}\n".format(", ".join(map(str, pos_pairs)),
+                                                                                      ", ".join(map(str, neg_pairs))))
+                    except NameError:
+                        pass
+
                 # Take some steps
-                self.optimizer.step()
+                if (update_id + 1) % self.gradient_accumulation == 0\
+                        or (update_id + 1) == updates_per_cycle:
+                    # Gradient accumulation
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                # learning rate scheduler steps regardless of optimizer update
                 for scheduler in self.schedulers:
                     scheduler.step()
 
