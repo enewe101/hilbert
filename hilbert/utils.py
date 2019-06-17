@@ -28,6 +28,9 @@ def get_dtype(dtype=None):
     return h.CONSTANTS.RC['dtype'] if dtype is None else dtype
 
 
+def pmi(Nxx, Nx, Nxt, N):
+    return torch.log((Nxx/N) * (N/Nx) * (N/Nxt))
+
 def load_shard(
     source,
     shard=None,

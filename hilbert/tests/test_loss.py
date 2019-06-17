@@ -91,3 +91,14 @@ class TestLoss(TestCase):
         self.assertTrue(torch.allclose(found_loss, expected_loss))
 
 
+    def test_balanced_sample_mle_loss(self):
+        batch_size = 100
+        inner_products = torch.rand(batch_size) - 0.5
+        exp_pmis = torch.rand(batch_size) - 0.5
+        expected_loss = (torch.exp(inner_products) - exp_pmis * inner_products)
+        expected_loss = expected_loss.sum() / float(expected_loss.shape[0])
+        loss_obj = h.loss.BalancedSampleMLELoss()
+        found_loss = loss_obj.forward(inner_products, {'exp_pmi':exp_pmis})
+        self.assertTrue(torch.allclose(found_loss, expected_loss))
+
+

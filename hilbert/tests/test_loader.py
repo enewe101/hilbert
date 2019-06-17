@@ -1,7 +1,8 @@
+import os
+import sys
 from unittest import TestCase, main
 import hilbert as h
 import torch
-import os
 import itertools
 import scipy.sparse as sparse
 import numpy as np
@@ -59,11 +60,66 @@ class TestLoader(TestCase):
                     self.assertTrue(unigram is None)
 
 
-    def test_sample_loader(self):
-        pass
+class TestCPUSampleLoader(TestCase):
+
+    def test_cpu_sample_loader_probabilities(self):
+
+        num_samples = 50
+        batch_size = 10000
+        num_draws = num_samples * batch_size
+        torch.random.manual_seed(1)
+
+        # Construct a sample-based loader.  Sample from it, and check tha tthe 
+        # statistics are as desired.  But first, construct it.
+        cooc_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'cooccurrence-10')
+        loader = h.loader.CPUSampleLoader(cooc_path, device='cpu')
+
+        # We'll need to know the vocabulary.
+        vocab = h.dictionary.Dictionary.check_vocab(
+            os.path.join(cooc_path, 'dictionary'))
+
+        # Make some embeddings that will be used to calculate this sampler's 
+        # ability to generate the desired expectations using importance 
+        # sampling.
+        embeddings = h.embeddings.random(vocab, 50)
+
+        # Calculate the sampled expectation and probability.
+        Nxx_sample = torch.zeros((vocab, vocab), dtype=torch.int32)
+        Vxx_sample = torch.zeros((vocab, vocab), dtype=torch.float32)
+        sum_exp_pmi = 0
+        importance_sum = 0
+        for sample_num in range(num_samples):
+            sys.stdout.write('_'); sys.stdout.flush()
+            I,J,exp_pmis = loader.sample(batch_size)
+            for i, j, exp_pmi in zip(I,J,exp_pmis):
+                Nxx_sample[i,j] += 1
+                Vxx_sample[i,j] += exp_pmi
+                sum_exp_pmi += exp_pmi
+        Qxx_sample = Nxx_sample.float() / num_draws
+        Pxx_sample = Vxx_sample / num_draws
+        avg_exp_pmi = sum_exp_pmi / num_draws
+
+        # Now calculate samples cooccurrence.
+        cooc = h.cooccurrence.Cooccurrence.load(cooc_path)
+        Nxx = torch.tensor(cooc.Nxx.toarray(), dtype=torch.float32)
+        Pxx_expected = Nxx / cooc.N
+        Qxx_expected = (cooc.Nx / cooc.N) * (cooc.Nxt / cooc.N)
+
+        # Did we reproduce the target distribution (Pxx)?
+        self.assertTrue(torch.allclose(Pxx_sample, Pxx_expected, atol=5e-4))
+
+        # Was the proposal distribution as expected?
+        self.assertTrue(torch.allclose(Qxx_sample, Qxx_expected, atol=5e-4))
+        
 
 
-class TestCooccurrenceSampleLoader(TestCase):
+        
+
+
+
+
+class TestGPUSampleLoader(TestCase):
 
 
     def test_cooccurrence_sample_loader_probabilities(self):
@@ -83,7 +139,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, temperature=temperature,
             batch_size=batch_size, verbose=False
         )
@@ -161,7 +217,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, batch_size=batch_size, verbose=False)
 
         # Figure out the number of batches we expect, given the total number

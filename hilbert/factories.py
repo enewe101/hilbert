@@ -86,7 +86,8 @@ def yields_recallable(f):
 def build_mle_sample_solver(
         cooccurrence_path,
         temperature=2,            # MLE option
-        batch_size=10000,         # Dense option
+        batch_size=10000,
+        balanced=False,
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
@@ -107,7 +108,12 @@ def build_mle_sample_solver(
     dictionary = h.dictionary.Dictionary.load(
         os.path.join(cooccurrence_path, 'dictionary'))
 
-    loss = h.loss.SampleMLELoss()
+    if balanced:
+        print('Keep your balance.')
+        loss = h.loss.BalancedSampleMLELoss()
+    else:
+        print('No balance.')
+        loss = h.loss.SampleMLELoss()
 
     learner = h.learner.SampleLearner(
         vocab=len(dictionary),
@@ -118,7 +124,12 @@ def build_mle_sample_solver(
         device=device
     )
 
-    loader = h.loader.SampleLoader(
+    if balanced:
+        print('CPU loader for balanced samples.')
+        loader_class = h.loader.CPUSampleLoader
+    else:
+        loader_class = h.loader.GPUSampleLoader
+    loader = loader_class(
         cooccurrence_path=cooccurrence_path, 
         temperature=temperature,
         batch_size=batch_size,

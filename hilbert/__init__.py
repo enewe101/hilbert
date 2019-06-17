@@ -1,4 +1,5 @@
 import hilbert.CONSTANTS
+from hilbert.CONSTANTS import RC
 import hilbert.solver
 import hilbert.cooccurrence
 import hilbert.dictionary

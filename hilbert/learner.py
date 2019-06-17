@@ -101,3 +101,5 @@ class SampleLearner(EmbeddingLearner):
             response += self.v_bias[IJ[:,0]]
             response += self.w_bias[IJ[:,1]]
         return response
+
+
