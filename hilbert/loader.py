@@ -249,7 +249,6 @@ class CPUSampleLoader:
         # Make samplers for the independent distribution.
         self.I_sampler = Categorical(Pi_tempered, device='cpu')
         self.J_sampler = Categorical(Pj_tempered, device='cpu')
-        breakpoint()
 
 
     def sample(self, batch_size):

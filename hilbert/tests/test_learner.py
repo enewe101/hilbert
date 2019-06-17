@@ -1,4 +1,5 @@
 import os
+import itertools
 import numpy as np
 import hilbert as h
 import torch
@@ -45,9 +46,9 @@ def get_test_cooccurrence_sector(device=None, verbose=True):
 
 
 
-class TestLearner(TestCase):
+class TestDenseLearner(TestCase):
 
-    def test_learner_forward(self):
+    def test_dense_learner_forward(self):
         # In these, use the factories, but test that we get the correct values.
         terms, contexts = 100, 500
         d = 300
@@ -74,3 +75,59 @@ class TestLearner(TestCase):
             self.assertTrue(torch.allclose(got_M, expected))
 
 
+
+class TestMultisenseLearner(TestCase):
+
+    def test_multisense_learner(self):
+        vocab = 10
+        covocab = 20
+        d = 8
+        num_senses = 3
+        bias = True
+
+        for bias in [True, False]:
+
+            learner = h.learner.MultisenseLearner(
+                vocab=vocab, covocab=covocab, d=d, num_senses=num_senses, bias=bias)
+
+            # Select an arbitrary sample.
+            I = [0, 1, 4, 9]
+            J = [0, 2, 19, 12]
+            IJ = torch.tensor(list(zip(I,J)))
+
+            found = learner(IJ)
+
+            V = learner.V.clone()
+            W = learner.W.clone()
+            vb = learner.vb.clone() if bias else None
+            wb = learner.wb.clone() if bias else None
+
+            expected = torch.zeros((len(IJ),))
+            for q, (i,j) in enumerate(zip(I,J)):
+
+                # Calculate the product of all sense-combinations, 
+                # plus associated biases.
+                matrix_product = torch.zeros((num_senses,num_senses))
+                bias_matrix = torch.zeros((num_senses,num_senses))
+                iter_senses = itertools.product(
+                    range(num_senses), range(num_senses))
+                for r,s in iter_senses:
+                    matrix_product[r,s] = torch.dot(W[j,:,r], V[i,:,s])
+                    if bias:
+                        bias_matrix[r,s] = wb[j,r] + vb[i,s]
+
+                biased_matrix_product = matrix_product + bias_matrix
+                expected[q] = torch.log(torch.exp(biased_matrix_product).sum())
+
+            self.assertTrue(torch.allclose(found, expected))
+            
+
+
+
+
+
+
+
+
+
+        

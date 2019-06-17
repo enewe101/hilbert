@@ -152,6 +152,66 @@ def build_mle_sample_solver(
     return solver
 
 
+def build_multisense_solver(
+        cooccurrence_path,
+        temperature=2,            # MLE option
+        batch_size=10000,
+        bias=False,
+        init_embeddings_path=None,
+        dimensions=300,
+        num_senses=5,
+        learning_rate=0.01,
+        opt_str='adam',
+        seed=1917,
+        device=None,
+        verbose=True,
+    ):
+    """
+    Similar to build_mle_solver, but it is based on 
+    approximating the loss function using sampling.
+    """
+
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    dictionary = h.dictionary.Dictionary.load(
+        os.path.join(cooccurrence_path, 'dictionary'))
+
+    loss = h.loss.BalancedSampleMLELoss()
+
+    learner = h.learner.MultisenseLearner(
+        vocab=len(dictionary),
+        covocab=len(dictionary),
+        d=dimensions,
+        num_senses=num_senses,
+        bias=bias,
+        init=get_init_embs(init_embeddings_path, device),
+        device=device
+    )
+
+    loader = h.loader.CPUSampleLoader(
+        cooccurrence_path=cooccurrence_path, 
+        temperature=temperature,
+        batch_size=batch_size,
+        device=device, 
+        verbose=verbose
+    )
+
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
+
+    solver = h.solver.Solver(
+        loader=loader,
+        loss=loss,
+        learner=learner,
+        optimizer=optimizer,
+        schedulers=[],
+        dictionary=dictionary,
+        verbose=verbose,
+    )
+
+    return solver
+
+
 
 def build_mle_solver(
         cooccurrence_path,

@@ -100,6 +100,14 @@ def add_balanced_arg(parser):
     )
 
 
+def add_num_senses_arg(parser):
+    parser.add_argument(
+        '--num_senses', '-K', type=int, required=True,
+        help=(
+            "Number of sense vectors to allocate per vocabulary item."
+        )
+    )
+
 def add_batch_size_arg(parser):
     parser.add_argument(
         '--batch-size', '-p', type=int, default=10000,
