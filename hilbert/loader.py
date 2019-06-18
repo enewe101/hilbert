@@ -220,6 +220,7 @@ class CPUSampleLoader:
         temperature=1,
         batch_size=100000,
         device=None,
+        remove_threshold = None,
         verbose=True
     ):
 
@@ -251,6 +252,7 @@ class CPUSampleLoader:
         # Make samplers for the independent distribution.
         self.I_sampler = Categorical(Pi_tempered, device='cpu')
         self.J_sampler = Categorical(Pj_tempered, device='cpu')
+        # breakpoint()
 
 
     def sample(self, batch_size):
@@ -332,7 +334,7 @@ class DependencySampler:
         Either use embeddings, and pass a hilbert.embeddings.Embeddings object,
         or use V and W and pass tensors representing vectors and covectors
         respectively, each having one word-embedding per row.
-        architecture can be "flat" for a simple flat softmax, or 
+        architecture can be "flat" for a simple flat softmax, or
         "adaptive" for an adaptive softmax.
         """
         err = False
@@ -359,7 +361,7 @@ class DependencySampler:
         assert mask.dtype == torch.uint8
 
         # Drop tags for now
-        positives = positives[:,0:2,:] 
+        positives = positives[:,0:2,:]
         negatives = torch.zeros_like(positives)
         negatives[:,0,:] = positives[:,0,:]
         sentence_length = len(positives[0][0])

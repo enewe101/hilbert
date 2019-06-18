@@ -148,6 +148,12 @@ def add_remove_cooc_arg(parser):
              "GPU memory."
     )
 
+def add_gradient_clipping_arg(parser):
+    parser.add_argument(
+        '--clipping', '-C', type=float, default=None, dest='gradient_clipping',
+        help="gradient clipping value."
+    )
+
 def add_LR_scheduler_arg(parser):
     # can't have both LR and LR scheduler??
     parser.add_argument(

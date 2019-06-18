@@ -26,7 +26,8 @@ def add_arguments(parser):
                         help='cooccurrence directory')
     parser.add_argument('-temp', default=2, type=int, dest='temp',
                         help="temperature")
-
+    parser.add_argument('-clip', default=None, type=float, nargs='+', dest='grad_clip',
+                        help="gradient clipping norm")
 
 def strNum_to_int(strNum):
     strNum = re.sub(r'k', '000', strNum)
@@ -35,8 +36,8 @@ def strNum_to_int(strNum):
 
 def write_python_command(**args):
     # init_emb = args['output_dir']+"50000"
-    run_cmd = "python {} -b {} -o {} -l {} --writes=50 --updates={} --batch-size={}" \
-              " --temperature={} -d 300 -scheduler {} -ga {} -thres 10 " \
+    run_cmd = "python {} -b {} -o {} -l {} --writes=30 --updates={} --batch-size={}" \
+              " --temperature={} -d 300 -scheduler {} -ga {} -thres 10 -B -C {}" \
               .format(SAMPLE_MLE_PY,
                                 args['cooc_dir'],
                                 args['output_dir'],
@@ -46,6 +47,7 @@ def write_python_command(**args):
                                 args['temp'],
                                 args['sche'],
                                 args['g'],
+                                args['gc']
                                 # init_emb
                                 )
     base = "/".join(args['output_dir'].split('/')[:-1])
@@ -67,7 +69,7 @@ def make_submit_script(submit_dir, job_name, cmd):
         # some sbatch environment arguments
         f.writelines("#!/bin/bash\n")
         f.writelines("#SBATCH --account=def-dprecup\n")
-        f.writelines("#SBATCH --time=6:00:00\n")
+        f.writelines("#SBATCH --time=12:00:00\n")
         f.writelines("#SBATCH --cpus-per-task=10\n")
         f.writelines("#SBATCH --mem-per-cpu=16G\n")
         f.writelines("#SBATCH --job-name={}\n".format(job_name))
@@ -96,6 +98,7 @@ def main(submit_dir, args):
     output_base_dir = args['output_dir']
     cooc_dir = args['cooc_dir']
     temp = args['temp']
+    grad_clip = args['grad_clip']
     # frac = args['frac']
 
 
@@ -128,6 +131,11 @@ def main(submit_dir, args):
     elif type(start_lrs)!=list:
         start_lrs = [start_lrs]
 
+    if grad_clip is None:
+        grad_clip = [None]
+    elif type(grad_clip)!=list:
+        grad_clip = [grad_clip]
+
     for lr in start_lrs:
         lr_str = 'slr={}'.format(lr)
         write_args['lr'] = lr
@@ -140,15 +148,19 @@ def main(submit_dir, args):
                 ga_str = 'ga={}'.format(g)
                 write_args['g'] = g
 
-                outfile_name = "_".join([ga_str, sche_str, lr_str, batch_str, update_str, temp_str])
-                outfile_name += "_grad_clip=100"
-                output_dir = os.path.join(output_base_dir, 'sample_mle', outfile_name)
-                write_args['output_dir'] = output_dir
-                python_cmd = write_python_command(**write_args)
-                job_name = "_".join([ga_str, sche_str, lr_str, temp_str])
-                print("This job is made: ", job_name)
-                make_submit_script(submit_dir, job_name, python_cmd)
-                print("wrote a script... ")
+                for gc in grad_clip:
+                    gc_str = 'gc={}'.format(gc)
+                    write_args['gc'] = gc
+
+                    outfile_name = "_".join([ga_str, sche_str, lr_str, batch_str, update_str, temp_str, gc_str])
+                    outfile_name += "_balanced"
+                    output_dir = os.path.join(output_base_dir, 'sample_mle', outfile_name)
+                    write_args['output_dir'] = output_dir
+                    python_cmd = write_python_command(**write_args)
+                    job_name = "_".join([ga_str, lr_str, temp_str, gc_str])
+                    print("This job is made: ", job_name)
+                    make_submit_script(submit_dir, job_name, python_cmd)
+                    print("wrote a script... ")
 
 
 if __name__ == '__main__':

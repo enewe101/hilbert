@@ -150,12 +150,13 @@ def build_mle_sample_solver(
         constant_fraction=1,
         start_lr=None,
         end_lr=0,
-        num_updates=None,
+        num_updates=1,
         remove_threshold=None,
         seed=1917,
         device=None,
         verbose=True,
         gradient_accumulation=1,
+        gradient_clipping=None,
     ):
     """
     Similar to build_mle_solver, but it is based on 
@@ -290,7 +291,8 @@ def build_multisense_solver(
         schedulers=lr_scheduler,
         dictionary=dictionary,
         verbose=verbose,
-        gradient_accumulation=gradient_accumulation
+        gradient_accumulation=gradient_accumulation,
+        gradient_clipping=gradient_clipping
     )
 
     return solver

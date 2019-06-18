@@ -14,7 +14,8 @@ class Solver(object):
         schedulers=None,
         dictionary=None,
         verbose=True,
-        gradient_accumulation=1
+        gradient_accumulation=1,
+        gradient_clipping=None
     ):
 
         """
@@ -43,9 +44,12 @@ class Solver(object):
         self.dictionary = dictionary
         self.verbose = verbose
         self.gradient_accumulation = gradient_accumulation
+        self.gradient_clipping = gradient_clipping
 
         # Other solver state
         self.cur_loss = None
+        self.V_gradient = None
+        self.W_gradient = None
 
 
     def reset(self, lr=None):
@@ -86,7 +90,7 @@ class Solver(object):
         neg_pairs = []
 
         boundary = self.loader.batch_size
-        print(boundary)
+
         for i, ij in enumerate(batch_id):
             if i < boundary:
                 pos_pairs.append((self.dictionary.get_token(ij[0]), self.dictionary.get_token(ij[1])))
@@ -96,7 +100,7 @@ class Solver(object):
         return pos_pairs, neg_pairs
 
 
-    def cycle(self, updates_per_cycle=1, monitor_closely=False, gradient_clipping=True):
+    def cycle(self, updates_per_cycle=1, monitor_closely=False):
 
         # Run a bunch of updates.
         for update_id in range(updates_per_cycle):
@@ -113,10 +117,24 @@ class Solver(object):
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
-                if gradient_clipping:
+                self.V_gradient = list(self.learner.parameters())[0].grad
+                self.W_gradient = list(self.learner.parameters())[1].grad
+                # self.W_gradient = self.learner.parameters().grad
+                # print("gradient of V: ", list(self.learner.parameters())[0].grad)
+                # print("gradient of W: ", list(self.learner.parameters())[1].grad)
+                # print("mean of V grad: ", torch.mean(self.V_gradient))
+                # print("mean of W grad: ", torch.mean(self.W_gradient))
+                # print("std of V grad: ", torch.std(self.V_gradient))
+                # print("std of W grad: ", torch.std(self.W_gradient))
+                # print("V grad norm", torch.norm(self.V_gradient))
+                # print("W grad norm", torch.norm(self.W_gradient))
+
+
+
+                if self.gradient_clipping is not None:
                     # Gradient clipping
                     # TODO: add GC as an argument to argparse
-                    torch.nn.utils.clip_grad_value_(self.learner.parameters(), clip_value=100)
+                    torch.nn.utils.clip_grad_norm_(self.learner.parameters(), max_norm=self.gradient_clipping)
 
                 if monitor_closely:
                     try:
@@ -153,7 +171,7 @@ class Solver(object):
                 if monitor_closely:
                     tracer.declare('loss', self.cur_loss.item())
 
-        tracer.declare('loss', self.cur_loss.item())
+            tracer.declare('loss', self.cur_loss.item())
         return self.cur_loss.item()
 
 
