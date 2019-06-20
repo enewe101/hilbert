@@ -4,7 +4,7 @@ import re
 import datetime
 
 KYLIE_PROJECT_DIR = '/home/jingyihe/scratch/experiment_scripts_logging'
-SAMPLE_MLE_PY = '/home/jingyihe/Documents/word_sense/hilbert/runners/run_mle_sample.py'
+MULTISENSE_MLE_PY = '/home/jingyihe/Documents/word_sense/hilbert/runners/run_multisense.py'
 EVALUATION_PY = '/home/jingyihe/Documents/hilbert_experiments/hilbert-experiments/evaluation/analysis/hilbert_eval.py'
 DATA_PATH = '/home/jingyihe/Documents/evaluation_data/all_data.npz'
 
@@ -28,6 +28,8 @@ def add_arguments(parser):
                         help="temperature")
     parser.add_argument('-clip', default=None, type=float, nargs='+', dest='grad_clip',
                         help="gradient clipping norm")
+    parser.add_argument('-K', default=5, type=int, dest='num_senses',
+                        help="number of senses of a word")
 
 def strNum_to_int(strNum):
     strNum = re.sub(r'k', '000', strNum)
@@ -36,27 +38,25 @@ def strNum_to_int(strNum):
 
 def write_python_command(**args):
     # init_emb = args['output_dir']+"50000"
-    run_cmd = "python {} -b {} -o {} -l {} --writes=30 --updates={} --batch-size={}" \
-              " --temperature={} -d 300 -scheduler {} -ga {} -thres 10 -B -C {}" \
-              .format(SAMPLE_MLE_PY,
+    run_cmd = "python {} -b {} -o {} -l {} --writes=20 --updates={} --batch-size={}" \
+              " --temperature={} -d 300 -thres 10 -K {}" \
+              .format(MULTISENSE_MLE_PY,
                                 args['cooc_dir'],
                                 args['output_dir'],
                                 args['lr'],
                                 args['num_updates'],
                                 args['num_batches'],
                                 args['temp'],
-                                args['sche'],
-                                args['g'],
-                                args['gc']
+                                args['num_senses']
                                 # init_emb
                                 )
-    base = "/".join(args['output_dir'].split('/')[:-1])
-    filename = args['output_dir'].split('/')[-1]
+    # base = "/".join(args['output_dir'].split('/')[:-1])
+    # filename = args['output_dir'].split('/')[-1]
 
-    run_cmd += "\n\npython {} {} -e -v -s --base={} --data_path={}".format(EVALUATION_PY,
-                                                                        filename,
-                                                                        base,
-                                                                       DATA_PATH)
+    # run_cmd += "\n\npython {} {} -e -v -s --base={} --data_path={}".format(EVALUATION_PY,
+    #                                                                     filename,
+    #                                                                     base,
+    #                                                                    DATA_PATH)
 
     return run_cmd
 
@@ -69,8 +69,8 @@ def make_submit_script(submit_dir, job_name, cmd):
         # some sbatch environment arguments
         f.writelines("#!/bin/bash\n")
         f.writelines("#SBATCH --account=def-dprecup\n")
-        f.writelines("#SBATCH --time=12:00:00\n")
-        f.writelines("#SBATCH --cpus-per-task=10\n")
+        f.writelines("#SBATCH --time=3:00:00\n")
+        f.writelines("#SBATCH --cpus-per-task=2\n")
         f.writelines("#SBATCH --mem-per-cpu=16G\n")
         f.writelines("#SBATCH --job-name={}\n".format(job_name))
         f.writelines("#SBATCH --output=.out/%x-%j.out\n")
@@ -99,12 +99,14 @@ def main(submit_dir, args):
     cooc_dir = args['cooc_dir']
     temp = args['temp']
     grad_clip = args['grad_clip']
+    num_senses = args['num_senses']
     # frac = args['frac']
 
 
     temp_str = 'temp={}'.format(temp)
     update_str = 'u={}'.format(num_updates)
     batch_str = 'b={}'.format(num_batches)
+    sense_str = 'sense={}'.format(num_senses)
     # frac_str = 'frac={}'.format(frac)
 
     num_updates = strNum_to_int(num_updates)
@@ -115,6 +117,7 @@ def main(submit_dir, args):
     write_args['num_updates'] = num_updates
     write_args['num_batches'] = num_batches
     write_args['temp'] = temp
+    write_args['num_senses'] = num_senses
 
     if lr_schedulers is None:
         lr_schedulers = [None]
@@ -152,12 +155,13 @@ def main(submit_dir, args):
                     gc_str = 'gc={}'.format(gc)
                     write_args['gc'] = gc
 
-                    outfile_name = "_".join([ga_str, sche_str, lr_str, batch_str, update_str, temp_str, gc_str])
-                    outfile_name += "_balanced"
-                    output_dir = os.path.join(output_base_dir, 'sample_mle', outfile_name)
+                    outfile_name = "_".join([lr_str, batch_str, update_str, temp_str, sense_str])
+                    # outfile_name += "_balanced"
+                    output_dir = os.path.join(output_base_dir, 'multisense_mle', outfile_name)
                     write_args['output_dir'] = output_dir
                     python_cmd = write_python_command(**write_args)
-                    job_name = "_".join([ga_str, lr_str, temp_str, gc_str])
+                    job_name = "_".join([lr_str, temp_str, sense_str])
+                    # job_name += "multisense"
                     print("This job is made: ", job_name)
                     make_submit_script(submit_dir, job_name, python_cmd)
                     print("wrote a script... ")
