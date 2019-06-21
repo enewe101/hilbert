@@ -1,0 +1,23 @@
+* Vocabulary size
+    * 40k and 50k from rldata (eventually got both to do really well, but 50k was more difficult)
+
+
+* rldata (Python) co-occurrence statistics are the way to go
+* Go co-occurrence extraction: Struggling to do as well
+    * Found that Nij != Nji
+    * Found the counts to be different from the Python co-occurrence counts
+    * Odd behavior where performance on similarity tasks would actually start decreasing after a few hours
+    * Playing with the minnij pruning threshold for co-occurrence extraction
+        * Having a high value for this saves a lot of memory but hurts performance
+    * Not able to use the same learning rate as with Python statistics
+* Old vs New Hilbert
+    * Be sure to use “simple” loss for the older version 
+    * Newer version of Hilbert required a lot more learning rate tuning
+* Learning Rate
+    * A lot of tuning
+    * Observation: The best learning rate does not seem to be the highest learning rate before divergence (for new Hilbert)
+    * Learning rates that are orders of magnitude lower than the threshold for divergence actually work really well (for new Hilbert)
+    * Grid search strategy
+        * Start by searching with different learning rates for lower and lower powers of ten starting at the point of divergence
+        * Then, work with powers of 2 (binary search kind of approach)
+* Temperature: Temp = 2 seemed to be the way to go as suggested in the paper
