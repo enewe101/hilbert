@@ -34,14 +34,14 @@ class Dictionary(object):
         return self.token_ids[token]
 
 
-    def get_id_safe(self, token):
+    def get_id_safe(self, token, default=None):
         """
         Do not raise KeyError if the token is not in the dictionary, instead
         return None.
         """
         if token in self.token_ids:
             return self.token_ids[token]
-        return None
+        return default
 
 
     def get_token(self, idx):

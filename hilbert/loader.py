@@ -1,3 +1,4 @@
+import os
 import torch
 from pytorch_categorical import Categorical
 import hilbert as h
@@ -284,5 +285,114 @@ class CPUSampleLoader:
         s += '\tbatch_size = {}\n'.format(self.batch_size)
         s += '\ttemperature = {}\n'.format(self.temperature)
         return s
+
+
+
+class DependencyLoader:
+
+    def __init__(
+        self,
+        dependency_path,
+        batch_size=100000,
+        device=None,
+        verbose=True
+    ):
+        self.dependency_path = dependence_path
+        self.batch_size = batch_size
+        self.device = device
+        self.verbose = verbose
+        self.dependency = h.dependency.DependencyCorpus(dependency_path)
+
+
+    def sample_batch(self, batch_size, pointer):
+        device = h.utils.get_device(self.device)
+        start = pointer * batch_size
+        stop = (pointer + 1) * batch_size
+        positives = self.dependency.data[start:stop].to(device)
+        negatives = sample_negatives(positives)
+        return positives, negatives
+
+
+    def __iter__(self):
+        self.pointer = 0
+        return self
+
+
+    def __next__(self):
+        positives, negatives = sample_batch(self.batch_size, self.pointer)
+        self.pointer += 1
+        return self.pointer, (positives, negatives)
+
+
+class DependencySampler:
+
+    def __init__(self, embeddings=None, V=None, W=None, architecture='flat'):
+        """
+        Either use embeddings, and pass a hilbert.embeddings.Embeddings object,
+        or use V and W and pass tensors representing vectors and covectors
+        respectively, each having one word-embedding per row.
+        architecture can be "flat" for a simple flat softmax, or 
+        "adaptive" for an adaptive softmax.
+        """
+        err = False
+        if embeddings is not None:
+            self.V = embeddings.V
+            self.W = embeddings.W
+            err = True
+        elif V is not None and W is not None:
+            self.V = V
+            self.W = W
+        else:
+            err = True
+        if err:
+            raise ValueError(
+                "Must provide either ``embeddings`` OR "
+                "V and W, but not embeddings AND V and W."
+            )
+
+
+    def sample(self, positives, mask):
+
+        # Need to add ability to sample the root.  Include it at the end
+        # of the sentence.  Include root in dictionary and embeddings.
+        assert mask.dtype == torch.uint8
+
+        # Drop tags for now
+        positives = positives[:,0:2,:] 
+        negatives = torch.zeros_like(positives)
+        negatives[:,0,:] = positives[:,0,:]
+        sentence_length = len(positives[0][0])
+        batch_size = len(positives)
+
+        reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
+        words = positives[:,0,:]
+        vectors = self.V[words]
+        covectors = self.W[words]
+        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        identities_idx = (
+            slice(None), range(sentence_length), range(sentence_length))
+        energies[identities_idx] = torch.tensor(-float('inf'))
+        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+
+        unnormalized_probs = torch.exp(energies)
+        unnormalized_probs_2d = unnormalized_probs.view(-1, sentence_length)
+        unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
+        totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
+        probs = unnormalized_probs_2d / totals
+
+        sample = torch.distributions.Categorical(probs).sample()
+        reshaped_sample = sample.reshape(-1, 1, sentence_length)
+
+        idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
+        idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
+
+        negatives[idx1,1,idx2] = positives[idx1, 0, sample]
+
+        negatives[:,1,:][1-mask] = 0
+
+        import pdb; pdb.set_trace()
+
+        return negatives
+
 
 

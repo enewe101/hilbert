@@ -17,3 +17,4 @@ import hilbert.exceptions
 import hilbert.tests
 import hilbert.learner
 import hilbert.scheduler
+import hilbert.dependency
