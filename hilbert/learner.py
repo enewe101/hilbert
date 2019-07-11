@@ -206,3 +206,97 @@ class MultisenseLearner(nn.Module):
 
 
 
+class EmbeddingLearner(nn.Module):
+
+    def __init__(
+            self,
+            vocab=None,
+            covocab=None,
+            d=None,
+            init=None,
+            device=None
+        ):
+
+        super(EmbeddingLearner, self).__init__()
+        if init is not None:
+            raise NotImplementedError(
+                "supplying initial embeddings is not yet supported!")
+
+        # Own it
+        self.V_shape = (vocab, d)
+        self.W_shape = (covocab, d)
+        self.vb_shape = (1, vocab)
+        self.wb_shape = (1, covocab)
+
+        self.device = h.utils.get_device(device)
+
+        # Initialize the model parameters.
+        if init is None:
+            self.V, self.W, self.vb, self.wb = None, None, None, None
+            self.reset()
+        else:
+            self.V = nn.Parameter(init[0], True)
+            self.W = nn.Parameter(init[1], True) 
+            self.vb = None if init[2] is None else nn.Parameter(init[2], True)
+            self.wb = None if init[3] is None else nn.Parameter(init[3], True)
+            self._validate_initialization()
+
+
+    def _validate_initialization(self):
+        """Raise an error if the caller passed in bad inits."""
+        if not self.bias and (self.vb is not None or self.wb is not None):
+            raise ValueError('No-bias model initialized with biases.')
+        elif self.bias and (self.vb is None or self.wb is None):
+            raise ValueError('Bias model initialized without biases.')
+        if self.V.shape != self.V_shape or self.W.shape != self.W_shape:
+            raise ValueError(
+                "Model parameters have initialized with incorrect shape. "
+                "Got {}, but expected {}.".format(self.V.shape, self.V_shape)
+            )
+
+
+    def reset(self):
+        self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
+        self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
+        if self.bias:
+            self.vb = nn.Parameter(
+                xavier(self.vb_shape, self.device).squeeze(), True)
+            self.wb = nn.Parameter(
+                xavier(self.wb_shape, self.device).squeeze(), True)
+
+
+    def get_embedding_params(self):
+        """Return just the model parameters that constitute "embeddings"."""
+        return self.V, self.W, self.vb, self.wb
+
+
+    # TODO: this shouldn't be necessary, self.parameters will automatically
+    # collect all tensors that are Parameters.
+    def get_params(self):
+        """Return *all* the model params."""
+        return self.V, self.W, self.vb, self.wb
+
+
+    def forward(self, positives, mask):
+
+        # positives is a (batch-size, 2, T) tensor, where T is the max
+        # sentence length
+        batch_size, _, max_sentence_length = positives.shape
+        words = positives[:,0,:]
+
+        idx0 = [
+            i for i in range(batch_size) 
+            for j in range(max_sentence_length)
+        ]
+        head_ids = positives[:,1,:]
+        heads = positives[idx0:0:head_ids]
+
+        covectors = self.W[words]
+        vectors = self.V[heads]
+
+
+
+
+
+
+
