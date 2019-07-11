@@ -63,14 +63,14 @@ class DependencyCorpus:
             arcs.append((fields[1], fields[6], fields[7]))
 
         resolved_arcs = [
-            (arc[0], arcs[int(arc[1])][0], arc[2]) 
+            (arc[0], int(arc[1]), arc[2]) 
             for arc in arcs if arc[1] != '_' and arc[2] != '_'
         ]
 
         encoded_arcs = [
             (
                 self.dictionary.get_id_safe(arc[0], 0), 
-                self.dictionary.get_id_safe(arc[1], 0), 
+                int(arc[1]), 
                 self.arc_dictionary.get_id(arc[2])
             ) 
             for arc in resolved_arcs
