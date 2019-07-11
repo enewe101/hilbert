@@ -386,11 +386,11 @@ class DependencySampler:
         idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
         idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
 
-        negatives[idx1,1,idx2] = positives[idx1, 0, sample]
+        negatives[idx1,1,idx2] = sample
 
         negatives[:,1,:][1-mask] = 0
 
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
 
         return negatives
 
