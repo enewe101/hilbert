@@ -206,7 +206,7 @@ class MultisenseLearner(nn.Module):
 
 
 
-class EmbeddingLearner(nn.Module):
+class ParseLearner(nn.Module):
 
     def __init__(
             self,
@@ -217,7 +217,7 @@ class EmbeddingLearner(nn.Module):
             device=None
         ):
 
-        super(EmbeddingLearner, self).__init__()
+        super(ParseLearner, self).__init__()
         if init is not None:
             raise NotImplementedError(
                 "supplying initial embeddings is not yet supported!")
@@ -243,11 +243,6 @@ class EmbeddingLearner(nn.Module):
 
 
     def _validate_initialization(self):
-        """Raise an error if the caller passed in bad inits."""
-        if not self.bias and (self.vb is not None or self.wb is not None):
-            raise ValueError('No-bias model initialized with biases.')
-        elif self.bias and (self.vb is None or self.wb is None):
-            raise ValueError('Bias model initialized without biases.')
         if self.V.shape != self.V_shape or self.W.shape != self.W_shape:
             raise ValueError(
                 "Model parameters have initialized with incorrect shape. "
@@ -258,11 +253,10 @@ class EmbeddingLearner(nn.Module):
     def reset(self):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
         self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
-        if self.bias:
-            self.vb = nn.Parameter(
-                xavier(self.vb_shape, self.device).squeeze(), True)
-            self.wb = nn.Parameter(
-                xavier(self.wb_shape, self.device).squeeze(), True)
+        self.vb = nn.Parameter(
+            xavier(self.vb_shape, self.device).squeeze(), True)
+        self.wb = nn.Parameter(
+            xavier(self.wb_shape, self.device).squeeze(), True)
 
 
     def get_embedding_params(self):
@@ -277,7 +271,7 @@ class EmbeddingLearner(nn.Module):
         return self.V, self.W, self.vb, self.wb
 
 
-    def forward(self, positives, mask):
+    def forward(self, positives):
 
         # positives is a (batch-size, 2, T) tensor, where T is the max
         # sentence length
@@ -288,11 +282,117 @@ class EmbeddingLearner(nn.Module):
             i for i in range(batch_size) 
             for j in range(max_sentence_length)
         ]
-        head_ids = positives[:,1,:]
-        heads = positives[idx0:0:head_ids]
+        import pdb; pdb.set_trace()
+        head_ids = positives[:,1,:].contiguous().view(-1)
+        heads = positives[idx0,0,head_ids].view(-1, max_sentence_length)
 
         covectors = self.W[words]
         vectors = self.V[heads]
+
+        dotted = covectors * vectors
+
+        # Mask contributions from the root choosing a head
+        dotted[:,0,:] = 0
+        scores = dotted.sum(1).sum(1)
+        return scores
+
+
+    def negative_sweep(self, positives, mask):
+
+        # Need to add ability to sample the root.  Include it at the end
+        # of the sentence.  Include root in dictionary and embeddings.
+        assert mask.dtype == torch.uint8
+
+        # Drop tags for now
+        positives = positives[:,0:2,:] 
+        negatives = torch.zeros_like(positives)
+        negatives[:,0,:] = positives[:,0,:]
+        batch_size, _, sentence_length = positives.shape
+
+        # Access the vectors and covectors
+        words = positives[:,0,:]
+        vectors = self.V[words]
+        covectors = self.W[words]
+
+        # Calculate energies
+        energies = torch.bmm(covectors, vectors.transpose(1,2))
+
+        # Block out prohibited states:
+        #   Don't choose self as a head
+        diag_mask = (
+            slice(None), range(sentence_length), range(sentence_length))
+        energies[diag_mask] = torch.tensor(-float('inf'))
+
+        # Don't choose padding as a head
+        reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
+        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+        import pdb; pdb.set_trace()
+
+        #unnormalized_probs = torch.exp(energies)
+
+        #unnormalized_probs_2d = unnormalized_probs.view(-1, sentence_length)
+        #unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
+        #totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
+        #probs = unnormalized_probs_2d / totals
+
+        #sample = torch.distributions.Categorical(probs).sample()
+        #reshaped_sample = sample.reshape(-1, 1, sentence_length)
+
+        #idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
+        #idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
+
+        #negatives[idx1,1,idx2] = sample
+
+        #negatives[:,1,:][1-mask] = 0
+
+        ##import pdb; pdb.set_trace()
+
+        #return negatives
+
+    def negative_sample(self, positives, mask):
+
+        # Need to add ability to sample the root.  Include it at the end
+        # of the sentence.  Include root in dictionary and embeddings.
+        assert mask.dtype == torch.uint8
+
+        # Drop tags for now
+        positives = positives[:,0:2,:] 
+        negatives = torch.zeros_like(positives)
+        negatives[:,0,:] = positives[:,0,:]
+        batch_size, _, sentence_length = positives.shape
+
+        reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
+        words = positives[:,0,:]
+        vectors = self.V[words]
+        covectors = self.W[words]
+        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        diag_mask = (
+            slice(None), range(sentence_length), range(sentence_length))
+        energies[diag_mask] = torch.tensor(-float('inf'))
+        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+
+        unnormalized_probs = torch.exp(energies)
+        unnormalized_probs_2d = unnormalized_probs.view(-1, sentence_length)
+        unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
+        totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
+        probs = unnormalized_probs_2d / totals
+
+        sample = torch.distributions.Categorical(probs).sample()
+        reshaped_sample = sample.reshape(-1, 1, sentence_length)
+
+        idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
+        idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
+
+        negatives[idx1,1,idx2] = sample
+
+        negatives[:,1,:][1-mask] = 0
+
+        #import pdb; pdb.set_trace()
+
+        return negatives
+
+
+
 
 
 

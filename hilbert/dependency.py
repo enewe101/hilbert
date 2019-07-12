@@ -2,8 +2,11 @@ import hilbert as h
 import torch
 import os
 
+PAD = -1
 
-MAX_SENTENCE_LENGTH = 30
+MAX_SENTENCE_LENGTH = 100
+# The dependency corpus should order sentences by length, to facilitate
+# loading with minimal masking.
 class DependencyCorpus:
 
     def __init__(self, corpus_path):
@@ -15,33 +18,46 @@ class DependencyCorpus:
         self.arc_dictionary = h.dictionary.Dictionary.load(os.path.join(
             corpus_path, 'arc-dictionary'
         ))
-        self.data = self.read_all()
+        self.data, self.sort_idxs = self.read_all()
 
 
     def read_all(self):
-        self.sentences = []
-        lines = []
+        sentences = []
+        sentence_lengths = []
         i = 0
+        for i, sentence_rows in enumerate(self.iter_sentence_rows()):
+            # DEBUG: just handle the first 1000 sentences.
+            if i > 1000:
+                break
+
+            sentence_data, sentence_len = self.compile_sentence(sentence_rows)
+            if sentence_len > MAX_SENTENCE_LENGTH:
+                continue
+
+            sentence_lengths.append(sentence_len)
+            sentences.append(sentence_data)
+
+        sentences = torch.tensor(sentences, dtype=torch.int64)
+        sentence_lengths = torch.tensor(sentence_lengths, dtype=torch.int64)
+        sort_idxs = torch.argsort(sentence_lengths)
+        sentences = sentences[sort_idxs]
+        return sentences, sort_idxs
+
+
+
+    def iter_sentence_rows(self):
+        lines = []
         with open(self.corpus_text_path) as corpus_file:
             for line in corpus_file:
-
-                # DEBUG: just handle the first 1000 lines.
-                if i > 1000:
-                    break
-
                 if line.strip() == '':
-                    i += 1
                     if len(lines) > 0:
-                        self.compile_sentence(lines)
+                        yield lines
                         lines = []
-
                 else:
                     lines.append(line)
-
             if len(lines) > 0:
-                self.compile_sentence(lines)
+                yield lines
         
-        return torch.tensor(self.sentences, dtype=torch.int32)
 
 
     def compile_arc_types(self, lines):
@@ -52,20 +68,11 @@ class DependencyCorpus:
 
     def compile_sentence(self, lines):
 
-        # Filter out long sentences, since this will add too much padding to
-        # other sentences.
-        if len(lines) > MAX_SENTENCE_LENGTH:
-            return
-
-        arcs = [('[ROOT]', 0, 'root')] # Every sentence has first token [ROOT].
+        # Every sentence has first token [ROOT].
+        arcs = []
         for line in lines:
             fields = line.strip().split('\t')
             arcs.append((fields[1], fields[6], fields[7]))
-
-        resolved_arcs = [
-            (arc[0], int(arc[1]), arc[2]) 
-            for arc in arcs if arc[1] != '_' and arc[2] != '_'
-        ]
 
         encoded_arcs = [
             (
@@ -73,17 +80,29 @@ class DependencyCorpus:
                 int(arc[1]), 
                 self.arc_dictionary.get_id(arc[2])
             ) 
-            for arc in resolved_arcs
+            for arc in arcs if arc[1] != '_' and arc[2] != '_'
         ]
 
         padding_length = MAX_SENTENCE_LENGTH - len(encoded_arcs)
 
-        modifiers = [arc[0] for arc in encoded_arcs] + [-1]*padding_length
-        heads = [arc[1] for arc in encoded_arcs] + [-1]*padding_length
-        arc_types = [arc[2] for arc in encoded_arcs] + [-1]*padding_length
+        modifiers = (
+            [self.dictionary.get_id('[ROOT]')]  # First pos is root
+            + [arc[0] for arc in encoded_arcs] 
+            + [PAD]*padding_length  # Add padding so sentences have equal length
+        )
+        heads = (
+            [PAD]   # Root has no head (it modifies nothing)
+            + [arc[1] for arc in encoded_arcs] 
+            + [PAD]*padding_length  # Add padding so sentences have equal length
+        )
+        arc_types = (
+            [PAD]   # Root has no incoming arc (it modifies nothing)
+            + [arc[2] for arc in encoded_arcs] 
+            + [PAD]*padding_length  # Add padding so sentences have equal length
+        )
 
         assert len(modifiers) == len(heads)
         assert len(modifiers) == len(arc_types)
 
-        self.sentences.append([modifiers, heads, arc_types])
+        return [modifiers, heads, arc_types], len(arcs)
 
