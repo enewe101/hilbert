@@ -98,8 +98,8 @@ class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
         response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
         if self.bias:
-            response += self.v_bias[IJ[:,0]]
-            response += self.w_bias[IJ[:,1]]
+            response += self.vb[IJ[:,0]]
+            response += self.wb[IJ[:,1]]
         return response
 
 

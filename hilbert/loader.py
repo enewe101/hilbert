@@ -388,7 +388,8 @@ class DependencySampler:
 
         negatives[idx1,1,idx2] = sample
 
-        negatives[:,1,:][1-mask] = 0
+        negatives[:,1,:][1-mask] = h.dependency.PAD
+        negatives[:,1,0] = h.dependency.PAD
 
         #import pdb; pdb.set_trace()
 

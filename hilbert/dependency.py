@@ -4,6 +4,8 @@ import os
 
 
 MAX_SENTENCE_LENGTH = 30
+PAD = -1 
+
 class DependencyCorpus:
 
     def __init__(self, corpus_path):
@@ -78,9 +80,9 @@ class DependencyCorpus:
 
         padding_length = MAX_SENTENCE_LENGTH - len(encoded_arcs)
 
-        modifiers = [arc[0] for arc in encoded_arcs] + [-1]*padding_length
-        heads = [arc[1] for arc in encoded_arcs] + [-1]*padding_length
-        arc_types = [arc[2] for arc in encoded_arcs] + [-1]*padding_length
+        modifiers = [arc[0] for arc in encoded_arcs] + [PAD]*padding_length
+        heads = [arc[1] for arc in encoded_arcs] + [PAD]*padding_length
+        arc_types = [arc[2] for arc in encoded_arcs] + [PAD]*padding_length
 
         assert len(modifiers) == len(heads)
         assert len(modifiers) == len(arc_types)
