@@ -4,6 +4,7 @@ import os
 
 PAD = -1
 
+
 MAX_SENTENCE_LENGTH = 100
 # The dependency corpus should order sentences by length, to facilitate
 # loading with minimal masking.
@@ -18,7 +19,7 @@ class DependencyCorpus:
         self.arc_dictionary = h.dictionary.Dictionary.load(os.path.join(
             corpus_path, 'arc-dictionary'
         ))
-        self.data, self.sort_idxs = self.read_all()
+        self.sentences, self.sentence_lengths, self.sort_idxs = self.read_all()
 
 
     def read_all(self):
@@ -37,11 +38,9 @@ class DependencyCorpus:
             sentence_lengths.append(sentence_len)
             sentences.append(sentence_data)
 
-        sentences = torch.tensor(sentences, dtype=torch.int64)
         sentence_lengths = torch.tensor(sentence_lengths, dtype=torch.int64)
         sort_idxs = torch.argsort(sentence_lengths)
-        sentences = sentences[sort_idxs]
-        return sentences, sort_idxs
+        return sentences, sentence_lengths, sort_idxs
 
 
 
@@ -75,6 +74,8 @@ class DependencyCorpus:
             arcs.append((fields[1], fields[6], fields[7]))
 
         encoded_arcs = [
+            (self.dictionary.get_id('[ROOT]'), PAD, PAD)
+        ] + [
             (
                 self.dictionary.get_id_safe(arc[0], 0), 
                 int(arc[1]), 
@@ -84,25 +85,12 @@ class DependencyCorpus:
         ]
 
         padding_length = MAX_SENTENCE_LENGTH - len(encoded_arcs)
-
-        modifiers = (
-            [self.dictionary.get_id('[ROOT]')]  # First pos is root
-            + [arc[0] for arc in encoded_arcs] 
-            + [PAD]*padding_length  # Add padding so sentences have equal length
-        )
-        heads = (
-            [PAD]   # Root has no head (it modifies nothing)
-            + [arc[1] for arc in encoded_arcs] 
-            + [PAD]*padding_length  # Add padding so sentences have equal length
-        )
-        arc_types = (
-            [PAD]   # Root has no incoming arc (it modifies nothing)
-            + [arc[2] for arc in encoded_arcs] 
-            + [PAD]*padding_length  # Add padding so sentences have equal length
-        )
+        modifiers = [arc[0] for arc in encoded_arcs]
+        heads = [arc[1] for arc in encoded_arcs]
+        arc_types = [arc[2] for arc in encoded_arcs]
 
         assert len(modifiers) == len(heads)
         assert len(modifiers) == len(arc_types)
 
-        return [modifiers, heads, arc_types], len(arcs)
+        return (modifiers, heads, arc_types), len(modifiers)
 

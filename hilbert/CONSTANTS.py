@@ -1,6 +1,7 @@
-import torch
-import json
 import os
+import sys
+import json
+import torch
 
 def read_rc():
     RC = {
@@ -45,3 +46,4 @@ CODE_DIR = os.path.abspath(os.path.join(__file__, '..'))
 TEST_DIR = os.path.join(CODE_DIR, 'tests', 'test-data')
 TEST_TOKEN_PATH = os.path.join(TEST_DIR, 'test_doc.txt')
 TEST_DOCS_DIR = os.path.join(TEST_DIR, 'test-docs')
+PAD = sys.maxsize

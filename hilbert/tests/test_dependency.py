@@ -6,14 +6,14 @@ try:
 except ImportError:
     torch = None
 
+
 class TestDependencyCorpus(TestCase):
 
     def test_dependency_corpus(self):
 
+        dep_corp = h.tests.load_test_data.load_dependency_corpus()
         dependency_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-dependency-corpus')
-        dep_corp = h.dependency.DependencyCorpus(dependency_path)
-
         dependency_corpus_path = os.path.join(dependency_path, 'corpus')
         sentences = open(dependency_corpus_path).read().split('\n\n')
         dictionary_path = os.path.join(dependency_path, 'dictionary')

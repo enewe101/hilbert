@@ -287,6 +287,13 @@ class CPUSampleLoader:
         return s
 
 
+def pad_sentence(sent, length):
+    return [pad(sent[0], length), pad(sent[1], length), pad(sent[2], length)]
+
+
+def pad(lst, length):
+    return lst + [h.CONSTANTS.PAD] * (length - len(lst))
+
 
 class DependencyLoader:
 
@@ -297,7 +304,7 @@ class DependencyLoader:
         device=None,
         verbose=True
     ):
-        self.dependency_path = dependence_path
+        self.dependency_path = dependency_path
         self.batch_size = batch_size
         self.device = device
         self.verbose = verbose
@@ -308,8 +315,21 @@ class DependencyLoader:
         device = h.utils.get_device(self.device)
         start = pointer * batch_size
         stop = (pointer + 1) * batch_size
-        positives = self.dependency.data[start:stop].to(device)
-        negatives = sample_negatives(positives)
+
+        if start  >= len(self.dependency.sort_idxs):
+            raise IndexError(
+                "pointing at example {}, but data has only {} examples"
+                .format(start, len(self.dependency.sort_idxs))
+            )
+
+        idxs = self.dependency.sort_idxs[start:stop]
+
+        max_length = torch.max(self.dependency.sentence_lengths[idxs]).item()
+        positives = torch.tensor([
+            pad_sentence(self.dependency.sentences[idx], max_length)
+            for idx in idxs
+        ])
+        negatives = self.sample_negatives(positives)
         return positives, negatives
 
 
@@ -317,11 +337,20 @@ class DependencyLoader:
         self.pointer = 0
         return self
 
+    def sample_negatives(self, positives):
+        return positives
+
 
     def __next__(self):
-        positives, negatives = sample_batch(self.batch_size, self.pointer)
+        try:
+            positives, negatives = self.sample_batch(
+                self.batch_size, self.pointer)
+        except IndexError:
+            raise StopIteration()
         self.pointer += 1
         return self.pointer, (positives, negatives)
+
+
 
 
 class DependencySampler:
@@ -389,8 +418,6 @@ class DependencySampler:
         negatives[idx1,1,idx2] = sample
 
         negatives[:,1,:][1-mask] = 0
-
-        #import pdb; pdb.set_trace()
 
         return negatives
 

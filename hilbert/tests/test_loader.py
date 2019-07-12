@@ -114,10 +114,6 @@ class TestCPUSampleLoader(TestCase):
         
 
 
-        
-
-
-
 
 class TestGPUSampleLoader(TestCase):
 
@@ -236,6 +232,18 @@ class TestGPUSampleLoader(TestCase):
         self.assertEqual(num_batches_seen, num_batches)
 
 
+
+class TestDependencyLoader(TestCase):
+
+    def test_dependency_loader(self):
+        batch_size = int(1e5)
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
+        for i, (p, n) in loader:
+            print(i, p, n)
+        
 
 
 

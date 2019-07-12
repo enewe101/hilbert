@@ -206,7 +206,7 @@ class MultisenseLearner(nn.Module):
 
 
 
-class ParseLearner(nn.Module):
+class DependencyLearner(nn.Module):
 
     def __init__(
             self,
