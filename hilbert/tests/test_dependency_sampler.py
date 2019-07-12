@@ -2,18 +2,11 @@ import os
 import shutil
 from unittest import main
 from unittest import TestCase
-from copy import copy, deepcopy
 import hilbert as h
-import random
-
 try:
-    import numpy as np
     import torch
-    from scipy import sparse
 except ImportError:
-    np = None
     torch = None
-    sparse = None
 
 
 class TestDependencySampler(TestCase):
