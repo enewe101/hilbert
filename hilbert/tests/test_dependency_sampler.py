@@ -49,7 +49,8 @@ class TestDependencySampler(TestCase):
             [1,1,0,0,0],
         ], dtype=torch.uint8)
       
-        masked_rows = [4,8,9,14,17,18,19]
+        sampling_rows = [1,2,3,6,7,11,12,13,16]
+        padding_rows = [0,4,5,8,9,10,14,15,17,18,19]
 
         words = positives[:,0,:]
         covectors = W[words]
@@ -81,23 +82,21 @@ class TestDependencySampler(TestCase):
         unnormalized_probs_2d = unnormalized_probs.view(-1, 5)
         unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
         totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
-        probs = unnormalized_probs_2d / totals
-        self.assertEqual(probs.size(), (20,5))
-    
-        #For checking that the padding rows were properly masked for sampling
-        for i in range(len(masked_rows)):
-            probs[masked_rows[i],0:4] = 0
-            probs[masked_rows[i],-1] = 1
-       
-        #For checking that the rows designating the root were padded
-        for i in range(4):
-            probs[5*i,0:4] = 0
-            probs[5*i,4] = 1
+        probs_full = unnormalized_probs_2d / totals
+ 
+        #We only care about the probs from non-padding rows
+        probs = torch.zeros(len(sampling_rows),5)
 
-        #print("\n")
-        #print(probs)
+        k = 0
+        for i in range(20):
+            if i in sampling_rows:
+                probs[k,:] = probs_full[i,:]
+                k += 1
+        
+        print("\n")
+        print(probs)
 
-        counter = torch.zeros(20,5)
+        counter = torch.zeros(len(sampling_rows),5)
         iterations = 50000
 
         # draw negative samples
@@ -106,17 +105,25 @@ class TestDependencySampler(TestCase):
 
         for i in range(iterations):
             negatives = sampler.sample(positives, mask)
-            for j in range(20):
-                selection = negatives[j//5,1,j%5]
+            for j in range(len(padding_rows)):
+                row_idx = padding_rows[j]
+                selection = negatives[row_idx//5,1,row_idx%5]
+                self.assertTrue(torch.equal(selection,h.dependency.PAD))
+            for j in range(len(sampling_rows)):
+                row_idx = sampling_rows[j]
+                selection = int(negatives[row_idx//5,1,row_idx%5])
+                selected_row = row_idx - row_idx%5 + selection
+                self.assertTrue(selected_row in sampling_rows or selected_row % 5 == 0)
                 counter[j,selection] += 1
-       
+        
+        #print("\n")
         #print(negatives)
         self.assertEqual(negatives.size(),positives.size())
 
         found_probs = counter / iterations
 
-        #print("\n")
-        #print(found_probs)
+        print("\n")
+        print(found_probs)
 
         self.assertTrue(torch.allclose(probs,found_probs,atol=1e-02))
 

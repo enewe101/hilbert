@@ -1,10 +1,11 @@
 import hilbert as h
 import torch
 import os
+import sys
 
 
 MAX_SENTENCE_LENGTH = 30
-PAD = -1 
+PAD = torch.tensor(sys.maxsize, dtype=torch.int64) 
 
 class DependencyCorpus:
 
