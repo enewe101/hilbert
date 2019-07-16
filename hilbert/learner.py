@@ -192,7 +192,8 @@ class MultisenseLearner(nn.Module):
         mat_muls = torch.bmm(
             self.W[IJ[:,1]].transpose(dim0=1, dim1=2),
             self.V[IJ[:,0]]
-        ) 
+        )
+        # mat_muls.shape = (vocab, num_senses, num_senses)
 
         # Calculate the super-dot-product for each sample.
         mat_muls += bias

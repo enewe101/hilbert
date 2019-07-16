@@ -18,11 +18,11 @@ def add_arguments(parser):
                         help='give a series of start learning rates.')
     parser.add_argument('-u', default='10k', type=str, dest='num_updates',
                         help="give a number of updates, you can type (?)k or just a number")
-    parser.add_argument('-p', default='350k', type=str, dest='batches',
+    parser.add_argument('-p', default='450k', type=str, dest='batches',
                         help='number of batches, you can type (?)k or just a number')
     parser.add_argument('-o', default='/home/jingyihe/scratch/', type=str,
                         dest='output_dir', help='output base directory for storing the embeddings.')
-    parser.add_argument('-b', default='/home/jingyihe/Documents/cooc/5w-dynamic-50k/', type=str, dest='cooc_dir',
+    parser.add_argument('-b', default='/home/jingyihe/Documents/cooc/symmetric_data_50k', type=str, dest='cooc_dir',
                         help='cooccurrence directory')
     parser.add_argument('-temp', default=2, type=int, dest='temp',
                         help="temperature")
@@ -69,9 +69,9 @@ def make_submit_script(submit_dir, job_name, cmd):
         # some sbatch environment arguments
         f.writelines("#!/bin/bash\n")
         f.writelines("#SBATCH --account=def-dprecup\n")
-        f.writelines("#SBATCH --time=3:00:00\n")
+        f.writelines("#SBATCH --time=7:00:00\n")
         f.writelines("#SBATCH --cpus-per-task=2\n")
-        f.writelines("#SBATCH --mem-per-cpu=16G\n")
+        f.writelines("#SBATCH --mem-per-cpu=64G\n")
         f.writelines("#SBATCH --job-name={}\n".format(job_name))
         f.writelines("#SBATCH --output=.out/%x-%j.out\n")
         f.writelines("#SBATCH --error=.err/%x-%j.err\n")
@@ -108,6 +108,7 @@ def main(submit_dir, args):
     batch_str = 'b={}'.format(num_batches)
     sense_str = 'sense={}'.format(num_senses)
     # frac_str = 'frac={}'.format(frac)
+
 
     num_updates = strNum_to_int(num_updates)
     num_batches = strNum_to_int(num_batches)

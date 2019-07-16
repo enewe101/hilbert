@@ -48,8 +48,8 @@ class Solver(object):
 
         # Other solver state
         self.cur_loss = None
-        self.V_gradient = None
-        self.W_gradient = None
+        self.V_norm = None
+        self.W_norm = None
 
 
     def reset(self, lr=None):
@@ -117,8 +117,8 @@ class Solver(object):
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
-                self.V_gradient = list(self.learner.parameters())[0].grad
-                self.W_gradient = list(self.learner.parameters())[1].grad
+                # self.V_gradient = list(self.learner.parameters())[0].grad
+                # self.W_gradient = list(self.learner.parameters())[1].grad
                 # self.W_gradient = self.learner.parameters().grad
                 # print("gradient of V: ", list(self.learner.parameters())[0].grad)
                 # print("gradient of W: ", list(self.learner.parameters())[1].grad)
@@ -126,15 +126,30 @@ class Solver(object):
                 # print("mean of W grad: ", torch.mean(self.W_gradient))
                 # print("std of V grad: ", torch.std(self.V_gradient))
                 # print("std of W grad: ", torch.std(self.W_gradient))
-                # print("V grad norm", torch.norm(self.V_gradient))
-                # print("W grad norm", torch.norm(self.W_gradient))
 
+
+                if monitor_closely:
+                    self.V_norm = torch.norm(list(self.learner.parameters())[0].grad)
+                    self.W_norm = torch.norm(list(self.learner.parameters())[1].grad)
+                    print("\n\n")
+                    print("V grad norm", self.V_norm)
+                    print("W grad norm", self.W_norm)
 
 
                 if self.gradient_clipping is not None:
                     # Gradient clipping
-                    # TODO: add GC as an argument to argparse
+
                     torch.nn.utils.clip_grad_norm_(self.learner.parameters(), max_norm=self.gradient_clipping)
+
+                    if monitor_closely:
+                        print("gradient clipping is: ", self.gradient_clipping)
+                        # print("after clipping gradient of V: ", list(self.learner.parameters())[0].grad)
+                        # print("after clipping gradient of W: ", list(self.learner.parameters())[1].grad)
+                        print(torch.allclose(self.V_gradient, list(self.learner.parameters())[0].grad))
+                        print(torch.allclose(self.W_gradient, list(self.learner.parameters())[1].grad))
+                        if self.V_norm > self.gradient_clipping or self.W_norm > self.gradient_clipping:
+                            print("V_norm comparison: ",self.V_norm <= self.gradient_clipping)
+                            print("W_norm comparison: ",self.W_norm <= self.gradient_clipping)
 
                 if monitor_closely:
                     try:

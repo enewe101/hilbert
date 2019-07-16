@@ -104,12 +104,8 @@ class CooccurrenceSector(object):
 
         sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
             cooccurrence_path)
-        if verbose:
-            print("sector/shard factor is: ",sector_factor)
 
         for sector_id in h.shards.Shards(sector_factor):
-            if verbose:
-                print('coo loader is loading sector {}'.format(sector_id.serialize()))
 
             # Read the sector, and get the statistics in sparse COO-format
             sector = h.cooccurrence.CooccurrenceSector.load(
@@ -414,7 +410,6 @@ class CooccurrenceSector(object):
     def get_sector_factor(path):
         # Check for presence of auxiliary files
         found_files = set(os.listdir(path))
-        print("the path is ", path)
         if 'Nx.npy' not in found_files:
             raise ValueError()
         elif 'Nxt.npy' not in found_files:

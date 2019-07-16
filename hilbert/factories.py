@@ -141,6 +141,7 @@ def build_mle_sample_solver(
         temperature=2,            # MLE option
         batch_size=10000,
         balanced=False,
+        gibbs=False,
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
@@ -148,7 +149,6 @@ def build_mle_sample_solver(
         opt_str='adam',
         scheduler_str=None,
         constant_fraction=1,
-        start_lr=None,
         end_lr=0,
         num_updates=1,
         remove_threshold=None,
@@ -193,15 +193,38 @@ def build_mle_sample_solver(
         loader_class = h.loader.CPUSampleLoader
     else:
         loader_class = h.loader.GPUSampleLoader
+
+    if gibbs:
+        print("Using Gibbs sampling.")
+        loader_class = h.loader.GibbsSampleLoader
+
     loader = loader_class(
-        cooccurrence_path=cooccurrence_path, 
+        cooccurrence_path=cooccurrence_path,
+        learner=learner,
         temperature=temperature,
         batch_size=batch_size,
-        device=device, 
+        device=device,
+        verbose=verbose,
+        remove_threshold=remove_threshold
+        device=device,
         verbose=verbose
     )
 
+
     optimizer = get_optimizer(opt_str, learner, learning_rate)
+
+    if scheduler_str is not None:
+        lr_scheduler = get_lr_scheduler(scheduler_str=scheduler_str,
+                                        optimizer=optimizer,
+                                        start_lr=learning_rate,
+                                        num_updates=num_updates,
+                                        end_lr=end_lr,
+                                        constant_fraction=constant_fraction,
+                                        verbose=verbose)
+
+    # scheduler. Why list of schedulers??
+    else:
+        lr_scheduler = []
 
     solver = h.solver.Solver(
         loader=loader,
@@ -228,7 +251,7 @@ def build_multisense_solver(
         opt_str='adam',
         seed=1917,
         device=None,
-        verbose=True,
+        verbose=True
     ):
     """
     Similar to build_mle_solver, but it is based on 
@@ -258,30 +281,10 @@ def build_multisense_solver(
         temperature=temperature,
         batch_size=batch_size,
         device=device, 
-        verbose=verbose,
-        remove_threshold=remove_threshold
+        verbose=verbose
     )
 
     optimizer = get_optimizer(opt_str, learner, learning_rate)
-
-    if scheduler_str is not None:
-        if start_lr is None:
-            if verbose:
-                print("Use learning rate scheduler without specifying the start learning rate. Use default "
-                      "learning rate instead.")
-            start_lr = learning_rate
-
-        lr_scheduler = get_lr_scheduler(scheduler_str=scheduler_str,
-                                        optimizer=optimizer,
-                                        start_lr=start_lr,
-                                        num_updates=num_updates,
-                                        end_lr=end_lr,
-                                        constant_fraction=constant_fraction,
-                                        verbose=verbose)
-
-    # scheduler. Why list of schedulers??
-    else:
-        lr_scheduler = []
 
     solver = h.solver.Solver(
         loader=loader,
@@ -291,8 +294,6 @@ def build_multisense_solver(
         schedulers=lr_scheduler,
         dictionary=dictionary,
         verbose=verbose,
-        gradient_accumulation=gradient_accumulation,
-        gradient_clipping=gradient_clipping
     )
 
     return solver
