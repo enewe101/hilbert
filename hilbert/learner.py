@@ -59,6 +59,7 @@ class EmbeddingLearner(nn.Module):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
         self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
         if self.bias:
+            print("initialized with bias")
             self.vb = nn.Parameter(
                 xavier(self.vb_shape, self.device).squeeze(), True)
             self.wb = nn.Parameter(
@@ -96,6 +97,7 @@ class DenseLearner(EmbeddingLearner):
 
 class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
+        # term-wise multiplication
         response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
         if self.bias:
             response += self.vb[IJ[:,0]]
@@ -191,7 +193,8 @@ class MultisenseLearner(nn.Module):
         mat_muls = torch.bmm(
             self.W[IJ[:,1]].transpose(dim0=1, dim1=2),
             self.V[IJ[:,0]]
-        ) 
+        )
+        # mat_muls.shape = (vocab, num_senses, num_senses)
 
         # Calculate the super-dot-product for each sample.
         mat_muls += bias

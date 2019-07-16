@@ -1,4 +1,4 @@
-from unittest import TestCase
+from unittest import TestCase, main
 import hilbert as h
 import torch
 
@@ -93,9 +93,42 @@ class TestSchedulers(TestCase):
             scheduler.step()
 
 
+    def test_inverse_lr_scheduler(self):
+        start_lr = 5
+        num_updates = 20
+        constant_fraction = 0.3
 
+        params1 = (
+            torch.nn.Parameter(torch.rand(5)),
+            torch.nn.Parameter(torch.rand(5))
+        )
+        params2 = (
+            torch.nn.Parameter(torch.rand(5)),
+            torch.nn.Parameter(torch.rand(5))
+        )
 
+        opt = torch.optim.SGD(
+            [{'params': params1, 'lr': 5}, {'params': params2}], lr=3)
 
+        # initially the learning rates are as provided
+        self.assertEqual(opt.param_groups[0]['lr'], 5)
+        self.assertEqual(opt.param_groups[1]['lr'], 3)
 
+        scheduler = h.scheduler.InverseLRScheduler(opt, start_lr, num_updates*constant_fraction)
 
+        # immediately after creating the scheduler, it sets the learning rates
+        self.assertEqual(opt.param_groups[0]['lr'], start_lr)
+        self.assertEqual(opt.param_groups[1]['lr'], start_lr)
 
+        for epoch in range(num_updates):
+            if epoch < num_updates*constant_fraction:
+                expected_lr = start_lr
+
+            else:
+                expected_lr = start_lr * num_updates*constant_fraction / epoch
+            for param_group in opt.param_groups:
+                self.assertTrue(is_close(param_group['lr'], expected_lr))
+            scheduler.step()
+
+if __name__ == '__main__':
+    main(verbosity=3)

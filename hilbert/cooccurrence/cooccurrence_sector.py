@@ -61,7 +61,7 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load(path, sector, verbose=True):
+    def load(path, sector, rm_thres=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
@@ -74,16 +74,22 @@ class CooccurrenceSector(object):
             Nxx_fname = 'Nxx.npz'
         else:
             Nxx_fname = 'Nxx-{}-{}-{}.npz'.format(*h.shards.serialize(sector))
-        Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
+
         Nx = np.load(os.path.join(path, 'Nx.npy'))
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))
+        # Remove low cooccurrence counts
+        if rm_thres is not None:
+            Nxx = sparse.load_npz(os.path.join(path, Nxx_fname))
+            Nxx = h.cooccurrence.CooccurrenceSector.remove_small_numbers(Nxx, rm_thres)
+        else:
+            Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
 
         return CooccurrenceSector(
             unigram, Nxx=Nxx, Nx=Nx, Nxt=Nxt, sector=sector, verbose=verbose)
 
 
     @staticmethod
-    def load_coo(cooccurrence_path, include_marginals=True, verbose=True):
+    def load_coo(cooccurrence_path, include_marginals=True, verbose=True, rm_thres=None):
         """ 
         Reads in sectorized cooccurrence data from disk, and converts it
         into a sparse tensor representation using COO format.  If desired,
@@ -101,12 +107,10 @@ class CooccurrenceSector(object):
 
         for sector_id in h.shards.Shards(sector_factor):
 
-            if verbose:
-                print('loading sector {}'.format(sector_id.serialize()))
-
             # Read the sector, and get the statistics in sparse COO-format
             sector = h.cooccurrence.CooccurrenceSector.load(
-                cooccurrence_path, sector_id)
+                cooccurrence_path, sector_id, rm_thres=rm_thres)
+            # reduced_sector = h.cooccurrence.CooccurrenceSector.remove_small_numbers(sector.Nxx)
             sector_coo = sector.Nxx.tocoo()
 
             # Tensorfy the data, and the row and column indices
@@ -119,6 +123,7 @@ class CooccurrenceSector(object):
             add_j_idxs = add_j_idxs * sector_id.step + sector_id.j
 
             # Concatenate
+            # I is a 1D indices tensor of i(covector); J is a 1D indices tensor of j(vector)
             data = torch.cat((data, add_Nxx))
             I = torch.cat((I, add_i_idxs))
             J = torch.cat((J, add_j_idxs))
@@ -126,12 +131,16 @@ class CooccurrenceSector(object):
         if include_marginals:
             # Every sector has global marginals, so get marginals from last
             # sector.
-            Nx = torch.tensor(sector._Nx, dtype=h.utils.get_dtype())
-            Nxt = torch.tensor(sector._Nxt, dtype=h.utils.get_dtype())
+            Nx = sector._Nx.clone().detach().requires_grad_(True)
+            Nxt = sector._Nxt.clone().detach().requires_grad_(True)
+            # Nx = torch.tensor(sector._Nx, dtype=h.utils.get_dtype())
+            # Nxt = torch.tensor(sector._Nxt, dtype=h.utils.get_dtype())
             return data, I, J, Nx, Nxt
         else:
             return data, I, J
-
+    @staticmethod
+    def remove_small_numbers(cooc, threshold):
+        return sparse.lil_matrix(np.where(cooc.todense() > threshold, cooc.todense(), 0))
 
     @property
     def shape(self):
