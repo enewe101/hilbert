@@ -1,3 +1,0 @@
-import word_sense.sense_learner
-import word_sense.sense_solver
-import word_sense.run_sense
