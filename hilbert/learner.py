@@ -59,6 +59,7 @@ class EmbeddingLearner(nn.Module):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
         self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
         if self.bias:
+            print("initialized with bias")
             self.vb = nn.Parameter(
                 xavier(self.vb_shape, self.device).squeeze(), True)
             self.wb = nn.Parameter(
