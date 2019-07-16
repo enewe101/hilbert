@@ -187,26 +187,31 @@ def build_mle_sample_solver(
         init=get_init_embs(init_embeddings_path, device),
         device=device
     )
-
-    if balanced:
-        print('CPU loader for balanced samples.')
-        loader_class = h.loader.CPUSampleLoader
-    else:
-        loader_class = h.loader.GPUSampleLoader
-
     if gibbs:
         print("Using Gibbs sampling.")
-        loader_class = h.loader.GibbsSampleLoader
+        loader = h.loader.GibbsSampleLoader(
+            cooccurrence_path=cooccurrence_path,
+            learner=learner,
+            temperature=temperature,
+            batch_size=batch_size,
+            device=device,
+            verbose=verbose
+        )
+    else:
+        if balanced:
+            print('CPU loader for balanced samples.')
+            loader_class = h.loader.CPUSampleLoader
+        else:
+            loader_class = h.loader.GPUSampleLoader
 
-    loader = loader_class(
-        cooccurrence_path=cooccurrence_path,
-        learner=learner,
-        temperature=temperature,
-        batch_size=batch_size,
-        device=device,
-        verbose=verbose,
-        remove_threshold=remove_threshold,
-    )
+        loader = loader_class(
+            cooccurrence_path=cooccurrence_path,
+            temperature=temperature,
+            batch_size=batch_size,
+            device=device,
+            verbose=verbose,
+            remove_threshold=remove_threshold,
+        )
 
 
     optimizer = get_optimizer(opt_str, learner, learning_rate)
@@ -220,7 +225,6 @@ def build_mle_sample_solver(
                                         constant_fraction=constant_fraction,
                                         verbose=verbose)
 
-    # scheduler. Why list of schedulers??
     else:
         lr_scheduler = []
 

@@ -313,12 +313,12 @@ class Embeddings:
         Sets ``self.normed``
         """
         ones = torch.ones(self.V.shape[0], device=self.device)
-        V_normed = torch.allclose(h.utils.norm(self.V, axis=None), ones)
+        V_normed = torch.allclose(h.utils.norm(self.V, axis=1), ones)
         if self.W is None:
             self.normed = V_normed
             return V_normed
 
-        W_normed = torch.allclose(h.utils.norm(self.W, axis=None), ones)
+        W_normed = torch.allclose(h.utils.norm(self.W, axis=1), ones)
         self.normed = V_normed and W_normed
         return self.normed
 

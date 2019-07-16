@@ -216,11 +216,10 @@ class GibbsSampleLoader:
             cooccurrence_path,
             learner,
             temperature=1,
-            batch_size=100000,
+            batch_size=1000,
             gibbs_iteration=1,
             get_distr=False,
             device=None,
-            remove_threshold=None,
             verbose=True
             ):
 
