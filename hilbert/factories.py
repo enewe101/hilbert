@@ -205,9 +205,7 @@ def build_mle_sample_solver(
         batch_size=batch_size,
         device=device,
         verbose=verbose,
-        remove_threshold=remove_threshold
-        device=device,
-        verbose=verbose
+        remove_threshold=remove_threshold,
     )
 
 

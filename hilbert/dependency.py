@@ -84,7 +84,7 @@ class DependencyCorpus:
 
         padding_length = MAX_SENTENCE_LENGTH - len(encoded_arcs)
 
-       modifiers = (
+        modifiers = (
             [self.dictionary.get_id('[ROOT]')]  # First pos is root
             + [arc[0] for arc in encoded_arcs] 
             + [PAD]*padding_length  # Add padding so sentences have equal length
