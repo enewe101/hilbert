@@ -1,13 +1,11 @@
 import hilbert as h
 import torch
 import os
+import sys
 
-PAD = -1
+MAX_SENTENCE_LENGTH = 30
+PAD = h.CONSTANTS.PAD
 
-
-MAX_SENTENCE_LENGTH = 100
-# The dependency corpus should order sentences by length, to facilitate
-# loading with minimal masking.
 class DependencyCorpus:
 
     def __init__(self, corpus_path):
@@ -27,7 +25,7 @@ class DependencyCorpus:
         sentence_lengths = []
         i = 0
         for i, sentence_rows in enumerate(self.iter_sentence_rows()):
-            # DEBUG: just handle the first 1000 sentences.
+            print('DEBUG: dependency corpus taking only first 1000 sentences.')
             if i > 1000:
                 break
 
@@ -67,15 +65,14 @@ class DependencyCorpus:
 
     def compile_sentence(self, lines):
 
-        # Every sentence has first token [ROOT].
         arcs = []
         for line in lines:
             fields = line.strip().split('\t')
             arcs.append((fields[1], fields[6], fields[7]))
 
-        encoded_arcs = [
-            (self.dictionary.get_id('[ROOT]'), PAD, PAD)
-        ] + [
+        # Every sentence has first token [ROOT].
+        root_arc = (self.dictionary.get_id('[ROOT]'), PAD, PAD)
+        encoded_arcs = [root_arc] + [
             (
                 self.dictionary.get_id_safe(arc[0], 0), 
                 int(arc[1]), 

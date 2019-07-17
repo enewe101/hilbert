@@ -348,7 +348,7 @@ class DependencyLoader:
         except IndexError:
             raise StopIteration()
         self.pointer += 1
-        return self.pointer, (positives, negatives)
+        return self.pointer-1, (positives, negatives)
 
 
 
@@ -417,7 +417,8 @@ class DependencySampler:
 
         negatives[idx1,1,idx2] = sample
 
-        negatives[:,1,:][1-mask] = 0
+        negatives[:,1,:][1-mask] = h.dependency.PAD
+        negatives[:,1,0] = h.dependency.PAD
 
         return negatives
 

@@ -241,11 +241,31 @@ class TestDependencyLoader(TestCase):
             h.tests.load_test_data.dependency_corpus_path(),
             batch_size=batch_size
         )
-        for i, (p, n) in loader:
-            print(i, p, n)
-        
+        dep_corpus = h.tests.load_test_data.load_dependency_corpus()
+        for batch_num, (positives, negatives) in loader:
+            batch_size, _, padded_length = positives.shape
+            for i, found_sentence in enumerate(positives):
+                expected_idx = dep_corpus.sort_idxs[i]
+                expected_sentence = dep_corpus.sentences[expected_idx]
+                expected_sentence = torch.tensor(expected_sentence)
+                _, sent_length = expected_sentence.shape
+                padding_length = padded_length - sent_length
+                torch.allclose(
+                    found_sentence[:,:sent_length], expected_sentence)
 
+                # Check for padding when we expect it.
+                if padding_length > 0:
+                    torch.allclose(
+                        found_sentence[:,sent_length:], 
+                        torch.tensor([[h.CONSTANTS.PAD] * padding_length]*3)
+                    )
 
+                # When there is no padding, the unpaded sentence is equal.
+                else:
+                    torch.allclose(found_sentence, expected_sentence)
+                        
+                    
+                
 
 if __name__ == '__main__':
     main()
