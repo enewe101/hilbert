@@ -5,7 +5,9 @@ def add_model_args(parser):
     h.runners.run_base.add_temperature_arg(parser)
     h.runners.run_base.add_batch_size_arg(parser)
     h.runners.run_base.add_balanced_arg(parser)
+    h.runners.run_base.add_gibbs_arg(parser)
     h.runners.run_base.add_bias_arg(parser)
+    h.runners.run_base.add_remove_cooc_arg(parser)
     return parser
 
 

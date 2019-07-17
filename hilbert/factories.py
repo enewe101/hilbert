@@ -46,7 +46,7 @@ class ResettableOptimizer:
         self.opt = self.opt_class(self.learner.parameters(), lr=self.lr)
 
 
-def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_lr=None, constant_fraction=1, verbose=False):
+def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_learning_rate=None, lr_scheduler_constant_fraction=1, verbose=False):
 
     if scheduler_str == 'None':
         return []
@@ -67,30 +67,30 @@ def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_lr=Non
     if start_lr < 0:
         raise ValueError("Learning rate must be non-negative, got start_lr={} < 0".format(start_lr))
 
-    if end_lr < 0:
-        end_lr = 0
+    if end_learning_rate < 0:
+        end_learning_rate = 0
 
     scheduler = scheduler_options[scheduler_str]
 
     if scheduler_str == 'linear':
-        assert end_lr is not None, "End learning rate for linear learning rate scheduler is None."
-        return [scheduler(optimizer, start_lr, num_updates, end_lr)]
+        assert end_learning_rate is not None, "End learning rate for linear learning rate scheduler is None."
+        return [scheduler(optimizer, start_lr, num_updates, end_learning_rate)]
 
     elif scheduler_str == 'inverse':
         # num_updates is the total number of updates, inverse scheduler keep start constant learning rate for
         # num_updates * fraction updates
 
-        if constant_fraction == 1:
+        if lr_scheduler_constant_fraction == 1:
             if verbose:
                 warnings.warn("Using inverse learning rate scheduler without setting the constant fraction. Learning rate "
                               "keep constant for all updates.")
-        elif constant_fraction > 1 or constant_fraction <= 0:
-            constant_fraction = 1
+        elif lr_scheduler_constant_fraction > 1 or lr_scheduler_constant_fraction <= 0:
+            lr_scheduler_constant_fraction = 1
             if verbose:
                 print("Constant fraction should be a number betweeen 0 and 1. \n Setting constant fraction to 1..")
         else:
             pass
-        return [scheduler(optimizer, start_lr, num_updates * constant_fraction)]
+        return [scheduler(optimizer, start_lr, num_updates * lr_scheduler_constant_fraction)]
     else:
         raise ValueError("Scheduler string not found!")
 
@@ -140,18 +140,20 @@ def build_mle_sample_solver(
         cooccurrence_path,
         temperature=2,            # MLE option
         batch_size=10000,
-        balanced=False,
+        balanced=True,
         gibbs=False,
+        gibbs_iteration=1,
+        get_distr=False,
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
         learning_rate=0.01,
         opt_str='adam',
         scheduler_str=None,
-        constant_fraction=1,
-        end_lr=0,
+        lr_scheduler_constant_fraction=1,
+        end_learning_rate=0,
         num_updates=1,
-        remove_threshold=None,
+        min_cooccurence_count=None,
         seed=1917,
         device=None,
         verbose=True,
@@ -162,7 +164,7 @@ def build_mle_sample_solver(
     Similar to build_mle_solver, but it is based on 
     approximating the loss function using sampling.
 
-    remove_threshold: A small number threshold of cooc counts to be removed to fit into the
+    min_cooccurence_count: A small number threshold of cooc counts to be removed to fit into the
     GPU memory.
     """
 
@@ -175,8 +177,10 @@ def build_mle_sample_solver(
     if balanced:
         print('Keep your balance.')
         loss = h.loss.BalancedSampleMLELoss()
+    elif gibbs:
+        print('Use Gibbs loss.')
+        loss = h.loss.GibbsSampleMLELoss()
     else:
-        print('No balance.')
         loss = h.loss.SampleMLELoss()
 
     learner = h.learner.SampleLearner(
@@ -192,10 +196,13 @@ def build_mle_sample_solver(
         loader = h.loader.GibbsSampleLoader(
             cooccurrence_path=cooccurrence_path,
             learner=learner,
+            gibbs_iteration=gibbs_iteration,
+            get_distr=get_distr,
             temperature=temperature,
             batch_size=batch_size,
             device=device,
-            verbose=verbose
+            verbose=verbose,
+            min_cooccurrence_count=min_cooccurence_count
         )
     else:
         if balanced:
@@ -210,20 +217,22 @@ def build_mle_sample_solver(
             batch_size=batch_size,
             device=device,
             verbose=verbose,
-            remove_threshold=remove_threshold,
+            min_cooccurence_count=min_cooccurence_count,
         )
 
 
     optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     if scheduler_str is not None:
-        lr_scheduler = get_lr_scheduler(scheduler_str=scheduler_str,
-                                        optimizer=optimizer,
-                                        start_lr=learning_rate,
-                                        num_updates=num_updates,
-                                        end_lr=end_lr,
-                                        constant_fraction=constant_fraction,
-                                        verbose=verbose)
+        lr_scheduler = get_lr_scheduler(
+            scheduler_str=scheduler_str,
+            optimizer=optimizer,
+            start_lr=learning_rate,
+            num_updates=num_updates,
+            end_learning_rate=end_learning_rate,
+            lr_scheduler_constant_fraction=lr_scheduler_constant_fraction,
+            verbose=verbose)
+
 
     else:
         lr_scheduler = []
@@ -233,7 +242,7 @@ def build_mle_sample_solver(
         loss=loss,
         learner=learner,
         optimizer=optimizer,
-        schedulers=[],
+        schedulers=lr_scheduler,
         dictionary=dictionary,
         verbose=verbose,
     )

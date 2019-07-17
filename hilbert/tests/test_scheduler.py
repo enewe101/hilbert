@@ -96,7 +96,7 @@ class TestSchedulers(TestCase):
     def test_inverse_lr_scheduler(self):
         start_lr = 5
         num_updates = 20
-        constant_fraction = 0.3
+        lr_scheduler_constant_fraction = 0.3
 
         params1 = (
             torch.nn.Parameter(torch.rand(5)),
@@ -114,18 +114,18 @@ class TestSchedulers(TestCase):
         self.assertEqual(opt.param_groups[0]['lr'], 5)
         self.assertEqual(opt.param_groups[1]['lr'], 3)
 
-        scheduler = h.scheduler.InverseLRScheduler(opt, start_lr, num_updates*constant_fraction)
+        scheduler = h.scheduler.InverseLRScheduler(opt, start_lr, num_updates*lr_scheduler_constant_fraction)
 
         # immediately after creating the scheduler, it sets the learning rates
         self.assertEqual(opt.param_groups[0]['lr'], start_lr)
         self.assertEqual(opt.param_groups[1]['lr'], start_lr)
 
         for epoch in range(num_updates):
-            if epoch < num_updates*constant_fraction:
+            if epoch < num_updates*lr_scheduler_constant_fraction:
                 expected_lr = start_lr
 
             else:
-                expected_lr = start_lr * num_updates*constant_fraction / epoch
+                expected_lr = start_lr * num_updates*lr_scheduler_constant_fraction / epoch
             for param_group in opt.param_groups:
                 self.assertTrue(is_close(param_group['lr'], expected_lr))
             scheduler.step()

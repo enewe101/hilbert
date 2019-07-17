@@ -40,7 +40,7 @@ class Solver(object):
         self.loss = loss
         self.optimizer = optimizer
         self.learner = learner
-        self.schedulers = schedulers
+        self.schedulers = schedulers or []
         self.dictionary = dictionary
         self.verbose = verbose
         self.gradient_accumulation = gradient_accumulation
@@ -117,17 +117,6 @@ class Solver(object):
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
 
-                # self.V_gradient = list(self.learner.parameters())[0].grad
-                # self.W_gradient = list(self.learner.parameters())[1].grad
-                # self.W_gradient = self.learner.parameters().grad
-                # print("gradient of V: ", list(self.learner.parameters())[0].grad)
-                # print("gradient of W: ", list(self.learner.parameters())[1].grad)
-                # print("mean of V grad: ", torch.mean(self.V_gradient))
-                # print("mean of W grad: ", torch.mean(self.W_gradient))
-                # print("std of V grad: ", torch.std(self.V_gradient))
-                # print("std of W grad: ", torch.std(self.W_gradient))
-
-
                 if monitor_closely:
                     self.V_norm = torch.norm(list(self.learner.parameters())[0].grad)
                     self.W_norm = torch.norm(list(self.learner.parameters())[1].grad)
@@ -138,24 +127,13 @@ class Solver(object):
 
                 if self.gradient_clipping is not None:
                     # Gradient clipping
-
                     torch.nn.utils.clip_grad_norm_(self.learner.parameters(), max_norm=self.gradient_clipping)
-
-                    if monitor_closely:
-                        print("gradient clipping is: ", self.gradient_clipping)
-                        # print("after clipping gradient of V: ", list(self.learner.parameters())[0].grad)
-                        # print("after clipping gradient of W: ", list(self.learner.parameters())[1].grad)
-                        print(torch.allclose(self.V_gradient, list(self.learner.parameters())[0].grad))
-                        print(torch.allclose(self.W_gradient, list(self.learner.parameters())[1].grad))
-                        if self.V_norm > self.gradient_clipping or self.W_norm > self.gradient_clipping:
-                            print("V_norm comparison: ",self.V_norm <= self.gradient_clipping)
-                            print("W_norm comparison: ",self.W_norm <= self.gradient_clipping)
 
                 if monitor_closely:
                     try:
                         if self.cur_loss.item() > 1e4:
                             # print("The last loss is: ", self.cur_loss)
-                            pos_pairs, neg_pairs = self.get_batch_words(batch_id)
+                            pos_pairs, neg_pairs = self.loader.get_batch_words(batch_id)
 
                             UserWarning("Extreme loss value is detected. current loss is greater than 1e4,\n"
                                         "Positive sample word pairs are :{}\n"
@@ -165,6 +143,7 @@ class Solver(object):
                         pass
 
                 # Take some steps
+
                 if (update_id + 1) % self.gradient_accumulation == 0\
                         or (update_id + 1) == updates_per_cycle:
                     # Gradient accumulation

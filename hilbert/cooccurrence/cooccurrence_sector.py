@@ -61,7 +61,7 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load(path, sector, rm_thres=None, verbose=True):
+    def load(path, sector, min_cooccurrence_count=None, verbose=True):
         """
         Load the token-ID mapping and cooccurrence data previously saved in
         the directory at `path`.
@@ -78,9 +78,9 @@ class CooccurrenceSector(object):
         Nx = np.load(os.path.join(path, 'Nx.npy'))
         Nxt = np.load(os.path.join(path, 'Nxt.npy'))
         # Remove low cooccurrence counts
-        if rm_thres is not None:
+        if min_cooccurrence_count is not None:
             Nxx = sparse.load_npz(os.path.join(path, Nxx_fname))
-            Nxx = h.cooccurrence.CooccurrenceSector.remove_small_numbers(Nxx, rm_thres)
+            Nxx = h.cooccurrence.CooccurrenceSector.remove_infrequent_cooccurrence(Nxx, min_cooccurrence_count)
         else:
             Nxx = sparse.load_npz(os.path.join(path, Nxx_fname)).tolil()
 
@@ -89,7 +89,7 @@ class CooccurrenceSector(object):
 
 
     @staticmethod
-    def load_coo(cooccurrence_path, include_marginals=True, verbose=True, rm_thres=None):
+    def load_coo(cooccurrence_path, include_marginals=True, min_cooccurrence_count=None, verbose=True):
         """ 
         Reads in sectorized cooccurrence data from disk, and converts it
         into a sparse tensor representation using COO format.  If desired,
@@ -109,7 +109,7 @@ class CooccurrenceSector(object):
 
             # Read the sector, and get the statistics in sparse COO-format
             sector = h.cooccurrence.CooccurrenceSector.load(
-                cooccurrence_path, sector_id, rm_thres=rm_thres)
+                cooccurrence_path, sector_id, min_cooccurrence_count=min_cooccurrence_count)
             # reduced_sector = h.cooccurrence.CooccurrenceSector.remove_small_numbers(sector.Nxx)
             sector_coo = sector.Nxx.tocoo()
 
@@ -131,15 +131,15 @@ class CooccurrenceSector(object):
         if include_marginals:
             # Every sector has global marginals, so get marginals from last
             # sector.
-            Nx = sector._Nx.clone().detach().requires_grad_(True)
-            Nxt = sector._Nxt.clone().detach().requires_grad_(True)
+            Nx = sector._Nx.clone().detach().requires_grad_(False)
+            Nxt = sector._Nxt.clone().detach().requires_grad_(False)
             # Nx = torch.tensor(sector._Nx, dtype=h.utils.get_dtype())
             # Nxt = torch.tensor(sector._Nxt, dtype=h.utils.get_dtype())
             return data, I, J, Nx, Nxt
         else:
             return data, I, J
     @staticmethod
-    def remove_small_numbers(cooc, threshold):
+    def remove_infrequent_cooccurrence(cooc, threshold):
         return sparse.lil_matrix(np.where(cooc.todense() > threshold, cooc.todense(), 0))
 
     @property

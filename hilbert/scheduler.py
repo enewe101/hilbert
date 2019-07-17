@@ -65,10 +65,11 @@ class LinearLRScheduler(LearningRateScheduler):
         :param num_epochs: Number of epochs
         :param end_lr: Stationary state learning rate
         '''
-        super(LinearLRScheduler, self).__init__(optimizer,
-                                                start_lr,
-                                                num_epochs,
-                                                end_lr)
+        super(LinearLRScheduler, self).__init__(
+            optimizer,
+            start_lr,
+            num_epochs,
+            end_lr)
 
     def step(self):
         self.cur_epoch += 1
@@ -94,9 +95,10 @@ class InverseLRScheduler(LearningRateScheduler):
         :param num_epoch: Number of epochs keeping learning rate constant
         """
 
-        super(InverseLRScheduler, self).__init__(optimizer,
-                                                 start_lr,
-                                                 num_epochs)
+        super(InverseLRScheduler, self).__init__(
+            optimizer,
+            start_lr,
+            num_epochs)
 
     def step(self):
         self.cur_epoch += 1

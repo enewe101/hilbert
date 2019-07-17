@@ -64,7 +64,6 @@ def run(solver_factory, **args):
         try:
             solver.cycle(updates_per_write, monitor_closely)
         except h.exceptions.DivergenceError:
-            print("\n\nDied at {} epoch.".format(write_num))
             tracer.declare(key='wrote_num', value=write_num+1)
             raise h.exceptions.DivergenceError("Model has diverged")
         num_updates = updates_per_write * (write_num+1)
@@ -117,7 +116,7 @@ def add_balanced_arg(parser):
 
 def add_gibbs_arg(parser):
     parser.add_argument(
-        '--gibbs', '-G', action='store_true',
+        '--gibbs', '-G', action='store_true', default=False,
         help=(
             "Sample positive and negative samples together, using Gibbs sampler to sample "
             "negative samples from the model distribution. Get actual samples by default."
@@ -130,7 +129,7 @@ def add_gibbs_arg(parser):
         )
     )
     parser.add_argument(
-        '--get_dist', action='store_true',
+        '--get_distr', action='store_true',
         help=(
             "Rather than getting actual samples drawn from the model distribution, "
             "get the model distribution instead."
@@ -164,7 +163,7 @@ def add_shard_factor_arg(parser):
 
 def add_remove_cooc_arg(parser):
     parser.add_argument(
-        '--remove-threshold', '-thres', type=int, default=10, dest='remove_threshold',
+        '--remove-threshold', '-thres', type=int, default=10, dest='min_cooccurence_count',
         help="A small number threshold of cooc counts to be removed to fit into the "
              "GPU memory."
     )
@@ -186,7 +185,7 @@ def add_LR_scheduler_arg(parser):
         help="The end learning rate for linear learning rate scheduler"
     )
     parser.add_argument(
-        '--constant-fraction', '-frac', type=float, default=0.1, dest='constant_fraction',
+        '--lr_scheduler_fraction', '-frac', type=float, default=0.1, dest='lr_scheduler_constant_fraction',
         help="Required for inverse LR scheduler. Control the number of updates for which learning rate stays constant."
     )
 
