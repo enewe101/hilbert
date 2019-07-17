@@ -267,7 +267,6 @@ class TestGibbsSampleLoader(TestCase):
     def test_toy_model_distribution(self):
         """
         Only test 1 cycle.
-
         For each Gibbs sampling step, we are sampling 1 unit from the categorical distribution conditioning on the given
         positive sample.
         To examine such unit is drawn from the expected model distribution, we draw a large number of sample from each
@@ -330,6 +329,40 @@ class TestGibbsSampleLoader(TestCase):
         self.assertEqual(one_cycle_negative_distr[1][0].shape[1], toy_gibbs_sampler.Pj.shape[0])
         self.assertEqual(one_cycle_negative_distr[1][1].shape[0], toy_gibbs_sampler.batch_size)
         self.assertEqual(one_cycle_negative_distr[1][1].shape[1], toy_gibbs_sampler.Pj.shape[0])
+
+
+class TestDependencyLoader(TestCase):
+
+    def test_dependency_loader(self):
+        batch_size = int(1e5)
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
+        dep_corpus = h.tests.load_test_data.load_dependency_corpus()
+        for batch_num, (positives, negatives) in loader:
+            batch_size, _, padded_length = positives.shape
+            for i, found_sentence in enumerate(positives):
+                expected_idx = dep_corpus.sort_idxs[i]
+                expected_sentence = dep_corpus.sentences[expected_idx]
+                expected_sentence = torch.tensor(expected_sentence)
+                _, sent_length = expected_sentence.shape
+                padding_length = padded_length - sent_length
+                torch.allclose(
+                    found_sentence[:,:sent_length], expected_sentence)
+
+                # Check for padding when we expect it.
+                if padding_length > 0:
+                    torch.allclose(
+                        found_sentence[:,sent_length:], 
+                        torch.tensor([[h.CONSTANTS.PAD] * padding_length]*3)
+                    )
+
+                # When there is no padding, the unpaded sentence is equal.
+                else:
+                    torch.allclose(found_sentence, expected_sentence)
+
+
 
         # distributions themselves have been tested in test_toy_model_distribution.
 if __name__ == '__main__':
