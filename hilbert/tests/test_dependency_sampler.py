@@ -48,28 +48,31 @@ class TestDependencySampler(TestCase):
         words = positives[:,0,:]
         covectors = W[words]
         self.assertEqual(covectors.size(), (4,5,4))
-        self.assertTrue(torch.equal(covectors[0,0,:], torch.tensor([-1,1,-1,1], dtype=torch.float32)))
+        self.assertTrue(torch.equal(covectors[0,0,:], 
+                                    torch.tensor([-1,1,-1,1], dtype=torch.float32)))
         
         vectors = V[words]
         product = torch.bmm(covectors, vectors.transpose(1,2))
         #print(product)
         
         reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        self.assertTrue(torch.equal(reflected_mask[0,:,:], torch.tensor([[1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [0,0,0,0,0]], dtype=torch.uint8)))
+        self.assertTrue(torch.equal(reflected_mask[0,:,:], 
+                                    torch.tensor([[1,1,1,1,0],
+                                                  [1,1,1,1,0],
+                                                  [1,1,1,1,0],
+                                                  [1,1,1,1,0],
+                                                  [0,0,0,0,0]], dtype=torch.uint8)))
         identities_idx = (slice(None), range(5), range(5))
         product[identities_idx] = torch.tensor(-float('inf'))
         product[1-reflected_mask] = torch.tensor(-float('inf'))
 
         self.assertEqual(product.size(), (4,5,5))
-        self.assertTrue(torch.equal(product[0,:,:], torch.tensor([[-float('inf'),0,4,-4,-float('inf')],
-                                                                  [0,-float('inf'),0,2,-float('inf')],
-                                                                  [0,0,-float('inf'),0,-float('inf')],
-                                                                  [0,4,0,-float('inf'),-float('inf')],
-                                                                  [-float('inf'),-float('inf'),-float('inf'),-float('inf'),-float('inf')]])))
+        self.assertTrue(torch.equal(product[0,:,:], 
+                                    torch.tensor([[-float('inf'),0,4,-4,-float('inf')],
+                                                  [0,-float('inf'),0,2,-float('inf')],
+                                                  [0,0,-float('inf'),0,-float('inf')],
+                                                  [0,4,0,-float('inf'),-float('inf')],
+                                                  [-float('inf'),-float('inf'),-float('inf'),-float('inf'),-float('inf')]])))
 
         unnormalized_probs = torch.exp(product)
         unnormalized_probs_2d = unnormalized_probs.view(-1, 5)
