@@ -23,16 +23,11 @@ class DependencyCorpus:
     def read_all(self):
         sentences = []
         sentence_lengths = []
-        i = 0
-        for i, sentence_rows in enumerate(self.iter_sentence_rows()):
-            print('DEBUG: dependency corpus taking only first 1000 sentences.')
-            if i > 1000:
-                break
+        for sent_id, sentence_rows in enumerate(self.iter_sentence_rows()):
 
             sentence_data, sentence_len = self.compile_sentence(sentence_rows)
             if sentence_len > MAX_SENTENCE_LENGTH:
                 continue
-
             sentence_lengths.append(sentence_len)
             sentences.append(sentence_data)
 

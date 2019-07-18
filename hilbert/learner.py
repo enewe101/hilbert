@@ -204,8 +204,6 @@ class MultisenseLearner(nn.Module):
 
 
 
-
-
 class DependencyLearner(nn.Module):
 
     def __init__(
@@ -336,6 +334,7 @@ class DependencyLearner(nn.Module):
         reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
         energies[1-reflected_mask] = torch.tensor(-float('inf'))
         import pdb; pdb.set_trace()
+
 
 
     def negative_sample(self, positives, mask):

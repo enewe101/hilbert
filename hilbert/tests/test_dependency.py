@@ -11,7 +11,7 @@ class TestDependencyCorpus(TestCase):
 
     def test_dependency_corpus(self):
 
-        dep_corp = h.tests.load_test_data.load_dependency_corpus()
+        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
         dependency_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-dependency-corpus')
         dependency_corpus_path = os.path.join(dependency_path, 'corpus')
@@ -27,7 +27,7 @@ class TestDependencyCorpus(TestCase):
         for sent in sentences:
             if sent == '': 
                 continue
-            
+
             sent_words = []
             sent_heads = []
             sent_arc_types = []
@@ -40,73 +40,54 @@ class TestDependencyCorpus(TestCase):
                 sent_heads.append(int(head))
                 sent_arc_types.append(arc_dictionary.get_id(arc))
 
+            # Don't include too long sentences.
+            if len(sent_words) > h.dependency.MAX_SENTENCE_LENGTH:
+                continue
+
             words.append(sent_words)
             heads.append(sent_heads)
             arc_types.append(sent_arc_types)
 
         sentences = list(zip(words, heads, arc_types))
         sentence_lengths = torch.tensor([len(sent[0]) for sent in sentences])
+        # Add one, because ROOT was not yet counted.
+        sentence_lengths += 1
         sort_idxs = torch.argsort(sentence_lengths)
 
         for sent_idx in range(len(sentences)):
-            found_sentence = dep_corp.data[sent_idx]
-            expected_sentence = sentences[dep_corp.sort_idxs[sent_idx]]
+            found_idx = dependency_corpus.sort_idxs[sent_idx]
+            found_sentence = dependency_corpus.sentences[found_idx]
+            expected_idx = sort_idxs[sent_idx]
+            expected_sentence = sentences[expected_idx]
 
             sentence_len = len(expected_sentence[0])
 
             # Actual observed words should be the same
-            self.assertTrue(torch.equal(
+            self.assertEqual(
                 found_sentence[0][1:sentence_len+1],
-                torch.tensor(expected_sentence[0])
-            ))
+                expected_sentence[0]
+            )
 
             # The first token shoudl be root
-            self.assertEqual(found_sentence[0][0].item(), 1)
-
-            # Sentence should be padded.
-            self.assertTrue(torch.equal(
-                found_sentence[0][sentence_len+1:],
-                torch.tensor(
-                    [h.dependency.PAD] 
-                    * (h.dependency.MAX_SENTENCE_LENGTH - sentence_len)
-                )
-            ))
+            self.assertEqual(found_sentence[0][0], 1)
 
             # Heads should be as expected
-            self.assertTrue(torch.equal(
+            self.assertEqual(
                 found_sentence[1][1:sentence_len+1],
-                torch.tensor(expected_sentence[1])
-            ))
+                expected_sentence[1]
+            )
 
             # The root has no head (indicated by padding)
-            self.assertEqual(found_sentence[1][0].item(), h.dependency.PAD)
-
-            # The list of heads for the sentence is padded.
-            self.assertTrue(torch.equal(
-                found_sentence[1][sentence_len+1:],
-                torch.tensor(
-                    [h.dependency.PAD] 
-                    * (h.dependency.MAX_SENTENCE_LENGTH - sentence_len)
-                )
-            ))
+            self.assertEqual(found_sentence[1][0], h.dependency.PAD)
 
             # Arc types should be as expected.
-            self.assertTrue(torch.equal(
+            self.assertEqual(
                 found_sentence[2][1:sentence_len+1],
-                torch.tensor(expected_sentence[2])
-            ))
+                expected_sentence[2]
+            )
             
             # The root has no incoming arc_type (has padding)
-            self.assertEqual(found_sentence[2][0].item(), h.dependency.PAD)
-
-            # The list of arc-types should be padded.
-            self.assertTrue(torch.equal(
-                found_sentence[2][sentence_len+1:],
-                torch.tensor(
-                    [h.dependency.PAD] 
-                    * (h.dependency.MAX_SENTENCE_LENGTH - sentence_len)
-                )
-            ))
+            self.assertEqual(found_sentence[2][0], h.dependency.PAD)
 
 
 

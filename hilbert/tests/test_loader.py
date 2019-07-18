@@ -233,39 +233,112 @@ class TestGPUSampleLoader(TestCase):
 
 
 
+
+# TODO: test mask
 class TestDependencyLoader(TestCase):
 
     def test_dependency_loader(self):
-        batch_size = int(1e5)
+        batch_size = 3
         loader = h.loader.DependencyLoader(
             h.tests.load_test_data.dependency_corpus_path(),
             batch_size=batch_size
         )
-        dep_corpus = h.tests.load_test_data.load_dependency_corpus()
-        for batch_num, (positives, negatives) in loader:
-            batch_size, _, padded_length = positives.shape
-            for i, found_sentence in enumerate(positives):
-                expected_idx = dep_corpus.sort_idxs[i]
-                expected_sentence = dep_corpus.sentences[expected_idx]
-                expected_sentence = torch.tensor(expected_sentence)
-                _, sent_length = expected_sentence.shape
-                padding_length = padded_length - sent_length
-                torch.allclose(
-                    found_sentence[:,:sent_length], expected_sentence)
 
-                # Check for padding when we expect it.
-                if padding_length > 0:
-                    torch.allclose(
-                        found_sentence[:,sent_length:], 
-                        torch.tensor([[h.CONSTANTS.PAD] * padding_length]*3)
-                    )
+        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
 
-                # When there is no padding, the unpaded sentence is equal.
-                else:
-                    torch.allclose(found_sentence, expected_sentence)
-                        
-                    
+        for batch_num, (positives, mask) in loader:
+
+            found_batch_size, _, padded_length = positives.shape
+
+            start = batch_num * batch_size
+            stop = start + batch_size
+
+            # Assemble the expected batch
+            expected_idxs = dependency_corpus.sort_idxs[start:stop]
+            expected_sentences = [
+                dependency_corpus.sentences[idx.item()]
+                for idx in expected_idxs
+            ]
+            expected_lengths = [
+                dependency_corpus.sentence_lengths[idx.item()]
+                for idx in expected_idxs
+            ]
+            expected_max_length = max(expected_lengths)
+
+            expected_mask = torch.zeros((
+                len(expected_lengths), expected_max_length))
+            for i, length in enumerate(expected_lengths):
+                expected_mask[i][:length] = 1
+
+            self.assertTrue(torch.equal(mask, expected_mask))
+
+            # Did we get the batch size we expected?
+            expected_batch_size = len(expected_sentences)
+            self.assertEqual(found_batch_size, expected_batch_size)
+
+            zipped_sentences = enumerate(zip(positives, expected_sentences))
+            for i, (found_sentence, expected_sentence) in zipped_sentences:
+
+                expected_length = expected_lengths[i]
+
+                _, found_length = found_sentence.shape
+                expected_padding_length = expected_max_length - expected_length
+
+                # Words are as expected
+                self.assertTrue(torch.equal(
+                    found_sentence[0][:expected_length], 
+                    torch.tensor(expected_sentence[0])
+                ))
+
+                # Heads are as expected
+                self.assertTrue(torch.equal(
+                    found_sentence[1][:expected_length],
+                    torch.tensor(expected_sentence[1])
+                ))
+
+                # Arc types are as expected.
+                self.assertTrue(torch.equal(
+                    found_sentence[2][:expected_length],
+                    torch.tensor(expected_sentence[2])
+                ))
+
+                # The first token shoudl be root
+                self.assertEqual(found_sentence[0][0], 1)
+
+                # Sentence should be padded.
+                expected_padded = expected_sentence[0] + [h.CONSTANTS.PAD] * (
+                    expected_max_length - expected_length
+                ).item()
+                self.assertTrue(torch.equal(
+                    found_sentence[0],
+                    torch.tensor(expected_padded)
+                ))
+
+
+                # The root has no head (indicated by padding)
+                self.assertEqual(found_sentence[1][0].item(), h.dependency.PAD)
+
+                # The list of heads for the sentence is padded.
+                expected_head_padded = expected_sentence[1]+[h.CONSTANTS.PAD]*(
+                    expected_max_length - expected_length
+                ).item()
+
+                self.assertTrue(torch.equal(
+                    found_sentence[1],
+                    torch.tensor(expected_head_padded)
+                ))
                 
+                # The root has no incoming arc_type (has padding)
+                self.assertEqual(found_sentence[2][0].item(), h.CONSTANTS.PAD)
 
-if __name__ == '__main__':
-    main()
+                # The list of arc-types should be padded.
+                expected_arc_types_padded = expected_sentence[2] + (
+                    [h.CONSTANTS.PAD] * (expected_max_length - expected_length
+                ).item())
+
+                self.assertTrue(torch.equal(
+                    found_sentence[2],
+                    torch.tensor(expected_arc_types_padded)
+                ))
+
+

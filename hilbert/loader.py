@@ -323,37 +323,44 @@ class DependencyLoader:
             )
 
         idxs = self.dependency.sort_idxs[start:stop]
+        sentence_lengths = self.dependency.sentence_lengths[idxs]
+        max_length = torch.max(sentence_lengths).item()
 
-        max_length = torch.max(self.dependency.sentence_lengths[idxs]).item()
         positives = torch.tensor([
             pad_sentence(self.dependency.sentences[idx], max_length)
             for idx in idxs
         ])
-        negatives = self.sample_negatives(positives)
-        return positives, negatives
+        mask = self.generate_mask(sentence_lengths, max_length)
+
+        return positives, mask
+
+
+    def generate_mask(self, sentence_lengths, max_length):
+        mask = torch.zeros((len(sentence_lengths), max_length))
+        for row, sentence_length in enumerate(sentence_lengths):
+            mask[row, :sentence_length] = 1
+
+        return mask
 
 
     def __iter__(self):
         self.pointer = 0
         return self
 
-    def sample_negatives(self, positives):
-        return positives
-
 
     def __next__(self):
         try:
-            positives, negatives = self.sample_batch(
-                self.batch_size, self.pointer)
+            positives, mask = self.sample_batch(self.batch_size, self.pointer)
         except IndexError:
             raise StopIteration()
         self.pointer += 1
-        return self.pointer-1, (positives, negatives)
+        return self.pointer-1, (positives, mask)
 
 
 
 
 class DependencySampler:
+
 
     def __init__(self, embeddings=None, V=None, W=None, architecture='flat'):
         """
