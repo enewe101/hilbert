@@ -3,6 +3,8 @@ import sys
 from unittest import TestCase, main
 import hilbert as h
 import torch
+from pytorch_categorical import Categorical
+from collections import Counter
 import itertools
 import scipy.sparse as sparse
 import numpy as np
@@ -69,7 +71,7 @@ class TestCPUSampleLoader(TestCase):
         num_draws = num_samples * batch_size
         torch.random.manual_seed(1)
 
-        # Construct a sample-based loader.  Sample from it, and check tha tthe 
+        # Construct a sample-based loader.  Sample from it, and check tha tthe
         # statistics are as desired.  But first, construct it.
         cooc_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'cooccurrence-10')
@@ -79,8 +81,8 @@ class TestCPUSampleLoader(TestCase):
         vocab = h.dictionary.Dictionary.check_vocab(
             os.path.join(cooc_path, 'dictionary'))
 
-        # Make some embeddings that will be used to calculate this sampler's 
-        # ability to generate the desired expectations using importance 
+        # Make some embeddings that will be used to calculate this sampler's
+        # ability to generate the desired expectations using importance
         # sampling.
         embeddings = h.embeddings.random(vocab, 50)
 
@@ -111,7 +113,6 @@ class TestCPUSampleLoader(TestCase):
 
         # Was the proposal distribution as expected?
         self.assertTrue(torch.allclose(Qxx_sample, Qxx_expected, atol=5e-4))
-        
 
 
 
@@ -190,7 +191,7 @@ class TestGPUSampleLoader(TestCase):
         counts for i,j-samples.
         """
         return sparse.coo_matrix((
-            np.ones((IJ.shape[0],)), 
+            np.ones((IJ.shape[0],)),
             (self.cpu_1d_np(IJ[:,0]), self.cpu_1d_np(IJ[:,1]))
         )).toarray()
 
@@ -231,6 +232,104 @@ class TestGPUSampleLoader(TestCase):
                 self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
         self.assertEqual(num_batches_seen, num_batches)
 
+
+class TestGibbsSampleLoader(TestCase):
+    def sample_distribution_from_counter(self, counter):
+        distr = dict(counter)
+        total_cnt = sum(counter.values())
+        # self.assertEqual(total_cnt, 100000)
+        ordered_distr = torch.zeros(6)
+        for k in distr:
+            distr[k] = distr[k]/total_cnt
+            ordered_distr[k] = distr[k]
+        return ordered_distr
+
+    def initialization(self, get_distr=False):
+        torch.manual_seed(616)
+        batch_size = 10
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+        dictionary = h.dictionary.Dictionary.load(
+            os.path.join(cooccurrence_path, 'dictionary'))
+        learner = h.learner.SampleLearner(
+            vocab=len(dictionary),
+            covocab=len(dictionary),
+            d=50,
+            device='cuda:0'
+        )
+
+        sampler = h.loader.GibbsSampleLoader(
+            cooccurrence_path, learner, temperature=1,
+            batch_size=batch_size, verbose=False, gibbs_iteration=1, get_distr=get_distr
+        )
+        return sampler
+
+    def test_toy_model_distribution(self):
+        """
+        Only test 1 cycle.  For each Gibbs sampling step, we are sampling 1
+        unit from the categorical distribution conditioning on the given
+        positive sample.  To examine such unit is drawn from the expected model
+        distribution, we draw a large number of sample from each conditional
+        distribution instead, and calculate the empirical probability of the
+        sample. The probability vector should be close to probability vector
+        with which Categorical was created.
+        """
+
+        # Initialization..
+        gibbs_sampler = self.initialization()
+        IJ_sample = gibbs_sampler.sample(gibbs_sampler.batch_size)
+        # make sure number of sample we need
+        self.assertEqual(IJ_sample.shape, (gibbs_sampler.batch_size * 2, 2))
+
+        positive_samples_IJ = IJ_sample[:gibbs_sampler.batch_size]
+        # expected counts
+        for ind, (i, j) in enumerate(positive_samples_IJ):
+            # model_distribution = torch.nn.functional.softmax(sampler.conditional_dist_J[ind])
+            model_distribution = gibbs_sampler.conditional_dist_J[ind]/gibbs_sampler.conditional_dist_J[ind].sum()
+            # p(j'|i)
+            self.assertEqual(model_distribution.shape[0], len(gibbs_sampler.learner.vocab))
+            condition_sampler = Categorical(model_distribution, normalized=True)
+            j_prime_samples_ind = condition_sampler.sample((1000000,)).cpu().numpy()
+            j_prime_cntr = Counter(j_prime_samples_ind)
+            sample_dist = self.sample_distribution_from_counter(j_prime_cntr)
+
+            expected_dist_prenorm = gibbs_sampler.Pj * torch.exp(gibbs_sampler.learner.V[i] @ gibbs_sampler.learner.W.t())
+            self.assertEqual(expected_dist_prenorm.shape[0], len(gibbs_sampler.learner.vocab))
+            # expected_dist = torch.nn.functional.softmax(expected_dist_prenorm)
+            expected_dist = expected_dist_prenorm/expected_dist_prenorm.sum()
+
+            # print(sample_dist,expected_dist)
+            # print("")
+            # normalized sample distribution and true distribution
+            self.assertTrue(torch.allclose(sample_dist, expected_dist.cpu(), atol=1e-3))
+            self.assertTrue(torch.allclose(expected_dist, model_distribution))
+
+            # self.assertEqual(expected_dist.shape[0], len(sample_dist))
+
+    def test_iterative_gibbs(self):
+        """
+        Test iterative gibbs sampling by making sure the first iteration by iterative method should be the same as
+        hard coded toy example, which has been tested.
+
+        """
+        toy_gibbs_sampler = self.initialization()
+        IJ_sample_toy = toy_gibbs_sampler.sample(toy_gibbs_sampler.batch_size)
+        iter_gibbs_sampler = self.initialization()
+        IJ_sample_iter = iter_gibbs_sampler.sample(iter_gibbs_sampler.batch_size)
+        self.assertTrue(torch.equal(IJ_sample_toy, IJ_sample_iter))
+
+    def test_gibbs_toy_distr(self):
+        """
+
+        :return:
+        """
+        toy_gibbs_sampler = self.initialization(get_distr=True)
+        one_cycle_negative_distr = toy_gibbs_sampler.distribution_only(toy_gibbs_sampler.batch_size, toy=True)
+
+        self.assertEqual(one_cycle_negative_distr[1][0].shape[0], toy_gibbs_sampler.batch_size)
+        self.assertEqual(one_cycle_negative_distr[1][0].shape[1], toy_gibbs_sampler.Pj.shape[0])
+        self.assertEqual(one_cycle_negative_distr[1][1].shape[0], toy_gibbs_sampler.batch_size)
+        self.assertEqual(one_cycle_negative_distr[1][1].shape[1], toy_gibbs_sampler.Pj.shape[0])
 
 
 

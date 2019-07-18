@@ -1,5 +1,3 @@
-
-
 import hilbert as h
 
 def add_model_args(parser):

@@ -110,3 +110,9 @@ class BalancedSampleMLELoss(nn.Module):
         return deviations.sum() / response.shape[0]
 
 
+class GibbsSampleMLELoss(nn.Module):
+    def forward(self, response, batch_data):
+        boundary = int(response.shape[0] / 2)
+        term1 = response[:boundary].sum()
+        term2 = response[boundary:].sum()
+        return -(term1 - term2) / float(boundary)

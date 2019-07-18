@@ -77,6 +77,7 @@ class DependencyCorpus:
         ]
 
         padding_length = MAX_SENTENCE_LENGTH - len(encoded_arcs)
+
         modifiers = [arc[0] for arc in encoded_arcs]
         heads = [arc[1] for arc in encoded_arcs]
         arc_types = [arc[2] for arc in encoded_arcs]
