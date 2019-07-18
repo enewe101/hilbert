@@ -237,7 +237,7 @@ class GibbsSampleLoader:
         self.gibbs_iteration = gibbs_iteration
 
         Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
-            cooccurrence_path, verbose=verbose, min_cooccurence_count=min_cooccurrence_count)
+            cooccurrence_path, verbose=verbose, min_cooccurrence_count=min_cooccurrence_count)
 
         # Calculate the probabilities and then temper them.
         # After tempering, probabilities are scores -- they don't sum to one
@@ -259,6 +259,21 @@ class GibbsSampleLoader:
 
         self.positive_sampler = Categorical(self.Pij, device=self.device)
 
+    def get_batch_words(self, batch_id, dictionary):
+        # help function for investigating problematic pairs of words
+        pos_pairs = []
+        neg_pairs = []
+
+        boundary = self.batch_size
+
+        for i, ij in enumerate(batch_id):
+            if i < boundary:
+                pos_pairs.append((dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
+            else:
+                neg_pairs.append((dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
+
+        return pos_pairs, neg_pairs
+
     def batch_probs(self, _2dprobs_prenorm, I_flag=True):
         """
         Help function for sampling negative samples by calculating the probabilities of the batch
@@ -271,7 +286,7 @@ class GibbsSampleLoader:
         else:
             # normalized
             _2dprobs = _2dprobs_prenorm/_2dprobs_prenorm.sum(dim=1)[:,None]
-            if torch.isnan(_2dprobs):
+            if torch.isnan(_2dprobs).any():
                 raise ValueError("detected nan in probs!")
             negative_sampler = torch.distributions.categorical.Categorical(_2dprobs)
             negative_samples_idx = negative_sampler.sample()    # sample 1 unit from the conditional distribution
@@ -295,11 +310,15 @@ class GibbsSampleLoader:
             # condition on words are from I, computing J given I
             model_pmi = self.learner.V[condition_on_idx] @ self.learner.W.t()
             _2d_posterior_dist = self.Pj * torch.exp(model_pmi)  # without Adaptive softmax
+            if torch.isnan(_2d_posterior_dist).any():
+                raise ValueError("In gibbs stepping, detected nan in probs!")
             negative_samples = self.batch_probs(_2d_posterior_dist, I_flag=True)
         else:
             # condition on words are from I, computing I given J
             model_pmi = self.learner.W[condition_on_idx] @ self.learner.V.t()
             _2d_posterior_dist = self.Pi * torch.exp(model_pmi)  # without Adaptive softmax
+            if torch.isnan(_2d_posterior_dist).any():
+                raise ValueError("In gibbs stepping, detected nan in probs!")
             negative_samples = self.batch_probs(_2d_posterior_dist, I_flag=False)
 
         return negative_samples
@@ -429,7 +448,7 @@ class CPUSampleLoader:
         temperature=1,
         batch_size=100000,
         device=None,
-        min_cooccurence_count = None,
+        min_cooccurrence_count = None,
         verbose=True
     ):
 

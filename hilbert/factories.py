@@ -153,7 +153,7 @@ def build_mle_sample_solver(
         lr_scheduler_constant_fraction=1,
         end_learning_rate=0,
         num_updates=1,
-        min_cooccurence_count=None,
+        min_cooccurrence_count=None,
         seed=1917,
         device=None,
         verbose=True,
@@ -164,7 +164,7 @@ def build_mle_sample_solver(
     Similar to build_mle_solver, but it is based on 
     approximating the loss function using sampling.
 
-    min_cooccurence_count: A small number threshold of cooc counts to be removed to fit into the
+    min_cooccurrence_count: A small number threshold of cooc counts to be removed to fit into the
     GPU memory.
     """
 
@@ -202,7 +202,7 @@ def build_mle_sample_solver(
             batch_size=batch_size,
             device=device,
             verbose=verbose,
-            min_cooccurrence_count=min_cooccurence_count
+            min_cooccurrence_count=min_cooccurrence_count,
         )
     else:
         if balanced:
@@ -217,7 +217,7 @@ def build_mle_sample_solver(
             batch_size=batch_size,
             device=device,
             verbose=verbose,
-            min_cooccurence_count=min_cooccurence_count,
+            min_cooccurrence_count=min_cooccurrence_count,
         )
 
 
