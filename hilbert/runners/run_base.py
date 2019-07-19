@@ -2,6 +2,7 @@ import os
 import hilbert as h
 from hilbert.tracer import tracer
 from argparse import ArgumentParser
+import numpy as np
 
 
 def factory_args(args):
@@ -55,6 +56,10 @@ def run(solver_factory, **args):
         num_updates = updates_per_write * (write_num+1)
         save_path = os.path.join(save_dir, '{}'.format(num_updates))
         solver.get_embeddings().save(save_path)
+
+        if args['one_sided'] == 'R':
+            R = solver.learner.R.clone()
+            np.save(os.path.join(save_path, 'R.npy'), R.cpu().detach().numpy())
 
 
 class ModelArgumentParser(ArgumentParser):
@@ -125,6 +130,17 @@ def add_shard_factor_arg(parser):
         help= "Divide sectors by shard_factor**2 to make it fit on GPU."
     )
 
+
+def add_one_sided_arg(parser):
+    parser.add_argument(
+        '--one-sided', choices={'yes', 'R', 'no'}, default='no', dest='one_sided',
+        help=(
+            "Choice between three options (default is 'no')--- "
+            "yes: only train vectors (no covectors), "
+            "R: train a linear map that takes vectors to covectors, "
+            "no: train both vectors and covectors."
+        )
+    )
 
 def add_common_constructor_args(parser):
     """

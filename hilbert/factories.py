@@ -96,6 +96,7 @@ def build_mle_sample_solver(
         seed=1917,
         device=None,
         verbose=True,
+        one_sided='no'
     ):
     """
     Similar to build_mle_solver, but it is based on 
@@ -114,12 +115,13 @@ def build_mle_sample_solver(
     else:
         print('No balance.')
         loss = h.loss.SampleMLELoss()
-
+   
     learner = h.learner.SampleLearner(
         vocab=len(dictionary),
         covocab=len(dictionary),
         d=dimensions,
         bias=bias,
+        one_sided=one_sided,
         init=get_init_embs(init_embeddings_path, device),
         device=device
     )

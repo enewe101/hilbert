@@ -16,6 +16,7 @@ class EmbeddingLearner(nn.Module):
             covocab=None,
             d=None,
             bias=False,
+            one_sided = 'no',
             init=None,
             device=None
         ):
@@ -25,18 +26,21 @@ class EmbeddingLearner(nn.Module):
         # Own it
         self.V_shape = (vocab, d)
         self.W_shape = (covocab, d)
+        self.R_shape = d
         self.vb_shape = (1, vocab)
         self.wb_shape = (1, covocab)
         self.bias = bias
+        self.one_sided = one_sided
         self.device = h.utils.get_device(device)
 
         # Initialize the model parameters.
         if init is None:
-            self.V, self.W, self.vb, self.wb = None, None, None, None
+            self.V, self.W, self.R, self.vb, self.wb = None, None, None, None, None
             self.reset()
         else:
             self.V = nn.Parameter(init[0], True)
-            self.W = nn.Parameter(init[1], True) 
+            self.W = nn.Parameter(init[1], True)
+            self.R = torch.eye(self.R_shape)
             self.vb = None if init[2] is None else nn.Parameter(init[2], True)
             self.wb = None if init[3] is None else nn.Parameter(init[3], True)
             self._validate_initialization()
@@ -57,12 +61,25 @@ class EmbeddingLearner(nn.Module):
 
     def reset(self):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
-        self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
+        if self.one_sided == 'yes':
+            self.W = None
+            self.R = None
+        elif self.one_sided == 'R':
+            self.W = None
+            self.R = nn.Parameter(nn.init.xavier_uniform_(
+                torch.eye(self.R_shape, device=self.device)))
+        else:
+            self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
+            self.R = None 
+
         if self.bias:
             self.vb = nn.Parameter(
                 xavier(self.vb_shape, self.device).squeeze(), True)
-            self.wb = nn.Parameter(
-                xavier(self.wb_shape, self.device).squeeze(), True)
+            if self.one_sided == 'no':
+                self.wb = nn.Parameter(
+                    xavier(self.wb_shape, self.device).squeeze(), True)
+            else:
+                self.wb = None
 
 
     def get_embedding_params(self):
@@ -96,10 +113,24 @@ class DenseLearner(EmbeddingLearner):
 
 class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
-        response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
-        if self.bias:
-            response += self.vb[IJ[:,0]]
-            response += self.wb[IJ[:,1]]
+        if self.one_sided == 'R':
+            response = torch.sum(self.V[IJ[:,0]] * torch.mm(self.V[IJ[:,1]],self.R), dim=1)
+            if self.bias:
+                response += self.vb[IJ[:,0]]
+                response += self.vb[IJ[:,1]]
+
+        elif self.one_sided == 'yes':
+            response = torch.sum(self.V[IJ[:,0]] *self.V[IJ[:,1]], dim=1)
+            if self.bias:
+                response += self.vb[IJ[:,0]]
+                response += self.vb[IJ[:,1]]
+
+        else:
+            response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
+            if self.bias:
+                response += self.vb[IJ[:,0]]
+                response += self.wb[IJ[:,1]]
+        
         return response
 
 

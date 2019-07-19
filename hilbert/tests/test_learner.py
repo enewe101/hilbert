@@ -74,6 +74,57 @@ class TestDenseLearner(TestCase):
             expected = (W @ V.t()) + vbias.reshape(1, -1) + wbias.reshape(-1, 1)
             self.assertTrue(torch.allclose(got_M, expected))
 
+class TestSampleLearner(TestCase):
+    
+    def test_one_sided_learner(self):
+        vocab = 10
+        covocab = 10
+        d = 5
+        bias = True
+
+        for one_sided in ['yes', 'R', 'no']:
+
+            learner = h.learner.SampleLearner(vocab=vocab, covocab=covocab, d=d,
+                bias=bias, one_sided=one_sided)
+
+            I = [0, 1, 3, 4]
+            J = [1, 2, 5, 7]
+            IJ = torch.tensor(list(zip(I,J)))
+
+            found = learner(IJ)
+
+            V = learner.V.clone()
+            W = learner.W.clone() if one_sided == 'no' else None
+            R = learner.R.clone() if one_sided == 'R' else None
+            vb = learner.vb.clone() if bias else None
+            wb = learner.wb.clone() if bias and one_sided == 'no' else None
+            
+            expected = torch.zeros((len(IJ),), device=learner.device)
+
+            for q, (i,j) in enumerate(zip(I,J)):
+                bias_term = torch.zeros((1,))
+                if one_sided == 'yes':
+                    dot_terms = V[i] * V[j]
+                    if bias:
+                        bias_term = vb[i] + vb[j]
+
+                elif one_sided == 'R':
+                    transformed = torch.mv(R.transpose(0,1),V[j])
+                    dot_terms = transformed * V[i]
+                    if bias:
+                        bias_term = vb[i] + vb[j]
+                
+                else:
+                    dot_terms = V[i] * W[j]
+                    if bias:
+                        bias_term = vb[i] + wb[j]
+
+                dot_product = torch.sum(dot_terms)
+                biased_product = dot_product + bias_term
+                expected[q] = biased_product
+
+
+            self.assertTrue(torch.allclose(found, expected))
 
 
 class TestMultisenseLearner(TestCase):

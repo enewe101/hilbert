@@ -88,6 +88,12 @@ def extract_and_write_cooccurrence_parallel(
     if verbose:
         print('Extracting...')
     pool.map(extract_and_write_cooccurrence_parallel_worker, args)
+    
+    if verbose:
+        print('Done extracting.')
+    
+def merge_cooccurrences(save_path, processes, unigram, verbose=True):
+    # Merging
     if verbose:
         print('Merging...')
 
