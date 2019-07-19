@@ -115,6 +115,7 @@ class Solver(object):
                 if grad_accumulation_step == 0:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    grad_accumulation_step = self.gradient_accumulation
 
                 # learning rate scheduler steps regardless of optimizer update
                 for scheduler in self.schedulers:
