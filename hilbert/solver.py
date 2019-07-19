@@ -51,7 +51,6 @@ class Solver(object):
         self.V_norm = None
         self.W_norm = None
 
-
     def reset(self, lr=None):
         """
         Re-initialize the learner's parameters and the optimizer's state.
@@ -59,16 +58,14 @@ class Solver(object):
         self.learner.reset()
         self.optimizer.reset(lr)
 
-
     def describe(self):
-        s  = 'Loader: {}\n'.format(self.loader.__class__.__name__)
+        s = 'Loader: {}\n'.format(self.loader.__class__.__name__)
         s += 'Loss: {}\n'.format(self.loss.__class__.__name__)
         s += 'Optimizer: {}\n'.format(self.optimizer.__class__.__name__)
         s += 'Learner: {}\n'.format(self.learner.__class__.__name__)
-        #s += 'Schedulers: {}\n'.format(self.describe_schedulers())
+        # s += 'Schedulers: {}\n'.format(self.describe_schedulers())
         s += 'Dictionary: {} words\n'.format(len(self.dictionary))
         h.tracer.tracer.trace(s)
-
 
     def get_embeddings(self):
         detached_embedding_params = (
@@ -76,17 +73,13 @@ class Solver(object):
             for p in self.learner.get_embedding_params()
         )
         return h.embeddings.Embeddings(
-            *detached_embedding_params, 
+            *detached_embedding_params,
             dictionary=self.dictionary,
             verbose=self.verbose
         )
-        
 
     def get_params(self):
         return self.learner.get_params()
-
-
-
 
     def cycle(self, updates_per_cycle=1, monitor_closely=False):
         grad_accumulation_step = self.gradient_accumulation
@@ -138,12 +131,9 @@ class Solver(object):
                 if monitor_closely:
                     tracer.declare('loss', self.cur_loss.item())
 
-            # don't waste the gradient!
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            tracer.declare('loss', self.cur_loss.item())
+        # don't waste the gradient!
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        tracer.declare('loss', self.cur_loss.item())
 
         return self.cur_loss.item()
-
-
-

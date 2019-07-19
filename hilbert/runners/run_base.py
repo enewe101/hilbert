@@ -2,7 +2,7 @@ import os
 import hilbert as h
 from hilbert.tracer import tracer
 from argparse import ArgumentParser
-import time
+
 
 
 def factory_args(args):
@@ -169,11 +169,11 @@ def add_gradient_clipping_arg(parser):
 def add_LR_scheduler_arg(parser):
     # can't have both LR and LR scheduler??
     parser.add_argument(
-        '--LR-scheduler', '-scheduler', default=None, choices=['linear', 'inverse', 'None'], dest='scheduler_str',
+        '--LR-scheduler', default=None, choices=['linear', 'inverse', 'None'], dest='scheduler_str',
         help="Type of learning rate scheduler"
     )
     parser.add_argument(
-        '--LR-scheduler-endLR', '-le', type=float, default=0.0, dest='end_lr',
+        '--LR-scheduler-endLR', '-le', type=float, default=0.0, dest='end_learning_rate',
         help="The end learning rate for linear learning rate scheduler"
     )
     parser.add_argument(

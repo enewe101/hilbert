@@ -37,17 +37,25 @@ class ResettableOptimizer:
         self.learner = learner
         self.lr = lr
         self.reset()
+
     # Delegate everything not found here to the underlying optimizer
     def __getattr__(self, attr):
         return self.opt.__getattribute__(attr)
+
     # Create the underlying optimizer
     def reset(self, lr=None):
         self.lr = self.lr if lr is None else lr
         self.opt = self.opt_class(self.learner.parameters(), lr=self.lr)
 
 
-def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_learning_rate=None, lr_scheduler_constant_fraction=1, verbose=False):
-
+def get_lr_scheduler(
+        scheduler_str,
+        optimizer,
+        start_lr,
+        num_updates,
+        end_learning_rate=None,
+        lr_scheduler_constant_fraction=1,
+        verbose=False):
     if scheduler_str == 'None':
         return []
 
@@ -82,8 +90,9 @@ def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_learni
 
         if lr_scheduler_constant_fraction == 1:
             if verbose:
-                warnings.warn("Using inverse learning rate scheduler without setting the constant fraction. Learning rate "
-                              "keep constant for all updates.")
+                warnings.warn(
+                    "Using inverse learning rate scheduler without setting the constant fraction. Learning rate "
+                    "keep constant for all updates.")
         elif lr_scheduler_constant_fraction > 1 or lr_scheduler_constant_fraction <= 0:
             lr_scheduler_constant_fraction = 1
             if verbose:
@@ -93,9 +102,6 @@ def get_lr_scheduler(scheduler_str, optimizer, start_lr, num_updates, end_learni
         return [scheduler(optimizer, start_lr, num_updates * lr_scheduler_constant_fraction)]
     else:
         raise ValueError("Scheduler string not found!")
-
-
-
 
 
 def get_init_embs(path, device):
@@ -126,11 +132,14 @@ def yields_recallable(f):
     supplied as kwargs to g, and this will evaluate f at the original set of
     arguments, but with any newly supplied kwargs overriding original values.
     """
+
     def recallable(*args, **kwargs):
         result = f(*args, **kwargs)
+
         def recall(**kwargs_mod):
             new_kwargs = {**kwargs, **kwargs_mod}
             return f(*args, **new_kwargs)
+
         return result, recall
 
     return recallable
@@ -138,7 +147,7 @@ def yields_recallable(f):
 
 def build_mle_sample_solver(
         cooccurrence_path,
-        temperature=2,            # MLE option
+        temperature=2,  # MLE option
         batch_size=10000,
         balanced=True,
         gibbs=False,
@@ -159,7 +168,7 @@ def build_mle_sample_solver(
         verbose=True,
         gradient_accumulation=1,
         gradient_clipping=None,
-    ):
+):
     """
     Similar to build_mle_solver, but it is based on 
     approximating the loss function using sampling.
@@ -220,7 +229,6 @@ def build_mle_sample_solver(
             min_cooccurrence_count=min_cooccurrence_count,
         )
 
-
     optimizer = get_optimizer(opt_str, learner, learning_rate)
 
     if scheduler_str is not None:
@@ -245,6 +253,8 @@ def build_mle_sample_solver(
         schedulers=lr_scheduler,
         dictionary=dictionary,
         verbose=verbose,
+        gradient_accumulation=gradient_accumulation,
+        gradient_clipping=gradient_clipping
     )
 
     return solver
@@ -252,7 +262,7 @@ def build_mle_sample_solver(
 
 def build_multisense_solver(
         cooccurrence_path,
-        temperature=2,            # MLE option
+        temperature=2,  # MLE option
         batch_size=10000,
         bias=False,
         init_embeddings_path=None,
@@ -263,7 +273,7 @@ def build_multisense_solver(
         seed=1917,
         device=None,
         verbose=True
-    ):
+):
     """
     Similar to build_mle_solver, but it is based on 
     approximating the loss function using sampling.
@@ -288,10 +298,10 @@ def build_multisense_solver(
     )
 
     loader = h.loader.CPUSampleLoader(
-        cooccurrence_path=cooccurrence_path, 
+        cooccurrence_path=cooccurrence_path,
         temperature=temperature,
         batch_size=batch_size,
-        device=device, 
+        device=device,
         verbose=verbose
     )
 
@@ -310,11 +320,10 @@ def build_multisense_solver(
     return solver
 
 
-
 def build_mle_solver(
         cooccurrence_path,
-        temperature=2,      # MLE option
-        shard_factor=1,     # Dense option
+        temperature=2,  # MLE option
+        shard_factor=1,  # Dense option
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
@@ -323,15 +332,14 @@ def build_mle_solver(
         seed=1917,
         device=None,
         verbose=True,
-    ):
-
+):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
         os.path.join(cooccurrence_path, 'dictionary'))
 
-    loss = h.loss.MLELoss(ncomponents=len(dictionary)**2)
+    loss = h.loss.MLELoss(ncomponents=len(dictionary) ** 2)
 
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
@@ -366,10 +374,10 @@ def build_mle_solver(
 
 def build_sgns_solver(
         cooccurrence_path,
-        k=15,                   # SGNS option
+        k=15,  # SGNS option
         undersampling=2.45e-5,  # SGNS option
-        smoothing=0.75,         # SGNS option
-        shard_factor=1,         # Dense option
+        smoothing=0.75,  # SGNS option
+        shard_factor=1,  # Dense option
         bias=False,
         init_embeddings_path=None,
         dimensions=300,
@@ -378,15 +386,14 @@ def build_sgns_solver(
         seed=1917,
         device=None,
         verbose=True,
-    ):
-
+):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
         os.path.join(cooccurrence_path, 'dictionary'))
 
-    loss = h.loss.SGNSLoss(ncomponents=len(dictionary)**2, k=k)
+    loss = h.loss.SGNSLoss(ncomponents=len(dictionary) ** 2, k=k)
 
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
@@ -421,12 +428,11 @@ def build_sgns_solver(
     return solver
 
 
-
 def build_glove_solver(
         cooccurrence_path,
-        X_max=100,      # Glove option
-        alpha=3/4,      # Glove option
-        shard_factor=1, # Dense option
+        X_max=100,  # Glove option
+        alpha=3 / 4,  # Glove option
+        shard_factor=1,  # Dense option
         bias=True,
         init_embeddings_path=None,
         dimensions=300,
@@ -435,8 +441,7 @@ def build_glove_solver(
         seed=1917,
         device=None,
         verbose=True,
-    ):
-
+):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
@@ -453,7 +458,7 @@ def build_glove_solver(
     )
 
     loss = h.loss.GloveLoss(
-        ncomponents=len(dictionary)**2, X_max=100, alpha=3/4)
+        ncomponents=len(dictionary) ** 2, X_max=100, alpha=3 / 4)
 
     loader = h.loader.DenseLoader(
         cooccurrence_path,
@@ -475,4 +480,3 @@ def build_glove_solver(
         verbose=verbose,
     )
     return solver
-
