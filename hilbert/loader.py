@@ -517,6 +517,13 @@ class CPUSampleLoader:
         return s
 
 
+def pad_sentence(sent, length):
+    return [pad(sent[0], length), pad(sent[1], length), pad(sent[2], length)]
+
+
+def pad(lst, length):
+    return lst + [h.CONSTANTS.PAD] * (length - len(lst))
+
 
 class DependencyLoader:
 
@@ -527,7 +534,7 @@ class DependencyLoader:
         device=None,
         verbose=True
     ):
-        self.dependency_path = dependence_path
+        self.dependency_path = dependency_path
         self.batch_size = batch_size
         self.device = device
         self.verbose = verbose
@@ -538,9 +545,32 @@ class DependencyLoader:
         device = h.utils.get_device(self.device)
         start = pointer * batch_size
         stop = (pointer + 1) * batch_size
-        positives = self.dependency.data[start:stop].to(device)
-        negatives = sample_negatives(positives)
-        return positives, negatives
+
+        if start  >= len(self.dependency.sort_idxs):
+            raise IndexError(
+                "pointing at example {}, but data has only {} examples"
+                .format(start, len(self.dependency.sort_idxs))
+            )
+
+        idxs = self.dependency.sort_idxs[start:stop]
+        sentence_lengths = self.dependency.sentence_lengths[idxs]
+        max_length = torch.max(sentence_lengths).item()
+
+        positives = torch.tensor([
+            pad_sentence(self.dependency.sentences[idx], max_length)
+            for idx in idxs
+        ])
+        mask = self.generate_mask(sentence_lengths, max_length)
+
+        return positives, mask
+
+
+    def generate_mask(self, sentence_lengths, max_length):
+        mask = torch.zeros((len(sentence_lengths), max_length))
+        for row, sentence_length in enumerate(sentence_lengths):
+            mask[row, :sentence_length] = 1
+
+        return mask
 
 
     def __iter__(self):
@@ -549,12 +579,18 @@ class DependencyLoader:
 
 
     def __next__(self):
-        positives, negatives = sample_batch(self.batch_size, self.pointer)
+        try:
+            positives, mask = self.sample_batch(self.batch_size, self.pointer)
+        except IndexError:
+            raise StopIteration()
         self.pointer += 1
-        return self.pointer, (positives, negatives)
+        return self.pointer-1, (positives, mask)
+
+
 
 
 class DependencySampler:
+
 
     def __init__(self, embeddings=None, V=None, W=None, architecture='flat'):
         """
@@ -620,8 +656,6 @@ class DependencySampler:
 
         negatives[:,1,:][1-mask] = h.dependency.PAD
         negatives[:,1,0] = h.dependency.PAD
-
-        #import pdb; pdb.set_trace()
 
         return negatives
 

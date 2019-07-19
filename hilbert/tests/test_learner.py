@@ -88,7 +88,9 @@ class TestMultisenseLearner(TestCase):
         for bias in [True, False]:
 
             learner = h.learner.MultisenseLearner(
-                vocab=vocab, covocab=covocab, d=d, num_senses=num_senses, bias=bias)
+                vocab=vocab, covocab=covocab, d=d,
+                num_senses=num_senses, bias=bias
+            )
 
             # Select an arbitrary sample.
             I = [0, 1, 4, 9]
@@ -120,14 +122,14 @@ class TestMultisenseLearner(TestCase):
                 expected[q] = torch.log(torch.exp(biased_matrix_product).sum())
 
             self.assertTrue(torch.allclose(found, expected))
-            
 
 
 
+class TestDependencyLearner(TestCase):
 
+    def test_negative_sample(self):
 
+        # test negative sample
+        pass
+    
 
-
-
-
-        
