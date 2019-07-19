@@ -5,17 +5,12 @@ from argparse import ArgumentParser
 import time
 
 
-def factory_args(args, keep_updates=True):
-    if keep_updates:
-        ignore = {
-            'save_embeddings_dir', 'num_writes',
-            'monitor_closely', 'debug'
-        }
-    else:
-        ignore = {
-            'save_embeddings_dir', 'num_writes', 'num_updates',
-            'monitor_closely', 'debug'
-        }
+def factory_args(args):
+    ignore = {
+        'save_embeddings_dir', 'num_writes',
+        'monitor_closely', 'debug'
+    }
+
     return {key:args[key] for key in args if key not in ignore}
 
 
@@ -48,10 +43,7 @@ def run(solver_factory, **args):
         {'solver_factory':solver_factory.__name__, **args}
     )
 
-    if solver_factory.__name__ == 'build_mle_sample_solver':
-        solver = solver_factory(**h.runners.run_base.factory_args(args))
-    else:
-        solver = solver_factory(**h.runners.run_base.factory_args(args, keep_updates=False))
+    solver = solver_factory(**h.runners.run_base.factory_args(args))
     solver.describe()
 
     # Trigger interactive debugger to explore solver behavior if desired.
@@ -163,7 +155,7 @@ def add_shard_factor_arg(parser):
 
 def add_remove_cooc_arg(parser):
     parser.add_argument(
-        '--remove-threshold', '-thres', type=int, default=10, dest='min_cooccurence_count',
+        '--remove-threshold', '-thres', type=int, default=10, dest='min_cooccurrence_count',
         help="A small number threshold of cooc counts to be removed to fit into the "
              "GPU memory."
     )
