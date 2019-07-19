@@ -14,6 +14,8 @@ class Solver(object):
         schedulers=None,
         dictionary=None,
         verbose=True,
+        gradient_accumulation=1,
+        gradient_clipping=None
     ):
 
         """
@@ -28,7 +30,9 @@ class Solver(object):
         that go within the core training loop.  It lets callers of 
         Solver.cycle() concisely ask to iterate forward by some number
         of updates, without needing to know all the pieces of machinery in the
-        training loop and how they work together
+        training loop and how they work together.
+
+        Solver.cycle() also support gradient accumulation calculation.
         """
 
         # Own it like you do
@@ -39,9 +43,13 @@ class Solver(object):
         self.schedulers = schedulers or []
         self.dictionary = dictionary
         self.verbose = verbose
+        self.gradient_accumulation = gradient_accumulation
+        self.gradient_clipping = gradient_clipping
 
         # Other solver state
         self.cur_loss = None
+        self.V_norm = None
+        self.W_norm = None
 
 
     def reset(self, lr=None):
@@ -78,23 +86,44 @@ class Solver(object):
         return self.learner.get_params()
 
 
-    def cycle(self, updates_per_cycle=1, monitor_closely=False):
 
+
+    def cycle(self, updates_per_cycle=1, monitor_closely=False):
+        grad_accumulation_step = self.gradient_accumulation
         # Run a bunch of updates.
         for update_id in range(updates_per_cycle):
-
             # Train on as many batches as the loader deems to be one update.
             for batch_id, batch_data in self.loader:
-
                 # Consider this batch and learn.
-                self.optimizer.zero_grad()
                 response = self.learner(batch_id)
+
+                # clear gradient
+                if update_id == 0:
+                    self.optimizer.zero_grad()
 
                 self.cur_loss = self.loss(response, batch_data)
                 self.cur_loss.backward()
+                grad_accumulation_step = grad_accumulation_step - 1
 
-                # Take some steps
-                self.optimizer.step()
+                if self.gradient_clipping is not None:
+                    torch.nn.utils.clip_grad_norm_(self.learner.parameters(), max_norm=self.gradient_clipping)
+
+                if monitor_closely:
+                    if self.cur_loss.item() > 1e4:
+                        pos_pairs, neg_pairs = self.loader.get_batch_words(batch_id, self.dictionary)
+
+                        UserWarning(
+                            "Extreme loss value is detected. current loss is greater than 1e4,\n"
+                            "Positive sample word pairs are :{}\n"
+                            "Negative sample word pairs are :{}\n".format(
+                                ", ".join(map(str, pos_pairs)),
+                                ", ".join(map(str, neg_pairs))))
+
+                if grad_accumulation_step == 0:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                # learning rate scheduler steps regardless of optimizer update
                 for scheduler in self.schedulers:
                     scheduler.step()
 
@@ -109,7 +138,11 @@ class Solver(object):
                 if monitor_closely:
                     tracer.declare('loss', self.cur_loss.item())
 
-        tracer.declare('loss', self.cur_loss.item())
+            # don't waste the gradient!
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            tracer.declare('loss', self.cur_loss.item())
+
         return self.cur_loss.item()
 
 
