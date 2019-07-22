@@ -333,7 +333,8 @@ class TestGibbsSampleLoader(TestCase):
 
 
 
-# TODO: test mask
+# TODO: test mask: should be uint, should mask the right things.
+# TODO: should we mask the ROOT?
 class TestDependencyLoader(TestCase):
 
     def test_dependency_loader(self):

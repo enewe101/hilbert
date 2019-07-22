@@ -128,6 +128,64 @@ class TestMultisenseLearner(TestCase):
 
 class TestDependencyLearner(TestCase):
 
+    def test_calculate_score(self):
+
+        torch.random.manual_seed(0)
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 50
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
+        batch_size = 3
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
+
+        V = learner.V.clone()
+        W = learner.W.clone()
+        vb = learner.vb.clone()
+        wb = learner.wb.clone()
+
+        for batch_num, batch_data in loader:
+            positives, mask = batch_data
+            words = positives[:,0,:]
+            head_ids = positives[:,1,:]
+            batch_size, max_sentence_length = words.shape
+
+            expected_score = torch.zeros((batch_size,))
+            for row in range(batch_size):
+                print('row', row)
+                for word_idx in range(max_sentence_length):
+                    print('t', word_idx)
+
+                    # Skip ROOT, it does not choose a head.
+                    if word_idx == 0:
+                        continue
+
+                    # Skip masked positions
+                    if mask[row][word_idx] == 1:
+                        continue
+
+                    # Get ahold of the word and head tokens.
+                    word = words[row][word_idx]
+                    head_idx = head_ids[row][word_idx]
+                    try:
+                        head = words[row][head_idx]
+                    except IndexError:
+                        import pdb; pdb.set_trace()
+
+                    # Calculate the score for this specific attachment.
+                    dot = (W[word]*V[head]).sum()
+                    score = dot + wb[word] + vb[head]
+                    expected_score[row] += score
+
+            # Calculate the score using the method under test.
+            found_score = learner.calculate_score(words, head_ids, mask) 
+            self.assertTrue(torch.allclose(found_score, expected_score))
+
+
+
     def test_dependency_learner(self):
         vocab = int(1e3)
         covocab = int(1e3)
@@ -141,9 +199,15 @@ class TestDependencyLearner(TestCase):
             batch_size=batch_size
         )
 
-        for batch_num, (positives, mask) in loader:
+        for batch_num, batch_data in loader:
+            positives, mask = batch_data
 
-            learner.forward(positives, mask)
+            response = learner(batch_num, batch_data)
+
+            import pdb; pdb.set_trace()
+
+
+
 
             found_batch_size, _, padded_length = positives.shape
 
@@ -241,6 +305,7 @@ class TestDependencyLearner(TestCase):
 
 
 
+# FOR REFERENCE ONLY, REMOVE
 class TestDependencySampler(TestCase):
     torch.random.manual_seed(0)
 

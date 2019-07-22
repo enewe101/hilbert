@@ -6,6 +6,7 @@ try:
 except ImportError:
     torch = None
 
+PAD = h.CONSTANTS.PAD
 
 class TestDependencyCorpus(TestCase):
 
@@ -21,6 +22,8 @@ class TestDependencyCorpus(TestCase):
         arc_dictionary_path = os.path.join(dependency_path, 'arc-dictionary')
         arc_dictionary = h.dictionary.Dictionary.load(arc_dictionary_path)
 
+        # Generate the expected words, head_ids, and arc_types that 
+        # characterize the expected sentences in the corpus.
         words = []
         heads = []
         arc_types = []
@@ -31,14 +34,25 @@ class TestDependencyCorpus(TestCase):
             sent_words = []
             sent_heads = []
             sent_arc_types = []
+            filtered_head_ids = [0]
+            curr_filtered_head_id = 1
             for row in sent.split('\n'):
                 fields = row.split('\t')
                 word, head, arc = fields[1], fields[6], fields[7]
                 if head == '_' or arc == '_':
+                    filtered_head_ids.append(None)
                     continue
+                filtered_head_ids.append(curr_filtered_head_id)
+                curr_filtered_head_id += 1
                 sent_words.append(dictionary.get_id(word))
                 sent_heads.append(int(head))
                 sent_arc_types.append(arc_dictionary.get_id(arc))
+
+            # Remap head indexes to point to correct post-filtering locations.
+            sent_heads = [
+                filtered_head_ids[orig_head_id] 
+                for orig_head_id in sent_heads
+            ]
 
             # Don't include too long sentences.
             if len(sent_words) > h.dependency.MAX_SENTENCE_LENGTH:
@@ -88,6 +102,7 @@ class TestDependencyCorpus(TestCase):
             
             # The root has no incoming arc_type (has padding)
             self.assertEqual(found_sentence[2][0], h.dependency.PAD)
+
 
 
 
