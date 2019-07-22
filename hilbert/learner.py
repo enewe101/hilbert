@@ -132,11 +132,6 @@ class SampleLearner(EmbeddingLearner):
                 response += self.vb[IJ[:,0]]
                 response += self.wb[IJ[:,1]]
         
-        # term-wise multiplication
-        response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
-        if self.bias:
-            response += self.vb[IJ[:,0]]
-            response += self.wb[IJ[:,1]]
         return response
 
 
