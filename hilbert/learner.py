@@ -6,6 +6,7 @@ import torch.nn as nn
 def xavier(shape, device):
     return nn.init.xavier_uniform_(torch.zeros(shape, device=device))
 
+PAD = h.CONSTANTS.PAD
 
 
 class EmbeddingLearner(nn.Module):
@@ -298,22 +299,26 @@ class DependencyLearner(nn.Module):
 
     def calculate_score(self, words, head_ids, mask):
         """
-        sentences should be a 3-d tensor with shape
-            (num_sentences, 3, max_length)
+        words is a 2-d tensor with shape
+            (num_sentences, max_length)
         where:
             - num_sentences is the number of sentences in the batch;
-            - 3 corresponds to each sentence having three lists of variables:
-                word indexes, head-assignments, and arc-types; and
             - max_length is the length of the longest sentence (all other 
                 sentences being padded to this length)
 
+        head_ids and mask have a similar shape.  For each sentence, head_ids
+        stores the index of the head of that word.  For each sentence, the 
+        mask indicates where padding has been placed near the end of the 
+        sentence.  The [ROOT] is not masked, but it can be easily masked
+        because it is always token 0 in each sentence.
+
         This calculates the tree score for each sentence, give the choice
-        of words, head-assignments, and arc-types.
+        of words, and, head-assignments.
 
         Returns a 1-d vector with shape (num_sentences,) containing the tree
         score for each sentence.
         """
-            
+
         # sentences is a (batch-size, _, T) tensor, where T is the max
         # sentence length.  _ can be 2 or 3, depending on whether arc-types 
         # are included.
@@ -324,6 +329,9 @@ class DependencyLearner(nn.Module):
         mask_incl_root = mask.clone()
         mask_incl_root[:,0] = 1
 
+        # TODO: maybe PAD should jus be zero?  then we would not have to do 
+        # the next two steps.
+
         # Set padding tokens to the unk id.
         words[mask] = 0
 
@@ -331,10 +339,7 @@ class DependencyLearner(nn.Module):
         head_ids[mask_incl_root] = 0
 
         # Get the vocabulary ids for heads by looking head-assignments.
-        try:
-            heads = torch.gather(words, gather_along_dim, head_ids)
-        except RuntimeError:
-            import pdb; pdb.set_trace()
+        heads = torch.gather(words, gather_along_dim, head_ids)
 
         covectors = self.W[words]
         vectors = self.V[heads]
@@ -348,65 +353,83 @@ class DependencyLearner(nn.Module):
         return scores
 
 
-    def parse_energy(self, positives, mask):
+    def parse_energy(self, words, mask):
 
         # Need to add ability to sample the root.  Include it at the end
         # of the sentence.  Include root in dictionary and embeddings.
         assert mask.dtype == torch.uint8
 
         # Drop tags for now
-        positives = positives[:,0:2,:] 
-        batch_size, _, sentence_length = positives.shape
+        batch_size, sentence_length = words.shape
+
+        # Mask the head and padding
+        words[mask] = 0
 
         # Access the vectors and covectors
-        words = positives[:,0,:]
-        vectors = self.V[words]
-        covectors = self.W[words]
-
+        V = self.V[words]
+        vb = self.vb[words].unsqueeze(1)
+        W = self.W[words]
+        wb = self.wb[words].unsqueeze(2)
 
         # Calculate energies
-        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        energies = torch.bmm(W, V.transpose(1,2)) + vb + wb
 
-        # Block out prohibited states:
-        #   Don't choose self as a head
+        # Tokens cannot choose themselves as a head
         diag_mask = (
             slice(None), range(sentence_length), range(sentence_length))
         energies[diag_mask] = torch.tensor(-float('inf'))
 
         # Don't choose padding as a head
-        reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+        reflected_mask = (mask.unsqueeze(1) | mask.unsqueeze(2)).byte()
+        energies[reflected_mask] = torch.tensor(-float('inf'))
+
+        # [ROOT] should not choose a head
+        energies[:,0,:] = -float('inf')
         return energies
 
 
-    def do_inference(self, positives, mask):
+    def parse_probs(self, positives, mask):
+        batch_size, sentence_length = positives.shape
+        energy = self.parse_energy(positives, mask)
+        probs = torch.exp(energy)
 
-        batch_size, max_sentence_length = positives.shape
-        energies = self.parse_energies(positives, mask)
+        # The root shouldn't choose a head.  However, we have to put non-zero
+        # probability somewhere so that probs is compatible with being fed
+        # as inputs to a sampler.  Therefore, we assign probability one to 
+        # the root selecting itself as a head...
+        probs[:,0,:] = 1
 
-        inferred_heads = torch.zeros(
-            (batch_size,max_sentence_length), torch.int64)
+        # ... and to padding selecting [ROOT] as head.
+        padded_modifiers = mask.unsqueeze(2).expand(-1, -1, sentence_length)
+        probs[padded_modifiers] = 1
 
-
-        # To be compatible with torch.distributions.Categorical, reshape
-        # probabilities such that each word in each sentence gets a row, and
-        # that row contains probabilities for selecting among all possible
-        # heads in that sentence.  Normalize to obtain a true probability
-        # distribution.
-        probs = torch.exp(energies)
-        probs = probs.view(-1, sentence_length)
-        probs[1-mask.reshape(-1),:] = 1
-        totals = probs.sum(dim=1, keepdim=True)
+        # Normalize the distribution for each modifier picking among heads.
+        totals = probs.sum(2, keepdim=True)
         probs = probs / totals
 
+        return probs
+
+
+    def do_inference(self, positives, mask, enforce_constraints=True):
+        batch_size, sentence_length = positives.shape
+        probs = self.parse_probs(positives, mask)
+        probs = probs.view(-1, sentence_length)
+        totals = probs.sum(dim=1, keepdim=True)
+        probs = probs / totals
         sample = torch.distributions.Categorical(probs).sample()
-
         inferred_heads = sample.reshape(-1, sentence_length)
-        #idx1 = [i for i in range(batch_size) for j in range(sentence_length)] 
-        #idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
-        #inferred_heads[idx1,idx2] = sample
 
-        inferred_heads[1-mask] = 0
+        inferred_heads[mask] = 0
+        inferred_heads[:,0] = 0
+
+        import pdb; pdb.set_trace()
+
+        if enforce_constraints:
+            modifiers_to_resample = self.detect_cycles(inferred_heads)
+
+            pass
+            # Detect multiple heads
+            # Detect cycles
 
         return inferred_heads
 
