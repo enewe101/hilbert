@@ -29,13 +29,15 @@ class EmbeddingLearner(nn.Module):
         self.R_shape = d
         self.vb_shape = (1, vocab)
         self.wb_shape = (1, covocab)
+        self.num_labels = 38 #TODO Fix hardcoded number of labels
+        self.kb_shape = (1, self.num_labels)
         self.bias = bias
         self.one_sided = one_sided
         self.device = h.utils.get_device(device)
 
         # Initialize the model parameters.
         if init is None:
-            self.V, self.W, self.R, self.vb, self.wb = None, None, None, None, None
+            self.V, self.W, self.R, self.vb, self.wb, self.kb = None, None, None, None, None, None
             self.reset()
         else:
             self.V = nn.Parameter(init[0], True)
@@ -43,6 +45,8 @@ class EmbeddingLearner(nn.Module):
             self.R = torch.eye(self.R_shape)
             self.vb = None if init[2] is None else nn.Parameter(init[2], True)
             self.wb = None if init[3] is None else nn.Parameter(init[3], True)
+            self.kb = nn.Parameter(xavier(
+                    (self.kb_shape), self.device).squeeze(), True)
             self._validate_initialization()
 
 
@@ -68,19 +72,36 @@ class EmbeddingLearner(nn.Module):
             self.W = None
             self.R = nn.Parameter(nn.init.xavier_uniform_(
                 torch.eye(self.R_shape, device=self.device)))
+        elif self.one_sided == 'arc_labels':
+            self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
+            self.R = nn.Parameter(torch.tensor(
+                (self.num_labels,self.R_shape,self.R_shape), device=self.device), True)
+            for k in range(self.num_labels):
+                self.R[k] = nn.init.xavier_uniform_(
+                    torch.eye(self.R_shape, device=self.device))
         else:
             self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
             self.R = None 
 
         if self.bias:
             print("initialized with bias")
-            self.vb = nn.Parameter(
-                xavier(self.vb_shape, self.device).squeeze(), True)
-            if self.one_sided == 'no':
-                self.wb = nn.Parameter(
-                    xavier(self.wb_shape, self.device).squeeze(), True)
+            if self.one_sided == 'arc_labels':
+                self.vb = nn.Parameter(xavier(
+                    (self.num_labels,self.vb_shape[1]), self.device).squeeze(), True)
+                self.wb = nn.Parameter(xavier(
+                    (self.num_labels,self.wb_shape[1]), self.device).squeeze(), True)
+                self.kb = nn.Parameter(xavier(
+                    (self.kb_shape), self.device).squeeze(), True)
+            
             else:
-                self.wb = None
+                self.vb = nn.Parameter(
+                    xavier(self.vb_shape, self.device).squeeze(), True)
+                            
+                if self.one_sided == 'no':
+                    self.wb = nn.Parameter(
+                        xavier(self.wb_shape, self.device).squeeze(), True)
+                else:
+                    self.wb = None
 
 
     def get_embedding_params(self):
@@ -125,6 +146,13 @@ class SampleLearner(EmbeddingLearner):
             if self.bias:
                 response += self.vb[IJ[:,0]]
                 response += self.vb[IJ[:,1]]
+        
+        elif self.one_sided == 'arc_labels':
+            response = torch.sum(self.V[IJ[:,0]] * torch.bmm(self.W[IJ[:,1]],self.R[IJ[:,2]]), dim=1)
+            if self.bias:
+                response += self.vb[IJ[:,0],IJ[:,2]]
+                response += self.wb[IJ[:,1],IJ[:,2]]
+                response += self.kb[IJ[:,2]]
 
         else:
             response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)

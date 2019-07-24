@@ -3,6 +3,7 @@ import torch
 from pytorch_categorical import Categorical
 import hilbert as h
 import scipy
+import numpy as np
 
 
 class DenseLoader:
@@ -516,6 +517,107 @@ class CPUSampleLoader:
         s += '\ttemperature = {}\n'.format(self.temperature)
         return s
 
+class ArcLabelSampleLoader:
+
+    def __init__(
+        self,
+        cooccurrence_path,
+        temperature=1,
+        batch_size=100000,
+        device=None,
+        min_cooccurrence_count=None,
+        verbose=True
+    ):
+
+        """
+        Loads samples by first sampling a dependency arc type.
+
+        `Nk.npy`
+            An array (vector) consisting of the counts for the number
+            of times each dependency arc type appears in the corpus.
+        """
+
+        self.cooccurrence_path = cooccurrence_path
+        self.batch_size = batch_size
+        self.yielded = False
+
+        Nk = np.load(os.path.join(cooccurrence_path, 'Nk.npy'))
+        self.num_labels = Nk.size
+        Pk = torch.from_numpy(Nk / Nk.sum())
+
+        self.K_sampler = Categorical(Pk, device='cpu')
+        
+        self.I_sampler = [None] * self.num_labels
+        self.J_sampler = [None] * self.num_labels
+
+        unigram = h.unigram.Unigram.load(cooccurrence_path, verbose=verbose)
+        vocab = len(unigram.dictionary.tokens)
+        
+        self.exp_pmi = [None] * self.num_labels
+
+        for k in range(self.num_labels):
+            Nxx_str = "Nxx_" + str(k) + ".npz"
+            Nxx_tmp = scipy.sparse.load_npz(os.path.join(cooccurrence_path, Nxx_str)).tolil()
+            cooc = h.cooccurrence.Cooccurrence(unigram, Nxx_tmp, marginalize=True, verbose=verbose)
+            Nxx, Nx, Nxt, N = cooc.Nxx, cooc.Nx, cooc.Nxt, cooc.N
+            Pi = Nx / Nx.sum()
+            Pj = Nxt / Nx.sum()
+            Pi_tempered = (Pi ** (1/temperature)).view((-1,))
+            Pj_tempered = (Pj ** (1/temperature)).view((-1,))
+            self.exp_pmi[k] = Nxx.multiply(
+                1/N).multiply(1/Pi.numpy()).multiply(1/Pj.numpy()).tolil()
+            self.I_sampler[k] = Categorical(Pi_tempered, device='cpu')
+            self.J_sampler[k] = Categorical(Pj_tempered, device='cpu')
+
+
+        self.temperature = temperature
+        self.device = h.utils.get_device(device)
+
+    def sample(self, batch_size):
+        k = self.K_sampler.sample(sample_shape=(batch_size,))
+        counter = np.zeros(self.num_labels)
+        IJK = torch.zeros((batch_size,3), dtype=torch.int64)
+        exp_pmi = [None] * self.num_labels
+
+        for m in range(batch_size):
+            counter[k[m]] += 1
+
+        offset = 0
+        for m in range(counter.size):
+            num_samples = int(counter[m])
+            indices = slice(offset, offset+num_samples)
+            IJK[indices,2] = torch.tensor([m]).repeat(num_samples)
+            IJK[indices,0] = self.I_sampler[m].sample(sample_shape=(num_samples,))
+            IJK[indices,1] = self.J_sampler[m].sample(sample_shape=(num_samples,))
+            
+            exp_pmi[m] = torch.tensor(
+                self.exp_pmi[m][IJK[indices,0],IJK[indices,1]].toarray().reshape((-1,)),
+                dtype=torch.float32, device = self.device
+            )
+
+            offset += num_samples
+        
+        #TODO Figure out what this is supposed to look like
+        return IJK, {'exp_pmi':exp_pmi}
+
+    def __len__(self):
+        return 1
+
+    def __iter__(self):
+        self.yielded = False
+        return self
+
+    def __next__(self):
+        if self.yielded:
+            raise StopIteration
+        self.yielded = True
+        return self.sample(self.batch_size)
+
+    def describe(self):
+        s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
+        s += '\tbatch_size = {}\n'.format(self.batch_size)
+        s += '\ttemperature = {}\n'.format(self.temperature)
+        return s
 
 def pad_sentence(sent, length):
     return [pad(sent[0], length), pad(sent[1], length), pad(sent[2], length)]

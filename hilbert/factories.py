@@ -168,7 +168,7 @@ def build_mle_sample_solver(
         verbose=True,
         one_sided='no',
         gradient_accumulation=1,
-        gradient_clipping=None,
+        gradient_clipping=None
 ):
     """
     Similar to build_mle_solver, but it is based on 
@@ -216,6 +216,8 @@ def build_mle_sample_solver(
             min_cooccurrence_count=min_cooccurrence_count,
         )
     else:
+        if one_sided == 'arc_labels':
+            loader_class = h.loader.ArcLabelSampleLoader
         if balanced:
             print('CPU loader for balanced samples.')
             loader_class = h.loader.CPUSampleLoader

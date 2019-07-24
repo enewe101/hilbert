@@ -194,12 +194,13 @@ def add_gradient_accumulation_arg(parser):
 
 def add_one_sided_arg(parser):
     parser.add_argument(
-        '--one-sided', choices={'yes', 'R', 'no'}, default='no', dest='one_sided',
+        '--one-sided', choices={'yes', 'R', 'no', 'arc_labels'}, default='no', dest='one_sided',
         help=(
             "Choice between three options (default is 'no')--- "
             "yes: only train vectors (no covectors), "
             "R: train a linear map that takes vectors to covectors, "
-            "no: train both vectors and covectors."
+            "no: train both vectors and covectors, "
+            "arc_labels: include an arc label matrix in the inner products."
         )
     )
 

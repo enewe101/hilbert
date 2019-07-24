@@ -82,26 +82,30 @@ class TestSampleLearner(TestCase):
         d = 5
         bias = True
 
-        for one_sided in ['yes', 'R', 'no']:
+        for one_sided in ['yes', 'R', 'no', 'arc_labels']:
 
             learner = h.learner.SampleLearner(vocab=vocab, covocab=covocab, d=d,
                 bias=bias, one_sided=one_sided)
 
             I = [0, 1, 3, 4]
             J = [1, 2, 5, 7]
-            IJ = torch.tensor(list(zip(I,J)))
+            K = [0, 1, 2, 0]
+
+            IJ = torch.tensor(list(zip(I,J,K)))
 
             found = learner(IJ)
 
             V = learner.V.clone()
-            W = learner.W.clone() if one_sided == 'no' else None
-            R = learner.R.clone() if one_sided == 'R' else None
+            W = learner.W.clone() if one_sided == 'no' or one_sided == 'arc_labels' else None
+            R = learner.R.clone() if one_sided == 'R' or one_sided == 'arc_labels' else None
             vb = learner.vb.clone() if bias else None
-            wb = learner.wb.clone() if bias and one_sided == 'no' else None
-            
+            wb = learner.wb.clone() if bias and (one_sided == 'no' or one_sided == 'arc_labels') else None
+            kb = learner.kb.clone() if bias and one_sided == 'arc_labels' else None
+
+
             expected = torch.zeros((len(IJ),), device=learner.device)
 
-            for q, (i,j) in enumerate(zip(I,J)):
+            for q, (i,j,k) in enumerate(zip(I,J,K)):
                 bias_term = torch.zeros((1,))
                 if one_sided == 'yes':
                     dot_terms = V[i] * V[j]
@@ -114,6 +118,12 @@ class TestSampleLearner(TestCase):
                     if bias:
                         bias_term = vb[i] + vb[j]
                 
+                elif one_sided == 'arc_labels':
+                    transformed =  torch.mv(R[k].transpose(0,1),W[j])
+                    dot_terms = transformed * V[i]
+                    if bias:
+                        bias_term = vb[k,i] + wb[k,j] + kb[k]
+
                 else:
                     dot_terms = V[i] * W[j]
                     if bias:
