@@ -74,10 +74,11 @@ class EmbeddingLearner(nn.Module):
                 torch.eye(self.R_shape, device=self.device)))
         elif self.one_sided == 'arc_labels':
             self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
-            self.R = nn.Parameter(torch.tensor(
-                (self.num_labels,self.R_shape,self.R_shape), device=self.device), True)
+            self.R = nn.Parameter(torch.zeros(
+                    (self.num_labels,self.R_shape,self.R_shape), 
+                    dtype=torch.float32, device=self.device), True)
             for k in range(self.num_labels):
-                self.R[k] = nn.init.xavier_uniform_(
+                self.R[k,:,:] = nn.init.xavier_uniform_(
                     torch.eye(self.R_shape, device=self.device))
         else:
             self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
@@ -136,7 +137,8 @@ class DenseLearner(EmbeddingLearner):
 class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
         if self.one_sided == 'R':
-            response = torch.sum(self.V[IJ[:,0]] * torch.mm(self.V[IJ[:,1]],self.R), dim=1)
+            response = torch.sum(self.V[IJ[:,0]] * torch.mm(
+                self.V[IJ[:,1]],self.R), dim=1)
             if self.bias:
                 response += self.vb[IJ[:,0]]
                 response += self.vb[IJ[:,1]]
@@ -148,10 +150,13 @@ class SampleLearner(EmbeddingLearner):
                 response += self.vb[IJ[:,1]]
         
         elif self.one_sided == 'arc_labels':
-            response = torch.sum(self.V[IJ[:,0]] * torch.bmm(self.W[IJ[:,1]],self.R[IJ[:,2]]), dim=1)
+            response = torch.sum(self.V[IJ[:,0]] * torch.bmm(
+                self.W.view(-1,1,self.R_shape)[IJ[:,1],:,:],
+                self.R[IJ[:,2],:,:]).view(-1,self.R_shape), dim=1)
+            
             if self.bias:
-                response += self.vb[IJ[:,0],IJ[:,2]]
-                response += self.wb[IJ[:,1],IJ[:,2]]
+                response += self.vb[IJ[:,2],IJ[:,0]]
+                response += self.wb[IJ[:,2],IJ[:,1]]
                 response += self.kb[IJ[:,2]]
 
         else:

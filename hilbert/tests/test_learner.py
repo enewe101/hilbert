@@ -82,7 +82,7 @@ class TestSampleLearner(TestCase):
         d = 5
         bias = True
 
-        for one_sided in ['yes', 'R', 'no', 'arc_labels']:
+        for one_sided in ['yes','R','no','arc_labels']:
 
             learner = h.learner.SampleLearner(vocab=vocab, covocab=covocab, d=d,
                 bias=bias, one_sided=one_sided)
