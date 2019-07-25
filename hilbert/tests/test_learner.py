@@ -239,17 +239,12 @@ class TestDependencyLearner(TestCase):
             self.assertTrue(torch.allclose(found_energy, expected_energy))
 
 
-    def test_probs(self):
-        pass
-
-
     def test_inference(self):
         torch.random.manual_seed(0)
         vocab = int(1e3)
         covocab = int(1e3)
         d = 50
         learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
-        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
         batch_size = 3
         loader = h.loader.DependencyLoader(
             h.tests.load_test_data.dependency_corpus_path(),
@@ -272,7 +267,7 @@ class TestDependencyLearner(TestCase):
             for i in range(num_inferred_samples):
                 # Just work on the first sentence for simplicity
                 try:
-                    sample = learner.do_inference(words, mask) 
+                    sample = learner.do_inference(words, mask, False) 
                 except IndexError:
                     import pdb; pdb.set_trace()
                 sample[mask] = 0
@@ -324,6 +319,84 @@ class TestDependencyLearner(TestCase):
             self.assertTrue(torch.allclose(
                 found_probs, expected_probs, atol=0.01
             ))
+
+    def test_detect_cycles(self):
+        torch.random.manual_seed(0)
+        num_samples = 100
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 50
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        heads = torch.tensor([
+            [0,2,3,5,1,4,0,6],
+            [0,2,1,4,0,3,4,5],
+            [0,3,0,1,5,4,2,6]
+        ], dtype=torch.int64)
+        expected_implicated = [
+            {1,2,3,4,5},
+            {1,2},
+            {1,3,5,4}
+        ]
+        batch_size, sentence_length = heads.shape
+        implicated_counts = torch.zeros(heads.shape)
+        for i in range(num_samples):
+            implicated = learner.detect_cycles(heads)
+            implicated_counts[range(batch_size), implicated] += 1
+        found_implicated = [set(), set(), set()]
+        for sent_idx, word_idx in torch.nonzero(implicated_counts):
+            found_implicated[sent_idx].add(word_idx.item())
+        self.assertEqual(found_implicated, expected_implicated)
+
+
+    def test_enforce_constraints(self):
+        num_samples = 100
+        vocab = 5
+        covocab = 5
+        d = 10
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        heads = torch.tensor([
+            [0,2,1,0],
+            [0,3,0,1],
+            [0,3,0,2]
+        ], dtype=torch.int64)
+        batch_size, sentence_length = heads.shape
+        probs = torch.ones((batch_size, sentence_length, sentence_length))
+        probs = probs / sentence_length
+        probs = probs.view(-1)
+        for i in range(num_samples):
+            resolved_heads = learner.enforce_constraints(heads, probs)
+
+            # nodes that don't participate should be left alone
+            self.assertTrue(torch.equal(
+                resolved_heads[:,0], torch.zeros(3, dtype=torch.int64)
+            ))
+            self.assertEqual(resolved_heads[0,3].item(), 0)
+            self.assertEqual(resolved_heads[1,2].item(), 0)
+            self.assertEqual(resolved_heads[2,2].item(), 0)
+
+            parents = resolved_heads
+            parents = parents.gather(1, parents)
+            parents = parents.gather(1, parents)
+            self.assertEqual(torch.all(parents == 0).item(), 1)
+
+
+    def test_forward(self):
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 10
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        batch_size = 3
+
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
+
+        for batch_num, batch_data in loader:
+            positive_score, negative_score = learner(batch_num, batch_data)
+            import pdb; pdb.set_trace()
+
+
 
 
 if __name__ == '__main__':

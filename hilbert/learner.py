@@ -1,6 +1,7 @@
 import hilbert as h
 import torch
 import torch.nn as nn
+import numpy as np
 
 # noinspection PyCallingNonCallable
 def xavier(shape, device):
@@ -411,6 +412,7 @@ class DependencyLearner(nn.Module):
 
 
     def do_inference(self, positives, mask, enforce_constraints=True):
+
         batch_size, sentence_length = positives.shape
         probs = self.parse_probs(positives, mask)
         probs = probs.view(-1, sentence_length)
@@ -418,19 +420,70 @@ class DependencyLearner(nn.Module):
         probs = probs / totals
         sample = torch.distributions.Categorical(probs).sample()
         inferred_heads = sample.reshape(-1, sentence_length)
-
         inferred_heads[mask] = 0
         inferred_heads[:,0] = 0
 
-        import pdb; pdb.set_trace()
-
         if enforce_constraints:
-            modifiers_to_resample = self.detect_cycles(inferred_heads)
-
-            pass
-            # Detect multiple heads
-            # Detect cycles
-
+            inferred_heads = self.enforce_constraints(inferred_heads, probs)
         return inferred_heads
+
+
+    def enforce_constraints(self, heads, probs):
+        """
+        Detect when a parse tree contains cycles.  For each sentence containing
+        a cycle, select a single implicated node and resample it.
+        Then, re-analyze for cycles, and repeat until no cycles are left.
+        """
+        batch_size, sentence_length = heads.shape
+        modifiers_to_resample = self.detect_cycles(heads)
+        while torch.any(modifiers_to_resample>0):
+            nz = torch.nonzero(modifiers_to_resample).view(-1)
+            probs_indices = nz * sentence_length + modifiers_to_resample[nz]
+            re_probs = probs[probs_indices]
+            resampled = torch.distributions.Categorical(re_probs).sample()
+            heads[nz, modifiers_to_resample[nz]] = resampled
+            modifiers_to_resample = self.detect_cycles(heads)
+        return heads
+
+
+    def detect_cycles(self, heads):
+
+        # TODO: should we also detect too-many-roots selected here? 
+        # Or should we alter the selection of roots by simply having a 
+        # right at the beginning?  Maybe.
+
+        # Follow link from each modifier toward its head repeatedly.
+        # Once this has been done sqrt(2*sentence_length) times, it is 
+        # guaranteed that any modifier not leading to a cycle will have reached
+        # root.
+        batch_size, sentence_length = heads.shape
+        max_steps = int(np.ceil(np.sqrt(2*sentence_length)))
+        parents = heads
+        for i in range(max_steps):
+            parents = parents.gather(1, parents)
+
+        implicated = torch.nonzero(parents)
+
+        # Randomly permute the list of tokens that are implicated
+        num_cases, _ = implicated.shape
+        implicated = implicated[torch.randperm(num_cases)]
+
+        # For each sentence, write the implicated tokens into a single
+        # slot.  Only the last one in the permutation survives.  This in effect
+        # randomly selects one cycle-implicated token per sentence
+        chosen_implicated = torch.zeros(batch_size, dtype=torch.int64)
+        chosen_implicated[implicated[:,0]] = (
+            parents[implicated[:,0],implicated[:,1]]
+        )
+        return chosen_implicated
+
+
+        
+
+
+
+
+
+
 
 
