@@ -168,7 +168,7 @@ def build_mle_sample_solver(
         verbose=True,
         one_sided='no',
         gradient_accumulation=1,
-        gradient_clipping=None,
+        gradient_clipping=None
 ):
     """
     Similar to build_mle_solver, but it is based on 
