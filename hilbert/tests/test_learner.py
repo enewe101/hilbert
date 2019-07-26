@@ -393,8 +393,11 @@ class TestDependencyLearner(TestCase):
         )
 
         for batch_num, batch_data in loader:
+            positive_sentences, mask = batch_data
+            batch_size, _, sentence_length = positive_sentences.shape
             positive_score, negative_score = learner(batch_num, batch_data)
-            import pdb; pdb.set_trace()
+            self.assertEqual(positive_score.shape, positive_score.shape)
+            self.assertEqual(negative_score.shape, (batch_size,))
 
 
 
