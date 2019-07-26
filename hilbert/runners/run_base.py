@@ -4,11 +4,13 @@ from hilbert.tracer import tracer
 from argparse import ArgumentParser
 
 
+
 def factory_args(args):
     ignore = {
-        'save_embeddings_dir', 'num_writes', 'num_updates',
+        'save_embeddings_dir', 'num_writes',
         'monitor_closely', 'debug'
     }
+
     return {key:args[key] for key in args if key not in ignore}
 
 
@@ -51,11 +53,16 @@ def run(solver_factory, **args):
     # Train train train!  Write to disk once in awhile!
     updates_per_write = int(num_updates / num_writes)
     for write_num in range(num_writes):
-        solver.cycle(updates_per_write, monitor_closely)
+        try:
+            solver.cycle(updates_per_write, monitor_closely)
+        except h.exceptions.DivergenceError:
+            tracer.declare(key='wrote_num', value=write_num+1)
+            raise h.exceptions.DivergenceError("Model has diverged")
         num_updates = updates_per_write * (write_num+1)
         save_path = os.path.join(save_dir, '{}'.format(num_updates))
         solver.get_embeddings().save(save_path)
 
+    tracer.today()
 
 class ModelArgumentParser(ArgumentParser):
     def parse_args(self):
@@ -90,6 +97,45 @@ def add_temperature_arg(parser):
     )
 
 
+def add_balanced_arg(parser):
+    parser.add_argument(
+        '--balanced', '-B', action='store_true',
+        help=(
+            "Sample positive and negative samples together, using importance "
+            "sampling with the independence distribution as proposal."
+        )
+    )
+
+def add_gibbs_arg(parser):
+    parser.add_argument(
+        '--gibbs', '-G', action='store_true', default=False,
+        help=(
+            "Sample positive and negative samples together, using Gibbs sampler to sample "
+            "negative samples from the model distribution. Get actual samples by default."
+        )
+    )
+    parser.add_argument(
+        '--gibbs_iteration', type=int, default=1,
+        help=(
+            "Number of Gibbs iteration to run before drawing negative samples."
+        )
+    )
+    parser.add_argument(
+        '--get_distr', action='store_true',
+        help=(
+            "Rather than getting actual samples drawn from the model distribution, "
+            "get the model distribution instead."
+        )
+    )
+
+def add_num_senses_arg(parser):
+    parser.add_argument(
+        '--num_senses', '-K', type=int, required=True,
+        help=(
+            "Number of sense vectors to allocate per vocabulary item."
+        )
+    )
+
 def add_batch_size_arg(parser):
     parser.add_argument(
         '--batch-size', '-p', type=int, default=10000,
@@ -104,8 +150,43 @@ def add_batch_size_arg(parser):
 def add_shard_factor_arg(parser):
     parser.add_argument(
         '--shard-factor', type=int, default=1,
-        help= "Divide sectors by shard_factor**2 to make it fit on GPU."
+        help="Divide sectors by shard_factor**2 to make it fit on GPU."
     )
+
+def add_remove_cooc_arg(parser):
+    parser.add_argument(
+        '--remove-threshold', '-thres', type=int, default=10, dest='min_cooccurrence_count',
+        help="A small number threshold of cooc counts to be removed to fit into the "
+             "GPU memory."
+    )
+
+def add_gradient_clipping_arg(parser):
+    parser.add_argument(
+        '--clipping', '-C', type=float, default=None, dest='gradient_clipping',
+        help="gradient clipping value."
+    )
+
+def add_LR_scheduler_arg(parser):
+    # can't have both LR and LR scheduler??
+    parser.add_argument(
+        '--LR-scheduler', default=None, choices=['linear', 'inverse', 'None'], dest='scheduler_str',
+        help="Type of learning rate scheduler"
+    )
+    parser.add_argument(
+        '--LR-scheduler-endLR', '-le', type=float, default=0.0, dest='end_learning_rate',
+        help="The end learning rate for linear learning rate scheduler"
+    )
+    parser.add_argument(
+        '--lr_scheduler_fraction', '-frac', type=float, default=0.1, dest='lr_scheduler_constant_fraction',
+        help="Required for inverse LR scheduler. Control the number of updates for which learning rate stays constant."
+    )
+
+def add_gradient_accumulation_arg(parser):
+    parser.add_argument(
+        '--gradient-accumulation', '-ga', type=int, default=1, dest='gradient_accumulation',
+        help="Accumulate gradients for number of updates."
+    )
+
 
 
 def add_common_constructor_args(parser):
@@ -146,6 +227,7 @@ def add_common_constructor_args(parser):
         '--quiet', '-q', action='store_false', dest='verbose',
         help="Don't print the trace to stdout."
     )
+
 
 
 

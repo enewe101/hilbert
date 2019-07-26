@@ -1,12 +1,12 @@
 import hilbert as h
 import torch
-from unittest import TestCase
+from unittest import TestCase, main
 import scipy.sparse as sparse
 import numpy as np
 
 import os
 
-class TestCooccurrenceSampleLoader(TestCase):
+class TestCooccurrenceGPUSampleLoader(TestCase):
 
     def test_cooccurrence_sample_loader_probabilities(self):
         for temperature in [1,2,5,10]:
@@ -25,7 +25,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, temperature=temperature,
             batch_size=batch_size, verbose=False
         )
@@ -51,19 +51,19 @@ class TestCooccurrenceSampleLoader(TestCase):
         # Calculate the expected probabilities.  Take temperature into account.
         expected_pi_untempered = Nx.reshape((-1,)) / Nx.sum()
         expected_pi_raised = expected_pi_untempered ** (1/temperature-1)
-        expected_pi_tempered = expected_pi_raised * expected_pi_untempered
+        expected_pi_tempered = expected_pi_raised.detach().numpy() * expected_pi_untempered.detach().numpy()
         expected_pi_tempered = expected_pi_tempered / expected_pi_tempered.sum()
 
         expected_pj_untempered = Nxt.reshape((-1,)) / Nxt.sum()
         expected_pj_raised = expected_pj_untempered ** (1/temperature-1)
-        expected_pj_tempered = expected_pj_raised * expected_pj_untempered
+        expected_pj_tempered = expected_pj_raised.detach().numpy() * expected_pj_untempered.detach().numpy()
         expected_pj_tempered = expected_pj_tempered / expected_pj_tempered.sum()
 
         expected_pij_untempered = sparse.coo_matrix(
             (Nxx_data.numpy(), (I.numpy(), J.numpy()))).toarray()
         temper_adjuster = (
             expected_pi_raised.view((-1,1)) * expected_pj_raised.view((1,-1)))
-        expected_pij_tempered = expected_pij_untempered * temper_adjuster
+        expected_pij_tempered = expected_pij_untempered * temper_adjuster.detach().numpy()
         expected_pij_tempered /= expected_pij_tempered.sum()
 
         # Check that empirical probabilities of samples match the probabilities
@@ -103,7 +103,7 @@ class TestCooccurrenceSampleLoader(TestCase):
 
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'test-sample-loader')
-        sampler = h.loader.SampleLoader(
+        sampler = h.loader.GPUSampleLoader(
             cooccurrence_path, batch_size=batch_size, verbose=False)
 
         # Figure out the number of batches we expect, given the total number
@@ -121,4 +121,5 @@ class TestCooccurrenceSampleLoader(TestCase):
                 self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
         self.assertEqual(num_batches_seen, num_batches)
 
-
+if __name__ == '__main__':
+    main()

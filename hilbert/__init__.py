@@ -1,4 +1,5 @@
 import hilbert.CONSTANTS
+from hilbert.CONSTANTS import RC
 import hilbert.solver
 import hilbert.cooccurrence
 import hilbert.dictionary
@@ -16,3 +17,4 @@ import hilbert.exceptions
 import hilbert.tests
 import hilbert.learner
 import hilbert.scheduler
+import hilbert.dependency
