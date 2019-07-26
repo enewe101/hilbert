@@ -92,9 +92,8 @@ class TestCPUSampleLoader(TestCase):
         sum_exp_pmi = 0
         importance_sum = 0
         for sample_num in range(num_samples):
-            sys.stdout.write('_'); sys.stdout.flush()
-            I,J,exp_pmis = loader.sample(batch_size)
-            for i, j, exp_pmi in zip(I,J,exp_pmis):
+            IJ, batch_data = loader.sample(batch_size)
+            for (i, j), exp_pmi in zip(IJ, batch_data['exp_pmi']):
                 Nxx_sample[i,j] += 1
                 Vxx_sample[i,j] += exp_pmi
                 sum_exp_pmi += exp_pmi
@@ -170,8 +169,10 @@ class TestGPUSampleLoader(TestCase):
         expected_pj_tempered = expected_pj_raised * expected_pj_untempered
         expected_pj_tempered = expected_pj_tempered / expected_pj_tempered.sum()
 
-        expected_pij_untempered = sparse.coo_matrix(
-            (Nxx_data.numpy(), (I.numpy(), J.numpy()))).toarray()
+        expected_pij_untempered = torch.tensor(
+            sparse.coo_matrix((Nxx_data.numpy(), (I.numpy(), J.numpy())))
+            .toarray()
+        )
         temper_adjuster = (
             expected_pi_raised.view((-1,1)) * expected_pj_raised.view((1,-1)))
         expected_pij_tempered = expected_pij_untempered * temper_adjuster
@@ -234,6 +235,7 @@ class TestGPUSampleLoader(TestCase):
 
 
 class TestGibbsSampleLoader(TestCase):
+
     def sample_distribution_from_counter(self, counter):
         distr = dict(counter)
         total_cnt = sum(counter.values())
@@ -365,10 +367,12 @@ class TestDependencyLoader(TestCase):
             ]
             expected_max_length = max(expected_lengths)
 
-            expected_mask = torch.zeros((
-                len(expected_lengths), expected_max_length))
+            expected_mask = torch.zeros(
+                (len(expected_lengths), expected_max_length),
+                dtype=torch.uint8
+            )
             for i, length in enumerate(expected_lengths):
-                expected_mask[i][:length] = 1
+                expected_mask[i][length:] = 1
 
             self.assertTrue(torch.equal(mask, expected_mask))
 
