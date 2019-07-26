@@ -77,7 +77,7 @@ def _open_chunk(path, chunk, num_chunks):
             yield f.readline()
             cursor = f.tell()
 
-        raise StopIteration
+        return
         
 
 
@@ -99,5 +99,5 @@ def open_chunk_slow(path, chunk, num_chunks):
             yield f.readline()
             cursor = f.tell()
 
-        raise StopIteration
+        return
         
