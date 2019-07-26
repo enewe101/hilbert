@@ -1,17 +1,16 @@
-import os
-import sys
+import itertools
+from collections import Counter
 from unittest import TestCase, main
-import hilbert as h
+
+import numpy as np
+import os
+import scipy.sparse as sparse
+import seaborn as sns
 import torch
 from pytorch_categorical import Categorical
-from collections import Counter
-import itertools
-import scipy.sparse as sparse
-import numpy as np
-import seaborn as sns
-from hilbert import factories as f
-import matplotlib.pyplot as plt
 
+import hilbert as h
+from hilbert import factories as f
 
 
 class TestLoader(TestCase):
@@ -23,7 +22,7 @@ class TestLoader(TestCase):
         shard_factor = 1, 2
         include_unigrams = False, True
         undersampling = None, torch.tensor(1e-5)
-        smoothing = None, 3/4
+        smoothing = None, 3 / 4
         verbose = False
 
         sector_factor = h.cooccurrence.CooccurrenceSector.get_sector_factor(
@@ -46,8 +45,8 @@ class TestLoader(TestCase):
 
             for i, (shard_id, batch_data) in enumerate(loader):
                 cooccurrence, unigram = batch_data
-                sector = sectors[i//sh_factor**2]
-                shard = shards[i%sh_factor**2]
+                sector = sectors[i // sh_factor ** 2]
+                shard = shards[i % sh_factor ** 2]
                 cooc_sector = h.cooccurrence.CooccurrenceSector.load(
                     cooccurrence_path, sector, verbose=False)
                 if usamp is not None:
@@ -98,8 +97,8 @@ class TestCPUSampleLoader(TestCase):
         for sample_num in range(num_samples):
             IJ, batch_data = loader.sample(batch_size)
             for (i, j), exp_pmi in zip(IJ, batch_data['exp_pmi']):
-                Nxx_sample[i,j] += 1
-                Vxx_sample[i,j] += exp_pmi
+                Nxx_sample[i, j] += 1
+                Vxx_sample[i, j] += exp_pmi
                 sum_exp_pmi += exp_pmi
         Qxx_sample = Nxx_sample.float() / num_draws
         Pxx_sample = Vxx_sample / num_draws
@@ -118,14 +117,11 @@ class TestCPUSampleLoader(TestCase):
         self.assertTrue(torch.allclose(Qxx_sample, Qxx_expected, atol=5e-4))
 
 
-
 class TestGPUSampleLoader(TestCase):
 
-
     def test_cooccurrence_sample_loader_probabilities(self):
-        for temperature in [1,2,5,10]:
+        for temperature in [1, 2, 5, 10]:
             self.do_cooccurrence_sample_loader_probabilities_test(temperature)
-
 
     def do_cooccurrence_sample_loader_probabilities_test(self, temperature):
         """
@@ -152,7 +148,7 @@ class TestGPUSampleLoader(TestCase):
             (Nx.shape[0], Nxt.shape[1]), dtype=torch.int32)
 
         IJ_sample = sampler.sample(batch_size)
-        self.assertEqual(IJ_sample.shape, (batch_size*2, 2))
+        self.assertEqual(IJ_sample.shape, (batch_size * 2, 2))
 
         # Acumulate the counts within the samples, and then derive the empirical
         # probabilities based on the counts.
@@ -164,21 +160,22 @@ class TestGPUSampleLoader(TestCase):
 
         # Calculate the expected probabilities.  Take temperature into account.
         expected_pi_untempered = Nx.reshape((-1,)) / Nx.sum()
-        expected_pi_raised = expected_pi_untempered ** (1/temperature-1)
+        expected_pi_raised = expected_pi_untempered ** (1 / temperature - 1)
         expected_pi_tempered = expected_pi_raised * expected_pi_untempered
         expected_pi_tempered = expected_pi_tempered / expected_pi_tempered.sum()
 
         expected_pj_untempered = Nxt.reshape((-1,)) / Nxt.sum()
-        expected_pj_raised = expected_pj_untempered ** (1/temperature-1)
+        expected_pj_raised = expected_pj_untempered ** (1 / temperature - 1)
         expected_pj_tempered = expected_pj_raised * expected_pj_untempered
         expected_pj_tempered = expected_pj_tempered / expected_pj_tempered.sum()
 
         expected_pij_untempered = torch.tensor(
             sparse.coo_matrix((Nxx_data.numpy(), (I.numpy(), J.numpy())))
-            .toarray()
+                .toarray()
         )
         temper_adjuster = (
-            expected_pi_raised.view((-1,1)) * expected_pj_raised.view((1,-1)))
+                expected_pi_raised.view((-1, 1)) * expected_pj_raised.view(
+            (1, -1)))
         expected_pij_tempered = expected_pij_untempered * temper_adjuster
         expected_pij_tempered /= expected_pij_tempered.sum()
 
@@ -189,7 +186,6 @@ class TestGPUSampleLoader(TestCase):
         self.assertTrue(np.allclose(found_pi, expected_pi_tempered, atol=1e-3))
         self.assertTrue(np.allclose(found_pj, expected_pj_tempered, atol=1e-3))
 
-
     def as_counts(self, IJ):
         """
         Take advantage of scipy's coo_matrix constructor as a way to accumulate
@@ -197,14 +193,12 @@ class TestGPUSampleLoader(TestCase):
         """
         return sparse.coo_matrix((
             np.ones((IJ.shape[0],)),
-            (self.cpu_1d_np(IJ[:,0]), self.cpu_1d_np(IJ[:,1]))
+            (self.cpu_1d_np(IJ[:, 0]), self.cpu_1d_np(IJ[:, 1]))
         )).toarray()
-
 
     def cpu_1d_np(self, tensor):
         """Move tensor to cpu; cast and reshape to a 1-d numpy array"""
         return tensor.cpu().view((-1,)).numpy()
-
 
     def test_cooccurrence_sample_loader_interface(self):
         """
@@ -232,7 +226,7 @@ class TestGPUSampleLoader(TestCase):
         for batch_num in range(num_batches):
             for batch_id, batch_data in sampler:
                 num_batches_seen += 1
-                self.assertEqual(batch_id.shape, (batch_size*2, 2))
+                self.assertEqual(batch_id.shape, (batch_size * 2, 2))
                 self.assertEqual(batch_data, None)
                 self.assertEqual(batch_id.dtype, torch.LongTensor.dtype)
         self.assertEqual(num_batches_seen, num_batches)
@@ -246,14 +240,14 @@ class TestGibbsSampleLoader(TestCase):
         # self.assertEqual(total_cnt, 100000)
         ordered_distr = torch.zeros(6)
         for k in distr:
-            distr[k] = distr[k]/total_cnt
+            distr[k] = distr[k] / total_cnt
             ordered_distr[k] = distr[k]
         return ordered_distr
 
-
-    def initialization(self, get_distr=False):
+    def initialization(self, batch_size, get_distr=False):
         torch.manual_seed(616)
-        batch_size = 10
+        np.random.seed(616)
+        batch_size = batch_size
         cooccurrence_path = os.path.join(
             h.CONSTANTS.TEST_DIR, 'gibbs_sampling_data')
         dictionary = h.dictionary.Dictionary.load(
@@ -267,63 +261,10 @@ class TestGibbsSampleLoader(TestCase):
 
         sampler = h.loader.GibbsSampleLoader(
             cooccurrence_path, learner, temperature=1,
-            batch_size=batch_size, verbose=False, gibbs_iteration=1, get_distr=get_distr
+            batch_size=batch_size, verbose=False, gibbs_iteration=1,
+            get_distr=get_distr,device='cpu'
         )
         return sampler
-
-    def test_toy_model_distribution(self):
-        """
-        Only test 1 cycle.
-
-        For each Gibbs sampling step, we are sampling 1 unit from the categorical distribution conditioning on the given
-        positive sample.
-        To examine such unit is drawn from the expected model distribution, we draw a large number of sample from each
-        conditional distribution instead, and calculate the empirical probability of the sample. The probability vector
-        should be close to probability vector with which Categorical was created.
-        """
-
-        # Initialization..
-        gibbs_sampler = self.initialization()
-        IJ_sample = gibbs_sampler.sample(gibbs_sampler.batch_size)
-        # make sure number of sample we need
-        self.assertEqual(IJ_sample.shape, (gibbs_sampler.batch_size * 2, 2))
-
-        positive_samples_IJ = IJ_sample[:gibbs_sampler.batch_size]
-        # expected counts
-        for ind, (i, j) in enumerate(positive_samples_IJ):
-            # model_distribution = torch.nn.functional.softmax(sampler.conditional_dist_J[ind])
-            model_distribution = gibbs_sampler.conditional_dist_J[ind]/gibbs_sampler.conditional_dist_J[ind].sum()
-            # p(j'|i)
-            self.assertEqual(model_distribution.shape[0], len(gibbs_sampler.learner.vocab))
-            condition_sampler = Categorical(model_distribution, normalized=True)
-            j_prime_samples_ind = condition_sampler.sample((1000000,)).cpu().numpy()
-            j_prime_cntr = Counter(j_prime_samples_ind)
-            sample_dist = self.sample_distribution_from_counter(j_prime_cntr)
-
-            expected_dist_prenorm = gibbs_sampler.Pj * torch.exp(gibbs_sampler.learner.V[i] @ gibbs_sampler.learner.W.t())
-            self.assertEqual(expected_dist_prenorm.shape[0], len(gibbs_sampler.learner.vocab))
-            # expected_dist = torch.nn.functional.softmax(expected_dist_prenorm)
-            expected_dist = expected_dist_prenorm/expected_dist_prenorm.sum()
-
-            # print(sample_dist,expected_dist)
-            # print("")
-            # normalized sample distribution and true distribution
-            self.assertTrue(torch.allclose(sample_dist, expected_dist.cpu(), atol=1e-3))
-            self.assertTrue(torch.allclose(expected_dist, model_distribution))
-
-            # self.assertEqual(expected_dist.shape[0], len(sample_dist))
-
-    def test_iterative_gibbs(self):
-        """
-        Test iterative gibbs sampling by making sure the first iteration by iterative method should be the same as
-        hard coded toy example, which has been tested.
-
-        """
-        toy_gibbs_sampler = self.initialization()
-        IJ_sample_toy = toy_gibbs_sampler.sample(toy_gibbs_sampler.batch_size)
-        iter_gibbs_sampler = self.initialization()
-        IJ_sample_iter = iter_gibbs_sampler.sample(iter_gibbs_sampler.batch_size)
-        self.assertTrue(torch.equal(IJ_sample_toy, IJ_sample_iter))
 
 
     def test_gibbs_batch_prob(self):
@@ -331,65 +272,83 @@ class TestGibbsSampleLoader(TestCase):
         Test if P(J'|I) given I and P(I'|J) given J are correct using synthetic data
         :return:
         """
+        batch_size = 10
+        sampler = self.initialization(batch_size)
+        positive_samples = sampler.sample(batch_size)[:batch_size]
+        positive_I = positive_samples[:, 0]
+        positive_J = positive_samples[:, 1]
+        empirical_J_conditional_on_I_dist = sampler.Pj * torch.exp(
+            sampler.learner.V[positive_I] @ sampler.learner.W.t())
 
-        sampler = self.initialization()
-        positive_samples = sampler.sample(10)[:10]
-        positive_I = positive_samples[:,0]
-        positive_J = positive_samples[:,1]
-        empirical_J_conditional_on_I_dist = sampler.Pj * torch.exp(sampler.learner.V[positive_I] @ sampler.learner.W.t())
+        empirical_I_conditional_on_J_dist = sampler.Pi * torch.exp(
+            sampler.learner.W[positive_J] @ sampler.learner.V.t())
 
-        empirical_I_conditional_on_J_dist = sampler.Pi * torch.exp(sampler.learner.W[positive_J] @ sampler.learner.V.t())
+        model_I_conditional_on_J_dist, _ = sampler.iterative_gibbs_sampling(
+            positive_J,
+            input_I_flag=False,
+            steps=2,
+            get_distr=True)
 
-        model_I_conditional_on_J_dist, _ = sampler.iterative_gibbs_sampling(positive_J,
-                                                                            input_I_flag=False,
-                                                                            steps=2,
-                                                                            get_distr=True)
+        _, model_J_conditional_on_I_dist = sampler.iterative_gibbs_sampling(
+            positive_I,
+            input_I_flag=True,
+            steps=2,
+            get_distr=True)
 
-        _, model_J_conditional_on_I_dist = sampler.iterative_gibbs_sampling(positive_I,
-                                                                            input_I_flag=True,
-                                                                            steps=2,
-                                                                            get_distr=True)
-
-        self.assertTrue(torch.equal(empirical_J_conditional_on_I_dist, model_J_conditional_on_I_dist))
-        self.assertTrue(torch.equal(empirical_I_conditional_on_J_dist, model_I_conditional_on_J_dist))
-
+        self.assertTrue(torch.equal(empirical_J_conditional_on_I_dist,
+                                    model_J_conditional_on_I_dist))
+        self.assertTrue(torch.equal(empirical_I_conditional_on_J_dist,
+                                    model_I_conditional_on_J_dist))
 
     def draw_sample_heatmap(self, samples, size):
         matrix_for_heatmap = np.zeros((size, size), dtype=int)
         for i, j in samples:
             matrix_for_heatmap[i][j] += 1
-        print(matrix_for_heatmap)
-
+        return matrix_for_heatmap / matrix_for_heatmap.sum()
+        # print(matrix_for_heatmap)
 
     def test_model_distr_sampling(self):
-        sampler = self.initialization()
+        batch_size = 100000
+        sampler = self.initialization(batch_size=batch_size)
         # first iteration model distribution
         model_pmi = torch.exp(sampler.learner.V @ sampler.learner.W.t())
-        model_dist = (sampler.Pi.view((-1,1)) * sampler.Pj.view((1,-1))) * model_pmi
+        model_dist = (sampler.Pi.view((-1, 1)) * sampler.Pj.view(
+            (1, -1))) * model_pmi
         model_dist /= model_dist.sum()
 
-        model_I_dist = sampler.Pi * model_pmi
-        # print(sampler.Pi)
-        # print(model_pmi)
-        # print(model_I_dist)
-        # self.draw_sample_heatmap(model_samples, model_pmi.shape[0])
+        indep_dist = sampler.Pi.view((-1, 1)) * sampler.Pj.view((1, -1)) \
+                     * torch.exp(sampler.learner.V @ sampler.learner.W.t())
+        indep_dist = indep_dist.detach()
+        indep_dist /= indep_dist.sum()
 
         size = sampler.learner.V.shape[0]
-        self.assertEqual(model_dist.shape, torch.randn((size,size)).shape)
+        self.assertEqual(model_dist.shape, torch.randn((size, size)).shape)
+        expected_pij_untempered = sparse.coo_matrix(
+            (sampler.Nxx_data.cpu().numpy(),
+             (sampler.I.cpu().numpy(), sampler.J.cpu().numpy()))).toarray()
+        expected_pij = expected_pij_untempered / expected_pij_untempered.sum()
+
 
         for gibbs_iter in [1, 5, 10]:
             sampler.gibbs_iteration = gibbs_iter
-            samples = sampler.sample(1000)
-            found_ij_model = samples[1000:]
-            self.draw_sample_heatmap(found_ij_model, model_pmi.shape[0])
+            samples = sampler.sample(batch_size)
+
+            # positive samples should be drawn from the Nxx corpus distribution
+            found_ij_corpus = samples[:batch_size]
+            found_ij_corpus = self.draw_sample_heatmap(found_ij_corpus, model_pmi.shape[0])
+            self.assertTrue(np.allclose(expected_pij, found_ij_corpus, atol=5e-3))
+
+            # haven't been trained distribution, should be similar to independent dist
+            # since randomly initialized i and j vectors are likely to be orthogonal
+            found_ij_model = samples[batch_size:]
+            found_ij_model = self.draw_sample_heatmap(found_ij_model,  model_pmi.shape[0])
+            # print(found_ij_model)
+            self.assertTrue(np.allclose(indep_dist.numpy(), found_ij_model, atol=5e-3))
 
 
-        expected_pij_untempered = sparse.coo_matrix(
-            (sampler.Nxx_data.cpu().numpy(), (sampler.I.cpu().numpy(), sampler.J.cpu().numpy()))).toarray()
-        print(expected_pij_untempered)
+
 
 class GibbsSamplingIntegrationTest(TestCase):
-
 
     def initialization(self, learner, cooc, get_distr=False):
         torch.manual_seed(616)
@@ -398,7 +357,8 @@ class GibbsSamplingIntegrationTest(TestCase):
 
         sampler = h.loader.GibbsSampleLoader(
             cooc, learner, temperature=2,
-            batch_size=batch_size, verbose=False, gibbs_iteration=1, get_distr=get_distr, device='cpu'
+            batch_size=batch_size, verbose=False, gibbs_iteration=1,
+            get_distr=get_distr, device='cpu'
         )
         return sampler
 
@@ -433,48 +393,46 @@ class GibbsSamplingIntegrationTest(TestCase):
         )
         return solver
 
-    def draw_heat_map(self, solver, ax):
+    def draw_heat_map(self, solver):
 
         sampler = solver.loader
         samples = sampler.sample(10000)
         samples_from_model = samples[10000:]
+        samples_from_corpus = samples[:10000]
 
-        indep_samples = samples[:10000]
-        matrix_for_heatmap = np.zeros((len(solver.dictionary),len(solver.dictionary)), dtype=int)
-        for i,j in samples_from_model:
-            matrix_for_heatmap[i][j] += 1
-        matrix_for_heatmap = matrix_for_heatmap / 100000
+        positive_matrix = np.zeros(
+            (len(solver.dictionary), len(solver.dictionary)), dtype=int)
+        negative_matrix = np.zeros(
+            (len(solver.dictionary), len(solver.dictionary)), dtype=int)
 
-        sns.heatmap(matrix_for_heatmap,ax=ax)
-        return ax
+        for i, j in samples_from_corpus:
+            positive_matrix[i][j] += 1
+        positive_matrix = positive_matrix / 100000
+
+        for i, j in samples_from_model:
+            negative_matrix[i][j] += 1
+        negative_matrix = negative_matrix / 100000
+
+        # sns.heatmap(matrix_for_heatmap, ax=ax)
+        return positive_matrix, negative_matrix
 
     def test_training(self):
         solver = self.build_solver()
-        np.set_printoptions(precision=3,linewidth=150)
-        print(solver.loader.Pi)
-        fig,axs = plt.subplots(2,5,figsize=(30,6),dpi=80)
-        try:
-            for i in range(100):
-                solver.cycle(1)
-                if i%10 == 0:
-                    # draw heat map for every 10 steps
-                    self.draw_heat_map(solver, axs.flat[int(i/10)])
-            Nxx = sparse.coo_matrix(
-                (solver.loader.Nxx_data.cpu().numpy(),
-                 (solver.loader.I.cpu().numpy(), solver.loader.J.cpu().numpy()))).toarray()
-            print(Nxx)
+        np.set_printoptions(precision=3, linewidth=150)
 
-        except ValueError:
-            Nxx = sparse.coo_matrix(
-                (solver.loader.Nxx_data.cpu().numpy(), (solver.loader.I.cpu().numpy(), solver.loader.J.cpu().numpy()))).toarray()
-            print(Nxx)
-        plt.savefig("test_heatmap.jpg")
+        # after training for 100 updates..
+        solver.cycle(100)
 
-        ax = sns.heatmap(Nxx)
+        Nxx = sparse.coo_matrix(
+            (solver.loader.Nxx_data.cpu().numpy(),
+             (solver.loader.I.cpu().numpy(),
+              solver.loader.J.cpu().numpy()))).toarray()
 
-        plt.savefig("empirical_heatmap.jpg")
+        positive_matrix, negative_matrix = self.draw_heat_map(solver)
+        # print(positive_matrix)
+        # print(negative_matrix)
+        self.assertTrue(np.allclose(positive_matrix, negative_matrix, atol=1e-3))
 
-        # plt.savefig("empirical_heatmap.jpg")
 
 
 # TODO: test mask: should be uint, should mask the right things.
@@ -579,14 +537,13 @@ class TestDependencyLoader(TestCase):
                 # The list of arc-types should be padded.
                 expected_arc_types_padded = expected_sentence[2] + (
                         [h.CONSTANTS.PAD] * (
-                            expected_max_length - expected_length
-                            ).item())
+                        expected_max_length - expected_length
+                ).item())
 
                 self.assertTrue(torch.equal(
                     found_sentence[2],
                     torch.tensor(expected_arc_types_padded)
                 ))
-
 
 
 if __name__ == '__main__':

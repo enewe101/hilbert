@@ -241,7 +241,7 @@ class GibbsSampleLoader:
 
         self.positive_sampler = Categorical(Nxx_tempered, device=self.device)
 
-        # self.Nxx_data = Nxx_data
+        self.Nxx_data = Nxx_data
         self.I = I.to(self.device)
         self.J = J.to(self.device)
 
