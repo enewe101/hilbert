@@ -11,7 +11,6 @@ import numpy as np
 from scipy import sparse
 
 import hilbert as h
-import data_preparation as dp
 
 import warnings
 import logging
@@ -117,7 +116,7 @@ class TestUnigramExtraction(TestCase):
 
     def test_extract_unigram(self):
 
-        corpus_path = dp.CONSTANTS.TOKENIZED_CAT_TEST_PATH
+        corpus_path = h.tests.load_test_data.get_tokenized_cat_test_path()
         with open(corpus_path) as test_corpus:
             tokens = test_corpus.read().strip().split()
 
@@ -133,7 +132,7 @@ class TestUnigramExtraction(TestCase):
 
     def test_extract_unigram_parallel(self):
 
-        corpus_path = dp.CONSTANTS.TOKENIZED_CAT_TEST_PATH
+        corpus_path = h.tests.load_test_data.get_tokenized_cat_test_path()
         with open(corpus_path) as test_corpus:
             tokens = test_corpus.read().strip().split()
 
@@ -547,7 +546,7 @@ class TestFileAccess(TestCase):
 
     def test_file_access(self):
         fname = 'tokenized-cat-test-long.txt'
-        test_path = os.path.join(dp.CONSTANTS.TEST_DATA_DIR, fname)
+        test_path = os.path.join(h.CONSTANTS.TEST_DIR, fname)
 
         with open(test_path) as test_file: 
             expected_lines = test_file.readlines()
@@ -561,7 +560,7 @@ class TestFileAccess(TestCase):
             found_lines = []
             for chunk in range(num_chunks):
                 add_lines = list(
-                    dp.file_access.open_chunk(test_path, chunk, num_chunks)
+                    h.file_access.open_chunk(test_path, chunk, num_chunks)
                 )
                 found_lines.extend(add_lines)
 
@@ -570,11 +569,11 @@ class TestFileAccess(TestCase):
         # Trying to read a chunk greater than or equal to num_chunks is an 
         # error.
         with self.assertRaises(ValueError):
-            dp.file_access.open_chunk(test_path, 0, 0)
+            h.file_access.open_chunk(test_path, 0, 0)
         with self.assertRaises(ValueError):
-            dp.file_access.open_chunk(test_path, 2, 2)
+            h.file_access.open_chunk(test_path, 2, 2)
         with self.assertRaises(ValueError):
-            dp.file_access.open_chunk(test_path, 2, 1)
+            h.file_access.open_chunk(test_path, 2, 1)
 
 
 

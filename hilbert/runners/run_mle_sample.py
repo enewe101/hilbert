@@ -1,5 +1,6 @@
 import hilbert as h
 
+
 def add_model_args(parser):
     h.runners.run_base.add_common_constructor_args(parser)
     h.runners.run_base.add_temperature_arg(parser)
@@ -8,6 +9,7 @@ def add_model_args(parser):
     h.runners.run_base.add_gibbs_arg(parser)
     h.runners.run_base.add_bias_arg(parser)
     h.runners.run_base.add_remove_cooc_arg(parser)
+    h.runners.run_base.add_LR_scheduler_arg(parser)
     return parser
 
 
@@ -23,4 +25,3 @@ def run(**args):
 
 if __name__ == '__main__':
     run(**get_argparser().parse_args())
-
