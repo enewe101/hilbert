@@ -128,231 +128,278 @@ class TestMultisenseLearner(TestCase):
 
 class TestDependencyLearner(TestCase):
 
-    def test_dependency_learner(self):
+    def test_calculate_score(self):
+
+        torch.random.manual_seed(0)
         vocab = int(1e3)
         covocab = int(1e3)
         d = 50
         learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
         dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
-        
         batch_size = 3
         loader = h.loader.DependencyLoader(
             h.tests.load_test_data.dependency_corpus_path(),
             batch_size=batch_size
         )
 
-        for batch_num, (positives, mask) in loader:
+        V = learner.V.clone()
+        W = learner.W.clone()
+        vb = learner.vb.clone()
+        wb = learner.wb.clone()
 
-            learner.forward(positives, mask)
+        for batch_num, batch_data in loader:
+            positives, mask = batch_data
+            words = positives[:,0,:]
+            head_ids = positives[:,1,:]
+            batch_size, max_sentence_length = words.shape
 
-            found_batch_size, _, padded_length = positives.shape
+            expected_score = torch.zeros((batch_size,))
+            for row in range(batch_size):
+                for word_idx in range(max_sentence_length):
 
-            start = batch_num * batch_size
-            stop = start + batch_size
+                    # Skip ROOT, it does not choose a head.
+                    if word_idx == 0:
+                        continue
 
-            # Assemble the expected batch
-            expected_idxs = dependency_corpus.sort_idxs[start:stop]
-            expected_sentences = [
-                dependency_corpus.sentences[idx.item()]
-                for idx in expected_idxs
-            ]
-            expected_lengths = [
-                dependency_corpus.sentence_lengths[idx.item()]
-                for idx in expected_idxs
-            ]
-            expected_max_length = max(expected_lengths)
+                    # Skip masked positions
+                    if mask[row][word_idx] == 1:
+                        continue
 
-            expected_mask = torch.zeros((
-                len(expected_lengths), expected_max_length))
-            for i, length in enumerate(expected_lengths):
-                expected_mask[i][:length] = 1
+                    # Get ahold of the word and head tokens.
+                    word = words[row][word_idx]
+                    head_idx = head_ids[row][word_idx]
+                    head = words[row][head_idx]
 
-            self.assertTrue(torch.equal(mask, expected_mask))
+                    # Calculate the score for this specific attachment.
+                    score = (W[word]*V[head]).sum() + wb[word] + vb[head]
+                    expected_score[row] += score
 
-            # Did we get the batch size we expected?
-            expected_batch_size = len(expected_sentences)
-            self.assertEqual(found_batch_size, expected_batch_size)
-
-            zipped_sentences = enumerate(zip(positives, expected_sentences))
-            for i, (found_sentence, expected_sentence) in zipped_sentences:
-
-                expected_length = expected_lengths[i]
-
-                _, found_length = found_sentence.shape
-                expected_padding_length = expected_max_length - expected_length
-
-                # Words are as expected
-                self.assertTrue(torch.equal(
-                    found_sentence[0][:expected_length], 
-                    torch.tensor(expected_sentence[0])
-                ))
-
-                # Heads are as expected
-                self.assertTrue(torch.equal(
-                    found_sentence[1][:expected_length],
-                    torch.tensor(expected_sentence[1])
-                ))
-
-                # Arc types are as expected.
-                self.assertTrue(torch.equal(
-                    found_sentence[2][:expected_length],
-                    torch.tensor(expected_sentence[2])
-                ))
-
-                # The first token shoudl be root
-                self.assertEqual(found_sentence[0][0], 1)
-
-                # Sentence should be padded.
-                expected_padded = expected_sentence[0] + [h.CONSTANTS.PAD] * (
-                    expected_max_length - expected_length
-                ).item()
-                self.assertTrue(torch.equal(
-                    found_sentence[0],
-                    torch.tensor(expected_padded)
-                ))
+            # Calculate the score using the method under test.
+            found_score = learner.calculate_score(words, head_ids, mask) 
+            self.assertTrue(torch.allclose(found_score, expected_score))
 
 
-                # The root has no head (indicated by padding)
-                self.assertEqual(found_sentence[1][0].item(), h.dependency.PAD)
+    def test_parse_energy(self):
+        torch.random.manual_seed(0)
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 50
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
+        batch_size = 3
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
 
-                # The list of heads for the sentence is padded.
-                expected_head_padded = expected_sentence[1]+[h.CONSTANTS.PAD]*(
-                    expected_max_length - expected_length
-                ).item()
+        V = learner.V.clone()
+        W = learner.W.clone()
+        vb = learner.vb.clone()
+        wb = learner.wb.clone()
 
-                self.assertTrue(torch.equal(
-                    found_sentence[1],
-                    torch.tensor(expected_head_padded)
-                ))
+        for batch_num, batch_data in loader:
+            positives, mask = batch_data
+            words = positives[:,0,:]
+            head_ids = positives[:,1,:]
+            batch_size, max_sentence_length = words.shape
+
+            expected_energy = torch.zeros((
+                batch_size,max_sentence_length, max_sentence_length))
+            for row in range(batch_size):
+
+                sent_words = words[row].clone()
+                sent_words[mask[row]] = 0
                 
-                # The root has no incoming arc_type (has padding)
-                self.assertEqual(found_sentence[2][0].item(), h.CONSTANTS.PAD)
+                # Get modifier and head embeddings.
+                modifier_embeddings = W[sent_words]
+                head_embeddings = V[sent_words]
+                modifier_biases = wb[sent_words].unsqueeze(1)
+                head_biases = vb[sent_words].unsqueeze(0)
 
-                # The list of arc-types should be padded.
-                expected_arc_types_padded = expected_sentence[2] + (
-                    [h.CONSTANTS.PAD] * (expected_max_length - expected_length
-                ).item())
+                # Calculate the energy (illegal selections need to be masked)
+                expected_energy[row, :, :] = torch.mm(
+                    modifier_embeddings, head_embeddings.t()
+                ) + head_biases + modifier_biases
 
-                self.assertTrue(torch.equal(
-                    found_sentence[2],
-                    torch.tensor(expected_arc_types_padded)
-                ))
+                # Apply masking...
+                # ... Padding does not choose a head
+                expected_energy[row, mask[row], :] = float('-inf')
+                # ... Padding cannot be chosen as a head
+                expected_energy[row, :, mask[row]] = float('-inf')
+                # ... A token cannot chose itself as a head
+                I = (range(max_sentence_length), range(max_sentence_length))
+                expected_energy[row][I] = float('-inf')
+                # ... ROOT should not choose a head
+                expected_energy[row][0,:] = float('-inf')
+
+            # Calculate the score using the method under test.
+            found_energy = learner.parse_energy(words, mask) 
+
+            # Did we get what we expected?
+            self.assertTrue(torch.allclose(found_energy, expected_energy))
 
 
+    def test_inference(self):
+        torch.random.manual_seed(0)
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 50
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        batch_size = 3
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
+        num_inferred_samples = 10000
 
+        V = learner.V.clone()
+        W = learner.W.clone()
+        vb = learner.vb.clone()
+        wb = learner.wb.clone()
 
-class TestDependencySampler(TestCase):
-    torch.random.manual_seed(0)
+        for batch_num, batch_data in loader:
+            positives, mask = batch_data
+            words = positives[:,0,:]
+            head_ids = positives[:,1,:]
+            batch_size, sentence_length = words.shape
 
+            counts = torch.zeros((batch_size, sentence_length, sentence_length))
+            for i in range(num_inferred_samples):
+                # Just work on the first sentence for simplicity
+                try:
+                    sample = learner.do_inference(words, mask, False) 
+                except IndexError:
+                    import pdb; pdb.set_trace()
+                sample[mask] = 0
+                sample[:,0] = 0
+                idx1 = [
+                    i for i in range(batch_size) 
+                    for j in range(sentence_length)
+                ]
+                idx2 = [
+                    j for i in range(batch_size)
+                    for j in range(sentence_length)
+                ]
+                counts[idx1, idx2, sample.view(-1)] += 1
 
-    def test_dependency_sampler(self):
-        V = torch.tensor([
-            [0,0,0,0],
-            [1,1,1,1],
-            [-1,1,-1,1],
-            [2,0,2,0],
-            [-1,-1,1,1],
-            [-1,-1,-1,-1],
-        ], dtype=torch.float32)
-        W = torch.tensor([
-            [-1,1,-1,1],
-            [0.5,0.5,0.5,0.5],
-            [-1,-1,1,1],
-            [1,1,1,1],
-            [-1,-1,-1,-1],
-            [2,0,2,0],
-        ], dtype=torch.float32)
-        sampler = h.loader.DependencySampler(V=V, W=W)
-        positives = torch.tensor([
-            [[0,1,2,3,0], [3,2,1,0,0]],
-            [[1,2,3,0,0], [3,2,0,1,0]],
-            [[2,3,4,5,0], [5,4,2,3,0]],
-            [[1,2,0,0,0], [2,1,0,0,0]]
+            found_probs = counts / num_inferred_samples
+
+            # The root is forced to always choose itself as its own head
+            # (but these samples are always ignored).
+            head_choices = found_probs[:,0,:].clone()
+            num_head_choices, sentence_length = head_choices.shape
+            chose_head = torch.tensor(
+                [1] + [0]*(sentence_length-1), dtype=torch.float32)
+            self.assertTrue(torch.equal(
+                head_choices, chose_head.expand(num_head_choices, -1)
+            ))
+
+            # Padding is forced to always choose [ROOT] as its head
+            # (but these samples are always ignored).
+            padding_choices = found_probs[mask].clone()
+            num_padding_choices, sentence_length = padding_choices.shape
+            self.assertTrue(torch.equal(
+                padding_choices, chose_head.expand(num_padding_choices, -1)
+            ))
+
+            # For all other probabilities, compare them to expected probs
+            expected_probs = learner.parse_probs(words, mask) 
+
+            # We already checked probabilities for root and padding.
+            # Overwrite these values because they don't need to be tested.
+            # The values returned by expected probs handles the head and 
+            # padding differently, so this overwriting step is the easiest
+            # way to dodge root and padding during the next test.
+            pad_prob = 1/sentence_length
+            found_probs[:,0,:] = pad_prob
+            found_probs[mask] = pad_prob
+
+            # For all non-root non-padding entries, found probabilities should
+            # match the expected ones!
+            self.assertTrue(torch.allclose(
+                found_probs, expected_probs, atol=0.01
+            ))
+
+    def test_detect_cycles(self):
+        torch.random.manual_seed(0)
+        num_samples = 100
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 50
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        heads = torch.tensor([
+            [0,2,3,5,1,4,0,6],
+            [0,2,1,4,0,3,4,5],
+            [0,3,0,1,5,4,2,6]
         ], dtype=torch.int64)
-        mask = torch.tensor([
-            [1,1,1,1,0],
-            [1,1,1,0,0],
-            [1,1,1,1,0],
-            [1,1,0,0,0],
-        ], dtype=torch.uint8)
-      
-        sampling_rows = [1,2,3,6,7,11,12,13,16]
-        padding_rows = [0,4,5,8,9,10,14,15,17,18,19]
+        expected_implicated = [
+            {1,2,3,4,5},
+            {1,2},
+            {1,3,5,4}
+        ]
+        batch_size, sentence_length = heads.shape
+        implicated_counts = torch.zeros(heads.shape)
+        for i in range(num_samples):
+            implicated = learner.detect_cycles(heads)
+            implicated_counts[range(batch_size), implicated] += 1
+        found_implicated = [set(), set(), set()]
+        for sent_idx, word_idx in torch.nonzero(implicated_counts):
+            found_implicated[sent_idx].add(word_idx.item())
+        self.assertEqual(found_implicated, expected_implicated)
 
-        words = positives[:,0,:]
-        covectors = W[words]
-        self.assertEqual(covectors.size(), (4,5,4))
-        self.assertTrue(torch.equal(covectors[0,0,:], torch.tensor([-1,1,-1,1], dtype=torch.float32)))
-        
-        vectors = V[words]
-        product = torch.bmm(covectors, vectors.transpose(1,2))
-        #print(product)
-        
-        reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        self.assertTrue(torch.equal(reflected_mask[0,:,:], torch.tensor([[1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [1,1,1,1,0],
-                                                                         [0,0,0,0,0]], dtype=torch.uint8)))
-        identities_idx = (slice(None), range(5), range(5))
-        product[identities_idx] = torch.tensor(-float('inf'))
-        product[1-reflected_mask] = torch.tensor(-float('inf'))
 
-        self.assertEqual(product.size(), (4,5,5))
-        self.assertTrue(torch.equal(product[0,:,:], torch.tensor([[-float('inf'),0,4,-4,-float('inf')],
-                                                                  [0,-float('inf'),0,2,-float('inf')],
-                                                                  [0,0,-float('inf'),0,-float('inf')],
-                                                                  [0,4,0,-float('inf'),-float('inf')],
-                                                                  [-float('inf'),-float('inf'),-float('inf'),-float('inf'),-float('inf')]])))
+    def test_enforce_constraints(self):
+        num_samples = 100
+        vocab = 5
+        covocab = 5
+        d = 10
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        heads = torch.tensor([
+            [0,2,1,0],
+            [0,3,0,1],
+            [0,3,0,2]
+        ], dtype=torch.int64)
+        batch_size, sentence_length = heads.shape
+        probs = torch.ones((batch_size, sentence_length, sentence_length))
+        probs = probs / sentence_length
+        probs = probs.view(-1)
+        for i in range(num_samples):
+            resolved_heads = learner.enforce_constraints(heads, probs)
 
-        unnormalized_probs = torch.exp(product)
-        unnormalized_probs_2d = unnormalized_probs.view(-1, 5)
-        unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
-        totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
-        probs_full = unnormalized_probs_2d / totals
- 
-        #We only care about the probs from non-padding rows
-        probs = torch.zeros(len(sampling_rows),5)
+            # nodes that don't participate should be left alone
+            self.assertTrue(torch.equal(
+                resolved_heads[:,0], torch.zeros(3, dtype=torch.int64)
+            ))
+            self.assertEqual(resolved_heads[0,3].item(), 0)
+            self.assertEqual(resolved_heads[1,2].item(), 0)
+            self.assertEqual(resolved_heads[2,2].item(), 0)
 
-        k = 0
-        for i in range(20):
-            if i in sampling_rows:
-                probs[k,:] = probs_full[i,:]
-                k += 1
-        
-        print("\n")
-        print(probs)
+            parents = resolved_heads
+            parents = parents.gather(1, parents)
+            parents = parents.gather(1, parents)
+            self.assertEqual(torch.all(parents == 0).item(), 1)
 
-        counter = torch.zeros(len(sampling_rows),5)
-        iterations = 50000
 
-        # draw negative samples
-        # validate shape and range of negative samples
-        # check that negative samples are distributed as expected
+    def test_forward(self):
+        vocab = int(1e3)
+        covocab = int(1e3)
+        d = 10
+        learner = h.learner.DependencyLearner(vocab=vocab, covocab=covocab, d=d)
+        batch_size = 3
 
-        for i in range(iterations):
-            negatives = sampler.sample(positives, mask)
-            for j in range(len(padding_rows)):
-                row_idx = padding_rows[j]
-                selection = negatives[row_idx//5,1,row_idx%5]
-                self.assertTrue(torch.equal(selection,h.dependency.PAD))
-            for j in range(len(sampling_rows)):
-                row_idx = sampling_rows[j]
-                selection = int(negatives[row_idx//5,1,row_idx%5])
-                selected_row = row_idx - row_idx%5 + selection
-                self.assertTrue(selected_row in sampling_rows or selected_row % 5 == 0)
-                counter[j,selection] += 1
-        
-        #print("\n")
-        #print(negatives)
-        self.assertEqual(negatives.size(),positives.size())
+        loader = h.loader.DependencyLoader(
+            h.tests.load_test_data.dependency_corpus_path(),
+            batch_size=batch_size
+        )
 
-        found_probs = counter / iterations
+        for batch_num, batch_data in loader:
+            positive_sentences, mask = batch_data
+            batch_size, _, sentence_length = positive_sentences.shape
+            positive_score, negative_score = learner(batch_num, batch_data)
+            self.assertEqual(positive_score.shape, positive_score.shape)
+            self.assertEqual(negative_score.shape, (batch_size,))
 
-        print("\n")
-        print(found_probs)
 
-        self.assertTrue(torch.allclose(probs,found_probs,atol=1e-02))
 
 
 if __name__ == '__main__':

@@ -563,9 +563,10 @@ class DependencyLoader:
         return positives, mask
 
     def generate_mask(self, sentence_lengths, max_length):
-        mask = torch.zeros((len(sentence_lengths), max_length))
+        mask = torch.ones(
+            (len(sentence_lengths), max_length), dtype=torch.uint8)
         for row, sentence_length in enumerate(sentence_lengths):
-            mask[row, :sentence_length] = 1
+            mask[row, :sentence_length] = 0
 
         return mask
 

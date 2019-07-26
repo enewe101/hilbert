@@ -4,22 +4,24 @@ having to read sequentially to that chunk.  This makes it easier to parallelize
 the extraction of occurrence statistics from a large file.
 """
 
+import os
+import math
 import time
 from multiprocessing import Pool
 
-import math
-import os
-
-
 def f(a):
     time.sleep(1)
-    return a * a
+    return a*a
 
 
 def readlines_parallel(path, num_readers):
     p = Pool(5)
     for result in p.imap_unordered(f, range(15)):
         print(result)
+
+
+    
+
 
 
 def open_chunk(path, chunk, num_chunks):
@@ -39,6 +41,7 @@ def open_chunk(path, chunk, num_chunks):
     return _open_chunk(path, chunk, num_chunks)
 
 
+
 def _fail_fast(path, chunk, num_chunks):
     # Test that the file is readable.
     with open(path) as file:
@@ -46,6 +49,7 @@ def _fail_fast(path, chunk, num_chunks):
     # Ensure valid values for chunk and num_chunks.
     if chunk >= num_chunks:
         raise ValueError('`chunk` must be less than `num_chunks`.')
+
 
 
 def _open_chunk(path, chunk, num_chunks):
@@ -73,7 +77,8 @@ def _open_chunk(path, chunk, num_chunks):
             yield f.readline()
             cursor = f.tell()
 
-        raise StopIteration
+        return
+        
 
 
 def open_chunk_slow(path, chunk, num_chunks):
@@ -94,4 +99,5 @@ def open_chunk_slow(path, chunk, num_chunks):
             yield f.readline()
             cursor = f.tell()
 
-        raise StopIteration
+        return
+        

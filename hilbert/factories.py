@@ -1,9 +1,8 @@
-import numpy as np
 import os
+import numpy as np
 import torch
-import warnings
-
 import hilbert as h
+import warnings
 
 
 def get_constructor(model_str):
@@ -56,7 +55,9 @@ def get_lr_scheduler(
         num_updates,
         end_learning_rate=None,
         lr_scheduler_constant_fraction=1,
-        verbose=False):
+        verbose=False
+    ):
+
     if scheduler_str == 'None':
         return []
 
@@ -65,10 +66,10 @@ def get_lr_scheduler(
         'inverse': h.scheduler.InverseLRScheduler,
 
     }
+
     # error handling for unrecognized learning rate scheduler string.
     if scheduler_str not in scheduler_options:
-        valid_scheduler_strs = ["{}".format(k) for k in
-                                scheduler_options.keys()]
+        valid_scheduler_strs = ["{}".format(k) for k in scheduler_options.keys()]
         valid_scheduler_strs[-1] = "or " + valid_scheduler_strs[-1]
         raise ValueError("Scheduler choice be one of '{}'. Got '{}'.".format(
             ', '.join(valid_scheduler_strs), scheduler_str
@@ -76,8 +77,9 @@ def get_lr_scheduler(
 
     if start_lr < 0:
         raise ValueError(
-            "Learning rate must be non-negative, got start_lr={} < 0".format(
-                start_lr))
+            "Learning rate must be non-negative, got start_lr={} < 0"
+            .format(start_lr)
+        )
 
     if end_learning_rate < 0:
         end_learning_rate = 0
@@ -85,27 +87,40 @@ def get_lr_scheduler(
     scheduler = scheduler_options[scheduler_str]
 
     if scheduler_str == 'linear':
-        assert end_learning_rate is not None, "End learning rate for linear learning rate scheduler is None."
+        msg = "End learning rate for linear learning rate scheduler is None."
+        assert end_learning_rate is not None, msg
         return [scheduler(optimizer, start_lr, num_updates, end_learning_rate)]
 
     elif scheduler_str == 'inverse':
-        # num_updates is the total number of updates, inverse scheduler keep start constant learning rate for
-        # num_updates * fraction updates
+        # num_updates is the total number of updates, inverse scheduler keep
+        # start constant learning rate for num_updates * fraction updates
 
+        is_illegal_lr = (
+            lr_scheduler_constant_fraction > 1
+            or lr_scheduler_constant_fraction <= 0
+        )
         if lr_scheduler_constant_fraction == 1:
             if verbose:
                 warnings.warn(
-                    "Using inverse learning rate scheduler without setting the constant fraction. Learning rate "
-                    "keep constant for all updates.")
-        elif lr_scheduler_constant_fraction > 1 or lr_scheduler_constant_fraction <= 0:
+                    "Using inverse learning rate scheduler without setting "
+                    "the constant fraction. Learning rate keep constant for "
+                    "all updates."
+                )
+        elif is_illegal_lr:
             lr_scheduler_constant_fraction = 1
             if verbose:
-                print(
-                    "Constant fraction should be a number betweeen 0 and 1. \n Setting constant fraction to 1..")
+                 print(
+                    "Constant fraction should be a number betweeen 0 and 1. \n"
+                    "Setting constant fraction to 1.."
+                )
         else:
             pass
-        return [scheduler(optimizer, start_lr,
-                          num_updates * lr_scheduler_constant_fraction)]
+
+        factor = num_updates * lr_scheduler_constant_fraction
+        schedulers = [scheduler(optimizer, start_lr, factor)]
+
+        return schedulers
+
     else:
         raise ValueError("Scheduler string not found!")
 
@@ -121,6 +136,7 @@ def get_init_embs(path, device):
     ]
 
 
+# TODO: Purge?
 def yields_recallable(f):
     """
     Given a function f, define a *recallable* function g, such that g returns
@@ -179,8 +195,8 @@ def build_mle_sample_solver(
     Similar to build_mle_solver, but it is based on 
     approximating the loss function using sampling.
 
-    min_cooccurrence_count: A small number threshold of cooc counts to be removed to fit into the
-    GPU memory.
+    min_cooccurrence_count: A small number threshold of cooc counts to be
+    removed to fit into the GPU memory.
     """
 
     np.random.seed(seed)
@@ -264,6 +280,64 @@ def build_mle_sample_solver(
     )
 
     return solver
+
+
+
+
+def build_dependency_solver(
+        dependency_path,
+        batch_size=10000,
+        init_embeddings_path=None,
+        dimensions=300,
+        learning_rate=0.01,
+        opt_str='adam',
+        num_updates=1,
+        num_negative_samples=1,
+        seed=1917,
+        device=None,
+        verbose=True,
+    ):
+    """
+    This trains a simplified descriminative dependency parsing model.
+    """
+
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    dictionary = h.dictionary.Dictionary.load(
+        os.path.join(dependency_path, 'dictionary'))
+
+    loss = h.loss.NegativeSampleLoss()
+
+    learner = h.learner.DependencyLearner(
+        vocab=len(dictionary),
+        covocab=len(dictionary),
+        d=dimensions,
+        init=get_init_embs(init_embeddings_path, device),
+        num_negative_samples=num_negative_samples,
+        device=device
+    )
+
+    loader = h.loader.DependencyLoader(
+        dependency_path,
+        batch_size=batch_size,
+        device=device,
+        verbose=verbose
+    )
+
+    optimizer = get_optimizer(opt_str, learner, learning_rate)
+
+    solver = h.solver.Solver(
+        loader=loader,
+        loss=loss,
+        learner=learner,
+        optimizer=optimizer,
+        dictionary=dictionary,
+        verbose=verbose,
+    )
+
+    return solver
+
 
 
 def build_multisense_solver(

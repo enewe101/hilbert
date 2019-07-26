@@ -84,12 +84,15 @@ class Solver(object):
 
     def cycle(self, updates_per_cycle=1, monitor_closely=False):
         grad_accumulation_step = self.gradient_accumulation
+
         # Run a bunch of updates.
         for update_id in range(updates_per_cycle):
+
             # Train on as many batches as the loader deems to be one update.
             for batch_id, batch_data in self.loader:
+
                 # Consider this batch and learn.
-                response = self.learner(batch_id)
+                response = self.learner(batch_id, batch_data)
 
                 # clear gradient
                 if update_id == 0:
@@ -100,8 +103,10 @@ class Solver(object):
                 grad_accumulation_step = grad_accumulation_step - 1
 
                 if self.gradient_clipping is not None:
-                    torch.nn.utils.clip_grad_norm_(self.learner.parameters(),
-                                                   max_norm=self.gradient_clipping)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.learner.parameters(),
+                        max_norm=self.gradient_clipping
+                    )
 
                 if monitor_closely:
                     if self.cur_loss.item() > 1e4:
@@ -109,11 +114,14 @@ class Solver(object):
                             batch_id, self.dictionary)
 
                         UserWarning(
-                            "Extreme loss value is detected. current loss is greater than 1e4,\n"
-                            "Positive sample word pairs are :{}\n"
-                            "Negative sample word pairs are :{}\n".format(
+                            "Extreme loss value is detected. current loss is "
+                            "greater than 1e4,\n" "Positive sample word pairs "
+                            "are :{}\nNegative sample word pairs are :{}\n"
+                            .format(
                                 ", ".join(map(str, pos_pairs)),
-                                ", ".join(map(str, neg_pairs))))
+                                ", ".join(map(str, neg_pairs))
+                            )
+                        )
 
                 if grad_accumulation_step == 0:
                     self.optimizer.step()
@@ -134,9 +142,10 @@ class Solver(object):
 
                 if monitor_closely:
                     tracer.declare('loss', self.cur_loss.item())
-                tracer.declare('loss', self.cur_loss.item())
+
         # don't waste the gradient!
         self.optimizer.step()
         self.optimizer.zero_grad()
+        tracer.declare('loss', self.cur_loss.item())
 
         return self.cur_loss.item()
