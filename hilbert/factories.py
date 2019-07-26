@@ -218,7 +218,7 @@ def build_mle_sample_solver(
     else:
         if one_sided == 'arc_labels':
             loader_class = h.loader.ArcLabelSampleLoader
-        if balanced:
+        elif balanced:
             print('CPU loader for balanced samples.')
             loader_class = h.loader.CPUSampleLoader
         else:

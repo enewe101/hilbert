@@ -359,26 +359,34 @@ class TestArcLabelSampleLoader(TestCase):
         embeddings = h.embeddings.random(vocab, 50)
 
         # Calculate the sampled expectation and probability.
-        Nxx_sample = torch.zeros((num_labels,vocab, vocab), dtype=torch.int32)
-        
+        Nxx_sample = torch.zeros((num_labels,vocab,vocab), dtype=torch.float32)
+        Vxx_sample = torch.zeros((num_labels,vocab,vocab), dtype=torch.float32)
+
         for sample_num in range(num_samples):
             IJK, exp_pmis = loader.sample(batch_size)
-            for m in range(IJK.size()[0]):
+            for m in range(batch_size):
                 i, j, k = IJK[m,0], IJK[m,1], IJK[m,2]
                 Nxx_sample[k,i,j] += 1
+                Vxx_sample[k,i,j] += exp_pmis['exp_pmi'][m]
         
-        Pxx_sample = Nxx_sample / num_draws
+        Qxx_sample = Nxx_sample / num_draws
+        Pxx_sample = Vxx_sample / num_draws
 
         # Now calculate samples cooccurrence.
         cooc = h.cooccurrence.Cooccurrence.load(cooc_path)
-        Nxx = torch.zeros((num_labels,vocab,vocab), dtype=torch.int32)
+        Nxx = torch.zeros((num_labels,vocab,vocab), dtype=torch.float32)
 
         for k in range(num_labels):
             Nxx_str = "Nxx_" + str(k) + ".npz"
             Nxx[k] = torch.tensor(sparse.load_npz(
-                os.path.join(cooc_path, Nxx_str)).toarray(), dtype=torch.int32)
+                os.path.join(cooc_path, Nxx_str)).toarray(), dtype=torch.float32)
  
         Pxx_expected = Nxx / cooc.N
+        Qxx_expected = (cooc.Nx / cooc.N) * (cooc.Nxt / cooc.N)
+
+        print(Pxx_sample)
+        print("\n")
+        print(Pxx_expected)
 
         # Did we reproduce the target distribution (Pxx)?
         self.assertTrue(torch.allclose(Pxx_sample, Pxx_expected, atol=5e-4))

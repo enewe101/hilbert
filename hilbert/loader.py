@@ -556,6 +556,7 @@ class ArcLabelSampleLoader:
         self.exp_pmi = [None] * self.num_labels
 
         for k in range(self.num_labels):
+            print(k)
             Nxx_str = "Nxx_" + str(k) + ".npz"
             Nxx_tmp = scipy.sparse.load_npz(os.path.join(cooccurrence_path, Nxx_str)).tolil()
             cooc = h.cooccurrence.Cooccurrence(unigram, Nxx_tmp, marginalize=True, verbose=verbose)
@@ -569,7 +570,6 @@ class ArcLabelSampleLoader:
             self.I_sampler[k] = Categorical(Pi_tempered, device='cpu')
             self.J_sampler[k] = Categorical(Pj_tempered, device='cpu')
 
-
         self.temperature = temperature
         self.device = h.utils.get_device(device)
 
@@ -577,7 +577,6 @@ class ArcLabelSampleLoader:
         k = self.K_sampler.sample(sample_shape=(batch_size,))
         counter = np.zeros(self.num_labels)
         IJK = torch.zeros((batch_size,3), dtype=torch.int64)
-        exp_pmi = [None] * self.num_labels
 
         for m in range(batch_size):
             counter[k[m]] += 1
@@ -589,15 +588,24 @@ class ArcLabelSampleLoader:
             IJK[indices,2] = torch.tensor([m]).repeat(num_samples)
             IJK[indices,0] = self.I_sampler[m].sample(sample_shape=(num_samples,))
             IJK[indices,1] = self.J_sampler[m].sample(sample_shape=(num_samples,))
-            
-            exp_pmi[m] = torch.tensor(
-                self.exp_pmi[m][IJK[indices,0],IJK[indices,1]].toarray().reshape((-1,)),
-                dtype=torch.float32, device = self.device
-            )
-
+            if m != 0:
+                exp_pmi = torch.cat(
+                    (exp_pmi,torch.tensor(
+                    self.exp_pmi[m][IJK[indices,0],IJK[indices,1]].toarray().reshape((-1,)),
+                    dtype=torch.float32, device = self.device))
+                )
+            else:
+                exp_pmi = torch.tensor(
+                    self.exp_pmi[m][IJK[indices,0],IJK[indices,1]].toarray().reshape((-1,)),
+                    dtype=torch.float32, device=self.device
+                )
             offset += num_samples
         
-        #TODO Figure out what this is supposed to look like
+        #exp_pmi = torch.tensor(
+        #    self.exp_pmi[IJK[:,2],IJK[:,0],IJK[:,1]].toarray().reshape((-1,)),
+        #    dtype=torch.float32, device = self.device
+        #)
+
         return IJK, {'exp_pmi':exp_pmi}
 
     def __len__(self):
