@@ -543,15 +543,15 @@ class ArcLabelSampleLoader:
 
         Nk = np.load(os.path.join(cooccurrence_path, 'Nk.npy'))
         self.num_labels = Nk.size
-        Pk = torch.from_numpy(Nk / Nk.sum())
+        self.Pk = torch.from_numpy(Nk / Nk.sum())
 
-        self.K_sampler = Categorical(Pk, device='cpu')
+        self.K_sampler = Categorical(self.Pk, device='cpu')
         
         self.I_sampler = [None] * self.num_labels
         self.J_sampler = [None] * self.num_labels
 
         unigram = h.unigram.Unigram.load(cooccurrence_path, verbose=verbose)
-        vocab = len(unigram.dictionary.tokens)
+        #vocab = len(unigram.dictionary.tokens)
         
         self.exp_pmi = [None] * self.num_labels
 
@@ -574,8 +574,12 @@ class ArcLabelSampleLoader:
         self.device = h.utils.get_device(device)
 
     def sample(self, batch_size):
-        k = self.K_sampler.sample(sample_shape=(batch_size,))
+        #counter = (batch_size * self.Pk.numpy()).astype(int)
+        #difference = counter.sum() - batch_size
+        #counter[0] -= difference
+
         counter = np.zeros(self.num_labels)
+        k = self.K_sampler.sample(sample_shape=(batch_size,))
         IJK = torch.zeros((batch_size,3), dtype=torch.int64)
 
         for m in range(batch_size):

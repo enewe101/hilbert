@@ -387,10 +387,16 @@ class TestArcLabelSampleLoader(TestCase):
         print(Pxx_sample)
         print("\n")
         print(Pxx_expected)
+        print("\n")
+    
+        #print(Qxx_sample)
+        #print("\n")
+        #print(Qxx_expected)
+        #print("\n")
 
         # Did we reproduce the target distribution (Pxx)?
         self.assertTrue(torch.allclose(Pxx_sample, Pxx_expected, atol=5e-4))
-
+        #self.assertTrue(torch.allclose(Qxx_sample, Qxx_expected, atol=5e-4))
 
 # TODO: test mask
 class TestDependencyLoader(TestCase):
