@@ -10,9 +10,10 @@ except ImportError:
     torch = None
     np = None
 
+
 def random(
-    vocab, d, include_covectors=True, include_biases=False, dictionary=None,
-    seed=None, distribution='uniform', scale=0.2, device=None, verbose=True
+        vocab, d, include_covectors=True, include_biases=False, dictionary=None,
+        seed=None, distribution='uniform', scale=0.2, device=None, verbose=True
 ):
     """
     Obtain ``Embeddings`` containing ``vocab`` number of ``d``-dimensional
@@ -38,9 +39,9 @@ def random(
     W = None
     vb, wb = None, None
     if distribution == 'uniform':
-        V = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+        V = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32)
         if include_covectors:
-            W = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32) 
+            W = np.random.uniform(-scale, scale, (vocab, d)).astype(np.float32)
 
     elif distribution == 'normal':
         V = np.random.normal(0, scale, (vocab, d)).astype(np.float32)
@@ -53,8 +54,7 @@ def random(
     return Embeddings(
         V, W=W, vb=vb, wb=wb, dictionary=dictionary,
         device=device, verbose=verbose
-    ) 
-    
+    )
 
 
 # TODO: include biases as part of saving and loading.
@@ -77,15 +77,15 @@ class Embeddings:
     """
 
     def __init__(
-        self,
-        V,
-        W=None,
-        vb=None,
-        wb=None,
-        dictionary=None,
-        device=None, 
-        normalize=False,
-        verbose=True
+            self,
+            V,
+            W=None,
+            vb=None,
+            wb=None,
+            dictionary=None,
+            device=None,
+            normalize=False,
+            verbose=True
     ):
 
         self.verbose = verbose
@@ -140,13 +140,13 @@ class Embeddings:
             raise ValueError(
                 'The number and length of vectors ({}, {}) does not match '
                 'the number and length of cvectors ({}, {}).'.format(
-                    self.V.shape[0], self.V.shape[1], self.W.shape[0], 
+                    self.V.shape[0], self.V.shape[1], self.W.shape[0],
                     self.W.shape[1]
                 )
             )
 
-        one_bias_not_none = self.wb is not None or self.vb is not None 
-        both_not_none = self.wb is not None and self.vb is not None 
+        one_bias_not_none = self.wb is not None or self.vb is not None
+        both_not_none = self.wb is not None and self.vb is not None
         if one_bias_not_none and not both_not_none:
             raise ValueError(
                 'Embeddings that have covectors should either '
@@ -160,7 +160,6 @@ class Embeddings:
                     self.W.shape[0], self.wb.shape[0]
                 )
             )
-            
 
     @property
     def unk(self, for_W=False):
@@ -172,7 +171,6 @@ class Embeddings:
             self._unkV = self.V.mean(0)
         return self._unkV
 
-
     @property
     def unkV(self):
         """
@@ -182,7 +180,6 @@ class Embeddings:
         if self._unkV is None:
             self._unkV = self.V.mean(0)
         return self._unkV
-
 
     @property
     def unkW(self):
@@ -194,7 +191,6 @@ class Embeddings:
             self._unkW = self.W.mean(0)
         return self._unkW
 
-
     @property
     def unkvb(self, for_W=False):
         """
@@ -204,7 +200,6 @@ class Embeddings:
         if self._unkvb is None:
             self._unkvb = self.vb.mean(0)
         return self._unkvb
-
 
     @property
     def unkwb(self, for_W=False):
@@ -216,14 +211,12 @@ class Embeddings:
             self._unkwb = self.wb.mean(0)
         return self._unkwb
 
-
     def sort_like(self, other, allow_mismatch=False):
         self.sort_by_tokens(other.dictionary.tokens, allow_mismatch)
 
-
     def sort_by_tokens(
-        self, tokens_or_dictionary, allow_mismatch=False,
-        allow_missed_tokens=False, allow_missed_embeddings=False
+            self, tokens_or_dictionary, allow_mismatch=False,
+            allow_missed_tokens=False, allow_missed_embeddings=False
     ):
         """
         Re-orders vectors / covectors, by assigning new indices to 
@@ -260,7 +253,7 @@ class Embeddings:
 
         # Check for missing tokens.
         dictionary_coverage = self_set - other_set
-        if len(dictionary_coverage) > 0 :
+        if len(dictionary_coverage) > 0:
             if not allow_mismatch and not allow_missed_tokens:
                 raise ValueError(
                     "The new dictionary is missing {} entries for some "
@@ -290,7 +283,6 @@ class Embeddings:
 
         self.dictionary = h.dictionary.Dictionary(tokens)
 
-
     def set_dictionary(self, dictionary):
         if dictionary is None:
             self.dictionary = dictionary
@@ -305,7 +297,6 @@ class Embeddings:
                     num_tokens=len(dictionary.tokens), num_vecs=self.V.shape[0]
                 )
             )
-
 
     def check_normalized(self):
         """
@@ -322,7 +313,6 @@ class Embeddings:
         self.normed = V_normed and W_normed
         return self.normed
 
-
     def normalize(self):
         """
         Normalize the vectors if they aren't already normed.
@@ -330,7 +320,6 @@ class Embeddings:
         if self.normed:
             return
         self._normalize()
-
 
     def _normalize(self):
         """
@@ -340,7 +329,6 @@ class Embeddings:
         if self.W is not None:
             self.W = h.utils.normalize(self.W, axis=1)
         self.normed = True
-
 
     def __iter__(self):
         """
@@ -352,7 +340,6 @@ class Embeddings:
             DeprecationWarning
         )
         return iter((self.V, self.W, self.dictionary))
-
 
     def greatest_product(self, key, covecs=False):
         """
@@ -366,11 +353,10 @@ class Embeddings:
         top_indices = np.argsort(-inner_products)
         if isinstance(key, str):
             return [self.dictionary.get_token(idx) for idx in top_indices
-                if idx != query_id
-            ]
+                    if idx != query_id
+                    ]
         else:
             return torch.tensor([idx for idx in top_indices if idx != query_id])
-
 
     def greatest_product_one(self, key):
         """
@@ -380,7 +366,6 @@ class Embeddings:
         ``self.greatest_product``.
         """
         return self.greatest_product(key)[0]
-
 
     def greatest_cosine(self, key, covecs=False):
         """
@@ -405,7 +390,6 @@ class Embeddings:
         else:
             return torch.tensor([idx for idx in top_indices if idx != query_id])
 
-
     def greatest_cosine_one(self, key):
         """
         Given an index or word, return the index or word whose corresponding
@@ -415,7 +399,6 @@ class Embeddings:
         """
         return self.greatest_cosine(key)[0]
 
-        
     def save(self, path):
         """
         Save the Vectors, Covectors, and dictionary in a new directory at
@@ -443,7 +426,6 @@ class Embeddings:
         if self.dictionary is not None:
             self.dictionary.save(os.path.join(path, 'dictionary'))
 
-
     def _as_slice(self, key):
         if isinstance(key, str):
             if self.dictionary is None:
@@ -454,7 +436,6 @@ class Embeddings:
             return self.dictionary.get_id(key)
         return key
 
-
     def _as_id(self, id_or_token):
         if isinstance(id_or_token, str):
             if self.dictionary is None:
@@ -464,7 +445,6 @@ class Embeddings:
                 )
             return self.dictionary.get_id(id_or_token)
         return id_or_token
-
 
     def get_vec(self, key, oov_policy='err'):
         """
@@ -481,7 +461,6 @@ class Embeddings:
             return self.unk
         slice_obj = self._as_slice(key)
         return self.V[slice_obj]
-
 
     def get_covec(self, key, oov_policy='err'):
         """
@@ -501,7 +480,6 @@ class Embeddings:
         slice_obj = self._as_slice(key)
         return self.W[slice_obj]
 
-
     def get_vec_bias(self, key, oov_policy='err'):
         """
         Gets the bias for covector ``key``.  Key can either be an ``int``
@@ -519,8 +497,6 @@ class Embeddings:
             return self.unkvb
         slice_obj = self._as_slice(key)
         return self.vb[slice_obj]
-
-
 
     def get_covec_bias(self, key, oov_policy='err'):
         """
@@ -541,7 +517,6 @@ class Embeddings:
             return self.unkwb
         slice_obj = self._as_slice(key)
         return self.wb[slice_obj]
-
 
     def handle_out_of_vocab(self, key, policy):
         """
@@ -571,7 +546,7 @@ class Embeddings:
 
         # Check if out of vocabulary.  If so, raise if policy says so.
         is_out_of_vocabulary = key not in self.dictionary
-        if is_out_of_vocabulary and policy=='err':
+        if is_out_of_vocabulary and policy == 'err':
             raise KeyError(
                 'Token %s in out of vocabulary.  Pass ``policy="unk"`` to '
                 'return the centroid embedder for '
@@ -581,10 +556,8 @@ class Embeddings:
         # Return whether the key is out of vocabulary
         return is_out_of_vocabulary
 
-
     def __getitem__(self, key):
         return self.get_vec(key, oov_policy='err')
-
 
     @staticmethod
     def load(path, device=None):
@@ -609,6 +582,3 @@ class Embeddings:
             V, W=W, vb=vb, wb=wb, dictionary=dictionary,
             device=device
         )
-
-
-

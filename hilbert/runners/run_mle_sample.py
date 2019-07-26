@@ -10,6 +10,8 @@ def add_model_args(parser):
     h.runners.run_base.add_bias_arg(parser)
     h.runners.run_base.add_remove_cooc_arg(parser)
     h.runners.run_base.add_LR_scheduler_arg(parser)
+    h.runners.run_base.add_gradient_accumulation_arg(parser)
+    h.runners.run_base.add_gradient_clipping_arg(parser)
     return parser
 
 

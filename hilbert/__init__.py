@@ -1,20 +1,20 @@
 import hilbert.CONSTANTS
-from hilbert.CONSTANTS import RC
-import hilbert.solver
 import hilbert.cooccurrence
+import hilbert.dependency
 import hilbert.dictionary
 import hilbert.embeddings
+import hilbert.exceptions
 import hilbert.factories
-import hilbert.loss
+import hilbert.file_access
+import hilbert.learner
 import hilbert.loader
+import hilbert.loss
+import hilbert.runners
+import hilbert.scheduler
 import hilbert.shards
+import hilbert.solver
+import hilbert.tests
+import hilbert.tracer
 import hilbert.unigram
 import hilbert.utils
-import hilbert.runners
-import hilbert.file_access
-import hilbert.tracer
-import hilbert.exceptions
-import hilbert.tests
-import hilbert.learner
-import hilbert.scheduler
-import hilbert.dependency
+from hilbert.CONSTANTS import RC

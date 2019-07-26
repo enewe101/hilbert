@@ -350,7 +350,7 @@ class CooccurrenceSector(object):
         Simulate undersampling of common words, like how is done in word2vec.
         However, when applied here (as opposed to within the corpus sampler),
         we are taking expectation values given undersampling, rather than
-        actually undersampling.  This pseudo-ndersampling is applied in the
+        actually undersampling.  This pseudo-undersampling is applied in the
         "clean" way which does not alter the effective size of the sample
         window.
         """

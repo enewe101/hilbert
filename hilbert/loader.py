@@ -1,8 +1,7 @@
-import os
 import torch
 from pytorch_categorical import Categorical
+
 import hilbert as h
-import scipy
 
 
 class DenseLoader:
@@ -12,14 +11,14 @@ class DenseLoader:
     """
 
     def __init__(
-        self,
-        cooccurrence_path,
-        shard_factor,
-        include_unigrams=True,
-        undersampling=None,
-        smoothing=None,
-        device=None,
-        verbose=True,
+            self,
+            cooccurrence_path,
+            shard_factor,
+            include_unigrams=True,
+            undersampling=None,
+            smoothing=None,
+            device=None,
+            verbose=True,
     ):
 
         # Own your biz.
@@ -39,7 +38,6 @@ class DenseLoader:
         # Preload everything into cRAM.
         self._preload()
 
-
     def _preload(self):
         """
         Preload iterates over a generator that generates preloaded batches.
@@ -54,7 +52,6 @@ class DenseLoader:
             self.preloaded_batches.append(preload_data)
         if self.verbose:
             print('Preloading complete!')
-
 
     def _preload_iter(self, *args, **kwargs):
 
@@ -90,7 +87,6 @@ class DenseLoader:
                     )
                 yield shard_id * sector_id, (cooccurrence_data, unigram_data)
 
-
     def _load(self, preloaded):
         batch_id, (cooccurrence_data, unigram_data) = preloaded
         cooccurrence_data = tuple(
@@ -100,11 +96,9 @@ class DenseLoader:
                 tensor.to(self.device) for tensor in unigram_data)
         return batch_id, (cooccurrence_data, unigram_data)
 
-
     def __iter__(self):
         self.crt_batch_id = -1
         return self
-
 
     def __next__(self):
         self.crt_batch_id += 1
@@ -113,30 +107,28 @@ class DenseLoader:
         preloaded = self.preloaded_batches[self.crt_batch_id]
         return self._load(preloaded)
 
-
     def describe(self):
         return 'CooccurenceLoader'
-
 
     def __len__(self):
         return len(self.preloaded_batches)
 
 
-
 class GPUSampleLoader:
 
     def __init__(
-        self,
-        cooccurrence_path,
-        temperature=1,
-        batch_size=100000,
-        device=None,
-        verbose=True,
-        min_cooccurrence_count=None,
+            self,
+            cooccurrence_path,
+            temperature=1,
+            batch_size=100000,
+            device=None,
+            verbose=True,
+            min_cooccurrence_count=None,
     ):
         self.cooccurrence_path = cooccurrence_path
         Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
-            cooccurrence_path, min_cooccurrence_count=min_cooccurrence_count, verbose=verbose)
+            cooccurrence_path, min_cooccurrence_count=min_cooccurrence_count,
+            verbose=verbose)
 
         self.temperature = temperature
         self.device = h.utils.get_device(device)
@@ -164,38 +156,33 @@ class GPUSampleLoader:
         self.batch_size = batch_size
         self.yielded = False
 
-
     def sample(self, batch_size):
-
         # Allocate space for the positive and negative samples.
         # To index using tensor contents, torch requires they be int64.
         IJ_sample = torch.empty(
-            (batch_size*2,2), device=self.device, dtype=torch.int64)
+            (batch_size * 2, 2), device=self.device, dtype=torch.int64)
 
         # Randomly draw positive outcomes, and map them to ij pairs
         positive_choices = self.positive_sampler.sample(
             sample_shape=(batch_size,))
-        IJ_sample[:batch_size,0] = self.I[positive_choices]
-        IJ_sample[:batch_size,1] = self.J[positive_choices]
+        IJ_sample[:batch_size, 0] = self.I[positive_choices]
+        IJ_sample[:batch_size, 1] = self.J[positive_choices]
 
         # Randomly draw negative outcomes.  These outcomes are already ij
         # indices, so unlike positive outcomes they don't need to be mapped.
-        IJ_sample[batch_size:,0] = self.negative_sampler.sample(
+        IJ_sample[batch_size:, 0] = self.negative_sampler.sample(
             sample_shape=(batch_size,))
-        IJ_sample[batch_size:,1] = self.negative_sampler_t.sample(
+        IJ_sample[batch_size:, 1] = self.negative_sampler_t.sample(
             sample_shape=(batch_size,))
 
         return IJ_sample
 
-
     def __len__(self):
         return 1
-
 
     def __iter__(self):
         self.yielded = False
         return self
-
 
     def __next__(self):
         if self.yielded:
@@ -203,26 +190,26 @@ class GPUSampleLoader:
         self.yielded = True
         return self.sample(self.batch_size), None
 
-
     def describe(self):
         s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
         s += '\tbatch_size = {}\n'.format(self.batch_size)
         s += '\ttemperature = {}\n'.format(self.temperature)
         return s
 
+
 class GibbsSampleLoader:
     def __init__(
             self,
             cooccurrence_path,
             learner,
-            temperature=1,
+            temperature=2,
             batch_size=1000,
             gibbs_iteration=1,
             get_distr=False,
             device=None,
             verbose=True,
             min_cooccurrence_count=None,
-            ):
+    ):
 
         # Ownage.
         self.cooccurrence_path = cooccurrence_path
@@ -237,27 +224,29 @@ class GibbsSampleLoader:
         self.gibbs_iteration = gibbs_iteration
 
         Nxx_data, I, J, Nx, Nxt = h.cooccurrence.CooccurrenceSector.load_coo(
-            cooccurrence_path, verbose=verbose, min_cooccurrence_count=min_cooccurrence_count)
+            cooccurrence_path, min_cooccurrence_count=min_cooccurrence_count,
+            verbose=verbose)
 
         # Calculate the probabilities and then temper them.
         # After tempering, probabilities are scores -- they don't sum to one
-        self.Pi = Nx.view((-1,)) / Nx.sum()
-        Pi_raised = self.Pi ** (1 / self.temperature - 1)
-        # Pi_tempered = Pi_raised * self.Pi
+        Pi = Nx.view((-1,)) / Nx.sum()
+        Pi_raised = Pi ** (1 / temperature - 1)
+        Pi_tempered = Pi_raised * Pi
 
-        self.Pj = Nxt.view((-1,)) / Nx.sum()
-        Pj_raised = self.Pj ** (1 / self.temperature - 1)
-        # Pj_tempered = Pj_raised * self.Pj
+        Pj = Nxt.view((-1,)) / Nx.sum()
+        Pj_raised = Pj ** (1 / temperature - 1)
+        Pj_tempered = Pj_raised * Pj
 
-        self.Pij = Nxx_data * Pi_raised[I.long()] * Pj_raised[J.long()]
+        Nxx_tempered = Nxx_data * Pi_raised[I.long()] * Pj_raised[J.long()]
 
+        self.positive_sampler = Categorical(Nxx_tempered, device=self.device)
+
+        # self.Nxx_data = Nxx_data
         self.I = I.to(self.device)
         self.J = J.to(self.device)
 
-        self.Pi = self.Pi.to(self.device)
-        self.Pj = self.Pj.to(self.device)
-
-        self.positive_sampler = Categorical(self.Pij, device=self.device)
+        self.Pi = Pi_tempered.to(self.device)
+        self.Pj = Pj_tempered.to(self.device)
 
     def get_batch_words(self, batch_id, dictionary):
         # help function for investigating problematic pairs of words
@@ -268,13 +257,15 @@ class GibbsSampleLoader:
 
         for i, ij in enumerate(batch_id):
             if i < boundary:
-                pos_pairs.append((dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
+                pos_pairs.append(
+                    (dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
             else:
-                neg_pairs.append((dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
+                neg_pairs.append(
+                    (dictionary.get_token(ij[0]), dictionary.get_token(ij[1])))
 
         return pos_pairs, neg_pairs
 
-    def batch_probs(self, _2dprobs_prenorm, I_flag=True):
+    def batch_probs(self, _2dprobs_prenorm):
         """
         Help function for sampling negative samples by calculating the probabilities of the batch
         :param _2dprobs_prenorm:
@@ -285,16 +276,18 @@ class GibbsSampleLoader:
             pass
         else:
             # normalized
-            _2dprobs = _2dprobs_prenorm/_2dprobs_prenorm.sum(dim=1)[:,None]
+            _2dprobs = _2dprobs_prenorm / _2dprobs_prenorm.sum(dim=1)[:, None]
             if torch.isnan(_2dprobs).any():
                 raise ValueError("detected nan in probs!")
-            negative_sampler = torch.distributions.categorical.Categorical(_2dprobs)
-            negative_samples_idx = negative_sampler.sample()    # sample 1 unit from the conditional distribution
-            if I_flag:
-                negative_samples = self.J[negative_samples_idx]
-            else:
-                negative_samples = self.I[negative_samples_idx]
-        return negative_samples.long()
+            # print("negative sampler probabilities: ", _2dprobs)
+            negative_sampler = torch.distributions.categorical.Categorical(
+                _2dprobs)
+
+            # Sample indices according to the conditional distributions for each sample,
+            # Unlike positive samples, the indices are mapped to IJ, negative samples are indices already.
+            negative_samples_idx = negative_sampler.sample()  # sample 1 unit from the conditional distribution
+
+        return negative_samples_idx.long()
 
     def gibbs_stepping(self, condition_on_idx, is_vector=True):
         """
@@ -309,21 +302,25 @@ class GibbsSampleLoader:
         if is_vector:
             # condition on words are from I, computing J given I
             model_pmi = self.learner.V[condition_on_idx] @ self.learner.W.t()
-            _2d_posterior_dist = self.Pj * torch.exp(model_pmi)  # without Adaptive softmax
+            _2d_posterior_dist = self.Pj * torch.exp(
+                model_pmi)  # without Adaptive softmax
             if torch.isnan(_2d_posterior_dist).any():
                 raise ValueError("In gibbs stepping, detected nan in probs!")
-            negative_samples = self.batch_probs(_2d_posterior_dist, I_flag=True)
+            negative_samples = self.batch_probs(_2d_posterior_dist)
         else:
             # condition on words are from I, computing I given J
+            # model_pmi = (self.learner.V @ self.learner.W[condition_on_idx].t()).t()
             model_pmi = self.learner.W[condition_on_idx] @ self.learner.V.t()
-            _2d_posterior_dist = self.Pi * torch.exp(model_pmi)  # without Adaptive softmax
+            _2d_posterior_dist = self.Pi * torch.exp(
+                model_pmi)  # without Adaptive softmax
             if torch.isnan(_2d_posterior_dist).any():
                 raise ValueError("In gibbs stepping, detected nan in probs!")
-            negative_samples = self.batch_probs(_2d_posterior_dist, I_flag=False)
+            negative_samples = self.batch_probs(_2d_posterior_dist)
 
         return negative_samples
 
-    def iterative_gibbs_sampling(self, positive_sample, input_I_flag=True, steps=1, get_distr=False):
+    def iterative_gibbs_sampling(self, positive_sample, input_I_flag=True,
+                                 steps=2, get_distr=False):
         """
         Run Gibbs sampling for number of iterations
         :param positive_sample:
@@ -345,28 +342,37 @@ class GibbsSampleLoader:
             _I = None
 
         for i in range(steps):
-            I_flag = (i % 2 == 0) if input_I_flag else ((i+1) % 2 == 0)
-
+            I_flag = (i % 2 == 0) if input_I_flag else ((i + 1) % 2 == 0)
             if I_flag:
+                if get_distr and (steps - i) <= 2:
+                    # last iteration of Gibbs Sampling, get the distribution
+                    j_distr = self.Pj * torch.exp(
+                        self.learner.V[_I] @ self.learner.W.t())
                 _J = self.gibbs_stepping(_I, is_vector=I_flag)
+
             else:
+                if get_distr and (steps - i) <= 2:
+                    i_distr = self.Pi * torch.exp(
+                        self.learner.W[_J] @ self.learner.V.t())
                 _I = self.gibbs_stepping(_J, is_vector=I_flag)
 
         if get_distr:
             # at the last iteration, get the distribution instead of samples
-            j_distr = self.Pj * torch.exp(self.learner.V[_I] @ self.learner.W.t())
-            i_distr = self.Pi * torch.exp(self.learner.W[_J] @ self.learner.V.t())
-            return (i_distr, j_distr)
+            # j_distr = self.Pj * torch.exp(self.learner.V[_I] @ self.learner.W.t())
+            # i_distr = self.Pi * torch.exp(self.learner.W[_J] @ self.learner.V.t())
+            assert i_distr is not None and j_distr is not None
+            return i_distr, j_distr
 
         else:
-            negative_samples = torch.empty(
-                (positive_sample.shape[0], 2), device=self.device, dtype=torch.int64)
+            negative_samples = torch.zeros(
+                (positive_sample.shape[0], 2), device=self.device,
+                dtype=torch.int64)
 
             negative_samples[:, 0] = _I
             negative_samples[:, 1] = _J
             return negative_samples
 
-    def distribution_only(self, batch_size, toy):
+    def distribution_only(self, batch_size):
         """
 
         :param positive_samples: indices of I that are drawn from the corpus distribution
@@ -386,7 +392,7 @@ class GibbsSampleLoader:
 
         return self.Pij, negative_sample_distrs
 
-    def sample(self, batch_size, toy=False):
+    def sample(self, batch_size):
         '''
 
         Gibbs sampler takes positive samples (i, j) drawn from corpus distribution Pij,
@@ -402,13 +408,15 @@ class GibbsSampleLoader:
         positive_choices_idx = self.positive_sampler.sample(
             sample_shape=(batch_size,))
         # actual embeddings of choices
-        positive_samples = (self.I[positive_choices_idx].long(), self.J[positive_choices_idx].long())
+        positive_samples = (self.I[positive_choices_idx].long(),
+                            self.J[positive_choices_idx].long())
+
         positive_I, positive_J = positive_samples
         IJ_sample = torch.empty(
             (self.batch_size * 2, 2), device=self.device, dtype=torch.int64)
 
-
-        IJ_negative_samples = self.iterative_gibbs_sampling(positive_I, input_I_flag=True,
+        IJ_negative_samples = self.iterative_gibbs_sampling(positive_I,
+                                                            input_I_flag=True,
                                                             steps=self.gibbs_iteration * 2,
                                                             )
         IJ_sample[:self.batch_size, 0] = positive_I
@@ -416,9 +424,6 @@ class GibbsSampleLoader:
         IJ_sample[self.batch_size:, :] = IJ_negative_samples
 
         return IJ_sample  # they are indices
-
-
-
 
     def __len__(self):
         return 1
@@ -443,15 +448,14 @@ class GibbsSampleLoader:
 class CPUSampleLoader:
 
     def __init__(
-        self,
-        cooccurrence_path,
-        temperature=1,
-        batch_size=100000,
-        device=None,
-        min_cooccurrence_count = None,
-        verbose=True
+            self,
+            cooccurrence_path,
+            temperature=1,
+            batch_size=100000,
+            device=None,
+            min_cooccurrence_count=None,
+            verbose=True
     ):
-
         # Ownage.
         self.cooccurrence_path = cooccurrence_path
         self.batch_size = batch_size
@@ -467,48 +471,43 @@ class CPUSampleLoader:
         # After tempering, probabilities are scores -- they don't sum to one
         # The Categorical sampler will automatically normalize them.
         Pi = Nx / Nx.sum()
-        Pi_tempered = (Pi ** (1/temperature)).view((-1,))
+        Pi_tempered = (Pi ** (1 / temperature)).view((-1,))
         Pj = Nxt / Nx.sum()
-        Pj_tempered = (Pj ** (1/temperature)).view((-1,))
+        Pj_tempered = (Pj ** (1 / temperature)).view((-1,))
 
         # Calculate the exponential of PMI for ij pairs, according to the
         # corpus. These are needed because we are importance-sampling
         # the corpus distribution using the independent distribution.
         self.exp_pmi = Nxx.multiply(
-            1/N).multiply(1/Pi.numpy()).multiply(1/Pj.numpy()).tolil()
+            1 / N).multiply(1 / Pi.numpy()).multiply(1 / Pj.numpy()).tolil()
 
         # Make samplers for the independent distribution.
         self.I_sampler = Categorical(Pi_tempered, device='cpu')
         self.J_sampler = Categorical(Pj_tempered, device='cpu')
 
-
     def sample(self, batch_size):
         # Randomly draw independent outcomes.
         IJ = torch.zeros((batch_size, 2), dtype=torch.int64)
-        IJ[:,0] = self.I_sampler.sample(sample_shape=(batch_size,))
-        IJ[:,1] = self.J_sampler.sample(sample_shape=(batch_size,))
+        IJ[:, 0] = self.I_sampler.sample(sample_shape=(batch_size,))
+        IJ[:, 1] = self.J_sampler.sample(sample_shape=(batch_size,))
         exp_pmi = torch.tensor(
-            self.exp_pmi[IJ[:,0],IJ[:,1]].toarray().reshape((-1,)),
+            self.exp_pmi[IJ[:, 0], IJ[:, 1]].toarray().reshape((-1,)),
             dtype=torch.float32, device=self.device
         )
-        return IJ, {'exp_pmi':exp_pmi}
-
+        return IJ, {'exp_pmi': exp_pmi}
 
     def __len__(self):
         return 1
 
-
     def __iter__(self):
         self.yielded = False
         return self
-
 
     def __next__(self):
         if self.yielded:
             raise StopIteration
         self.yielded = True
         return self.sample(self.batch_size)
-
 
     def describe(self):
         s = '\tcooccurrence_path = {}\n'.format(self.cooccurrence_path)
@@ -528,11 +527,11 @@ def pad(lst, length):
 class DependencyLoader:
 
     def __init__(
-        self,
-        dependency_path,
-        batch_size=100000,
-        device=None,
-        verbose=True
+            self,
+            dependency_path,
+            batch_size=100000,
+            device=None,
+            verbose=True
     ):
         self.dependency_path = dependency_path
         self.batch_size = batch_size
@@ -540,16 +539,15 @@ class DependencyLoader:
         self.verbose = verbose
         self.dependency = h.dependency.DependencyCorpus(dependency_path)
 
-
     def sample_batch(self, batch_size, pointer):
         device = h.utils.get_device(self.device)
         start = pointer * batch_size
         stop = (pointer + 1) * batch_size
 
-        if start  >= len(self.dependency.sort_idxs):
+        if start >= len(self.dependency.sort_idxs):
             raise IndexError(
                 "pointing at example {}, but data has only {} examples"
-                .format(start, len(self.dependency.sort_idxs))
+                    .format(start, len(self.dependency.sort_idxs))
             )
 
         idxs = self.dependency.sort_idxs[start:stop]
@@ -564,7 +562,6 @@ class DependencyLoader:
 
         return positives, mask
 
-
     def generate_mask(self, sentence_lengths, max_length):
         mask = torch.zeros((len(sentence_lengths), max_length))
         for row, sentence_length in enumerate(sentence_lengths):
@@ -572,11 +569,9 @@ class DependencyLoader:
 
         return mask
 
-
     def __iter__(self):
         self.pointer = 0
         return self
-
 
     def __next__(self):
         try:
@@ -584,13 +579,10 @@ class DependencyLoader:
         except IndexError:
             raise StopIteration()
         self.pointer += 1
-        return self.pointer-1, (positives, mask)
-
-
+        return self.pointer - 1, (positives, mask)
 
 
 class DependencySampler:
-
 
     def __init__(self, embeddings=None, V=None, W=None, architecture='flat'):
         """
@@ -616,7 +608,6 @@ class DependencySampler:
                 "V and W, but not embeddings AND V and W."
             )
 
-
     def sample(self, positives, mask):
 
         # Need to add ability to sample the root.  Include it at the end
@@ -624,25 +615,25 @@ class DependencySampler:
         assert mask.dtype == torch.uint8
 
         # Drop tags for now
-        positives = positives[:,0:2,:]
+        positives = positives[:, 0:2, :]
         negatives = torch.zeros_like(positives)
-        negatives[:,0,:] = positives[:,0,:]
+        negatives[:, 0, :] = positives[:, 0, :]
         sentence_length = len(positives[0][0])
         batch_size = len(positives)
 
         reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        words = positives[:,0,:]
+        words = positives[:, 0, :]
         vectors = self.V[words]
         covectors = self.W[words]
-        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        energies = torch.bmm(covectors, vectors.transpose(1, 2))
         identities_idx = (
             slice(None), range(sentence_length), range(sentence_length))
         energies[identities_idx] = torch.tensor(-float('inf'))
-        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+        energies[1 - reflected_mask] = torch.tensor(-float('inf'))
 
         unnormalized_probs = torch.exp(energies)
         unnormalized_probs_2d = unnormalized_probs.view(-1, sentence_length)
-        unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
+        unnormalized_probs_2d[1 - mask.reshape(-1), :] = 1
         totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
         probs = unnormalized_probs_2d / totals
 
@@ -652,12 +643,9 @@ class DependencySampler:
         idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
         idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
 
-        negatives[idx1,1,idx2] = sample
+        negatives[idx1, 1, idx2] = sample
 
-        negatives[:,1,:][1-mask] = h.dependency.PAD
-        negatives[:,1,0] = h.dependency.PAD
+        negatives[:, 1, :][1 - mask] = h.dependency.PAD
+        negatives[:, 1, 0] = h.dependency.PAD
 
         return negatives
-
-
-

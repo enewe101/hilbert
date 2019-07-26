@@ -1,6 +1,8 @@
-from copy import deepcopy
 import subprocess
+
 import codecs
+from copy import deepcopy
+
 
 class Dictionary(object):
 
@@ -11,28 +13,22 @@ class Dictionary(object):
             for token in tokens:
                 self.add_token(token)
 
-
     def __copy__(self):
         return deepcopy(self)
 
-
     def __contains__(self, key):
         return key in self.token_ids
-
 
     def __deepcopy__(self, memo):
         result = Dictionary(self.tokens)
         memo[id(self)] = result
         return result
 
-
     def __len__(self):
         return len(self.tokens)
 
-
     def get_id(self, token):
         return self.token_ids[token]
-
 
     def get_id_safe(self, token, default=None):
         """
@@ -43,10 +39,8 @@ class Dictionary(object):
             return self.token_ids[token]
         return default
 
-
     def get_token(self, idx):
         return self.tokens[idx]
-
 
     def add_token(self, token):
         if token not in self.token_ids:
@@ -56,11 +50,9 @@ class Dictionary(object):
             return idx
         return self.token_ids[token]
 
-
     def save(self, path):
         with codecs.open(path, 'w', 'utf8') as f:
             f.write('\n'.join(self.tokens))
-
 
     @staticmethod
     def check_vocab(path):
@@ -73,16 +65,13 @@ class Dictionary(object):
         num_lines = int(result.stdout.split()[0]) + 1
         return num_lines
 
-
     @staticmethod
     def load(path):
         dictionary = Dictionary()
         with open(path) as f:
             dictionary.tokens = f.read().split('\n')
         dictionary.token_ids = {
-            token: idx 
+            token: idx
             for idx, token in enumerate(dictionary.tokens)
         }
         return dictionary
-
-

@@ -1,15 +1,17 @@
-import os
-import sys
 import json
+import sys
+
+import os
 import torch
+
 
 def read_rc():
     RC = {
         'cooccurrence_dir': None,
         'corpus_dir': None,
-        'embeddings_dir':None,
+        'embeddings_dir': None,
         'task_data_path': None,
-        'device':'cuda',
+        'device': 'cuda',
         'dtype': '32',
         'max_sector_size': '12000',
     }
@@ -39,8 +41,8 @@ def read_rc():
 
 RC = read_rc()
 
-MATRIX_DEVICE = 'cuda' # TODO: purge this global away
-MEMORY_DEVICE = 'cpu' # TODO: purge this global away
+MATRIX_DEVICE = 'cuda'  # TODO: purge this global away
+MEMORY_DEVICE = 'cpu'  # TODO: purge this global away
 DEFAULT_DTYPE = torch.float32
 CODE_DIR = os.path.abspath(os.path.join(__file__, '..'))
 TEST_DIR = os.path.join(CODE_DIR, 'tests', 'test-data')

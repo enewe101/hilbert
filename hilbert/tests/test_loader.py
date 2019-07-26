@@ -8,6 +8,10 @@ from collections import Counter
 import itertools
 import scipy.sparse as sparse
 import numpy as np
+import seaborn as sns
+from hilbert import factories as f
+import matplotlib.pyplot as plt
+
 
 
 class TestLoader(TestCase):
@@ -170,8 +174,8 @@ class TestGPUSampleLoader(TestCase):
         expected_pj_tempered = expected_pj_raised * expected_pj_untempered
         expected_pj_tempered = expected_pj_tempered / expected_pj_tempered.sum()
 
-        expected_pij_untempered = sparse.coo_matrix(
-            (Nxx_data.numpy(), (I.numpy(), J.numpy()))).toarray()
+        expected_pij_untempered = torch.Tensor(sparse.coo_matrix(
+            (Nxx_data.numpy(), (I.numpy(), J.numpy()))).toarray())
         temper_adjuster = (
             expected_pi_raised.view((-1,1)) * expected_pj_raised.view((1,-1)))
         expected_pij_tempered = expected_pij_untempered * temper_adjuster
@@ -234,6 +238,7 @@ class TestGPUSampleLoader(TestCase):
 
 
 class TestGibbsSampleLoader(TestCase):
+
     def sample_distribution_from_counter(self, counter):
         distr = dict(counter)
         total_cnt = sum(counter.values())
@@ -244,18 +249,19 @@ class TestGibbsSampleLoader(TestCase):
             ordered_distr[k] = distr[k]
         return ordered_distr
 
+
     def initialization(self, get_distr=False):
         torch.manual_seed(616)
         batch_size = 10
         cooccurrence_path = os.path.join(
-            h.CONSTANTS.TEST_DIR, 'test-sample-loader')
+            h.CONSTANTS.TEST_DIR, 'gibbs_sampling_data')
         dictionary = h.dictionary.Dictionary.load(
             os.path.join(cooccurrence_path, 'dictionary'))
         learner = h.learner.SampleLearner(
             vocab=len(dictionary),
             covocab=len(dictionary),
             d=50,
-            device='cuda:0'
+            device='cpu'
         )
 
         sampler = h.loader.GibbsSampleLoader(
@@ -266,13 +272,13 @@ class TestGibbsSampleLoader(TestCase):
 
     def test_toy_model_distribution(self):
         """
-        Only test 1 cycle.  For each Gibbs sampling step, we are sampling 1
-        unit from the categorical distribution conditioning on the given
-        positive sample.  To examine such unit is drawn from the expected model
-        distribution, we draw a large number of sample from each conditional
-        distribution instead, and calculate the empirical probability of the
-        sample. The probability vector should be close to probability vector
-        with which Categorical was created.
+        Only test 1 cycle.
+
+        For each Gibbs sampling step, we are sampling 1 unit from the categorical distribution conditioning on the given
+        positive sample.
+        To examine such unit is drawn from the expected model distribution, we draw a large number of sample from each
+        conditional distribution instead, and calculate the empirical probability of the sample. The probability vector
+        should be close to probability vector with which Categorical was created.
         """
 
         # Initialization..
@@ -318,126 +324,183 @@ class TestGibbsSampleLoader(TestCase):
         IJ_sample_iter = iter_gibbs_sampler.sample(iter_gibbs_sampler.batch_size)
         self.assertTrue(torch.equal(IJ_sample_toy, IJ_sample_iter))
 
-    def test_gibbs_toy_distr(self):
-        """
 
+    def test_gibbs_batch_prob(self):
+        """
+        Test if P(J'|I) given I and P(I'|J) given J are correct using synthetic data
         :return:
         """
-        toy_gibbs_sampler = self.initialization(get_distr=True)
-        one_cycle_negative_distr = toy_gibbs_sampler.distribution_only(toy_gibbs_sampler.batch_size, toy=True)
 
-        self.assertEqual(one_cycle_negative_distr[1][0].shape[0], toy_gibbs_sampler.batch_size)
-        self.assertEqual(one_cycle_negative_distr[1][0].shape[1], toy_gibbs_sampler.Pj.shape[0])
-        self.assertEqual(one_cycle_negative_distr[1][1].shape[0], toy_gibbs_sampler.batch_size)
-        self.assertEqual(one_cycle_negative_distr[1][1].shape[1], toy_gibbs_sampler.Pj.shape[0])
+        sampler = self.initialization()
+        positive_samples = sampler.sample(10)[:10]
+        positive_I = positive_samples[:,0]
+        positive_J = positive_samples[:,1]
+        empirical_J_conditional_on_I_dist = sampler.Pj * torch.exp(sampler.learner.V[positive_I] @ sampler.learner.W.t())
+
+        empirical_I_conditional_on_J_dist = sampler.Pi * torch.exp(sampler.learner.W[positive_J] @ sampler.learner.V.t())
+
+        model_I_conditional_on_J_dist, _ = sampler.iterative_gibbs_sampling(positive_J,
+                                                                            input_I_flag=False,
+                                                                            steps=2,
+                                                                            get_distr=True)
+
+        _, model_J_conditional_on_I_dist = sampler.iterative_gibbs_sampling(positive_I,
+                                                                            input_I_flag=True,
+                                                                            steps=2,
+                                                                            get_distr=True)
+
+        self.assertTrue(torch.equal(empirical_J_conditional_on_I_dist, model_J_conditional_on_I_dist))
+        self.assertTrue(torch.equal(empirical_I_conditional_on_J_dist, model_I_conditional_on_J_dist))
 
 
+    def draw_sample_heatmap(self, samples, size):
+        matrix_for_heatmap = np.zeros((size, size), dtype=int)
+        for i, j in samples:
+            matrix_for_heatmap[i][j] += 1
+        print(matrix_for_heatmap)
 
-# TODO: test mask
-class TestDependencyLoader(TestCase):
 
-    def test_dependency_loader(self):
-        batch_size = 3
-        loader = h.loader.DependencyLoader(
-            h.tests.load_test_data.dependency_corpus_path(),
-            batch_size=batch_size
+    def test_model_distr_sampling(self):
+        sampler = self.initialization()
+        # first iteration model distribution
+        model_pmi = torch.exp(sampler.learner.V @ sampler.learner.W.t())
+        model_dist = (sampler.Pi.view((-1,1)) * sampler.Pj.view((1,-1))) * model_pmi
+        model_dist /= model_dist.sum()
+
+        model_I_dist = sampler.Pi * model_pmi
+        # print(sampler.Pi)
+        # print(model_pmi)
+        # print(model_I_dist)
+        # self.draw_sample_heatmap(model_samples, model_pmi.shape[0])
+
+        size = sampler.learner.V.shape[0]
+        self.assertEqual(model_dist.shape, torch.randn((size,size)).shape)
+
+        for gibbs_iter in [1, 5, 10]:
+            sampler.gibbs_iteration = gibbs_iter
+            samples = sampler.sample(1000)
+            found_ij_model = samples[1000:]
+            self.draw_sample_heatmap(found_ij_model, model_pmi.shape[0])
+
+
+        expected_pij_untempered = sparse.coo_matrix(
+            (sampler.Nxx_data.cpu().numpy(), (sampler.I.cpu().numpy(), sampler.J.cpu().numpy()))).toarray()
+        print(expected_pij_untempered)
+
+class GibbsSamplingIntegrationTest(TestCase):
+
+
+    def initialization(self, learner, cooc, get_distr=False):
+        torch.manual_seed(616)
+        np.random.seed(616)
+        batch_size = 10000
+
+        sampler = h.loader.GibbsSampleLoader(
+            cooc, learner, temperature=2,
+            batch_size=batch_size, verbose=False, gibbs_iteration=1, get_distr=get_distr, device='cpu'
+        )
+        return sampler
+
+    def build_solver(self):
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'Kylie_sampler_test')
+
+        dictionary = h.dictionary.Dictionary.load(
+            os.path.join(cooccurrence_path, 'dictionary'))
+
+        loss = h.loss.GibbsSampleMLELoss()
+
+        learner = h.learner.SampleLearner(
+            vocab=len(dictionary),
+            covocab=len(dictionary),
+            d=50,
+            bias=False,
+            init=None,
+            device='cpu'
+        )
+        optimizer = f.get_optimizer('adam', learner, learning_rate=0.01)
+
+        loader = self.initialization(learner, cooccurrence_path)
+
+        solver = h.solver.Solver(
+            loader=loader,
+            loss=loss,
+            learner=learner,
+            dictionary=dictionary,
+            optimizer=optimizer,
+            verbose=True,
+        )
+        return solver
+
+    def draw_heat_map(self, solver, ax):
+
+        sampler = solver.loader
+        samples = sampler.sample(10000)
+        samples_from_model = samples[10000:]
+
+        indep_samples = samples[:10000]
+        matrix_for_heatmap = np.zeros((len(solver.dictionary),len(solver.dictionary)), dtype=int)
+        for i,j in samples_from_model:
+            matrix_for_heatmap[i][j] += 1
+        matrix_for_heatmap = matrix_for_heatmap / 100000
+
+        sns.heatmap(matrix_for_heatmap,ax=ax)
+        return ax
+
+    def test_training(self):
+        solver = self.build_solver()
+        np.set_printoptions(precision=3,linewidth=150)
+        print(solver.loader.Pi)
+        fig,axs = plt.subplots(2,5,figsize=(30,6),dpi=80)
+        try:
+            for i in range(100):
+                solver.cycle(1)
+                if i%10 == 0:
+                    # draw heat map for every 10 steps
+                    self.draw_heat_map(solver, axs.flat[int(i/10)])
+            Nxx = sparse.coo_matrix(
+                (solver.loader.Nxx_data.cpu().numpy(),
+                 (solver.loader.I.cpu().numpy(), solver.loader.J.cpu().numpy()))).toarray()
+            print(Nxx)
+
+        except ValueError:
+            Nxx = sparse.coo_matrix(
+                (solver.loader.Nxx_data.cpu().numpy(), (solver.loader.I.cpu().numpy(), solver.loader.J.cpu().numpy()))).toarray()
+            print(Nxx)
+        plt.savefig("test_heatmap.jpg")
+
+        ax = sns.heatmap(Nxx)
+
+        plt.savefig("empirical_heatmap.jpg")
+
+        # plt.savefig("empirical_heatmap.jpg")
+
+class TestCPUGibbsSampling(TestCase):
+    def initialization(self, get_distr=False):
+        torch.manual_seed(616)
+        batch_size = 10
+        cooccurrence_path = os.path.join(
+            h.CONSTANTS.TEST_DIR, 'gibbs_sampling_data')
+        dictionary = h.dictionary.Dictionary.load(
+            os.path.join(cooccurrence_path, 'dictionary'))
+        learner = h.learner.SampleLearner(
+            vocab=len(dictionary),
+            covocab=len(dictionary),
+            d=50,
+            device='cpu'
         )
 
-        dependency_corpus = h.tests.load_test_data.load_dependency_corpus()
+        sampler = h.loader.CPUGibbsSampleLoader(
+            cooccurrence_path, learner, temperature=1,
+            batch_size=batch_size, verbose=False, gibbs_iteration=1, get_distr=get_distr
+        )
+        return sampler
 
-        for batch_num, (positives, mask) in loader:
-
-            found_batch_size, _, padded_length = positives.shape
-
-            start = batch_num * batch_size
-            stop = start + batch_size
-
-            # Assemble the expected batch
-            expected_idxs = dependency_corpus.sort_idxs[start:stop]
-            expected_sentences = [
-                dependency_corpus.sentences[idx.item()]
-                for idx in expected_idxs
-            ]
-            expected_lengths = [
-                dependency_corpus.sentence_lengths[idx.item()]
-                for idx in expected_idxs
-            ]
-            expected_max_length = max(expected_lengths)
-
-            expected_mask = torch.zeros((
-                len(expected_lengths), expected_max_length))
-            for i, length in enumerate(expected_lengths):
-                expected_mask[i][:length] = 1
-
-            self.assertTrue(torch.equal(mask, expected_mask))
-
-            # Did we get the batch size we expected?
-            expected_batch_size = len(expected_sentences)
-            self.assertEqual(found_batch_size, expected_batch_size)
-
-            zipped_sentences = enumerate(zip(positives, expected_sentences))
-            for i, (found_sentence, expected_sentence) in zipped_sentences:
-
-                expected_length = expected_lengths[i]
-
-                _, found_length = found_sentence.shape
-                expected_padding_length = expected_max_length - expected_length
-
-                # Words are as expected
-                self.assertTrue(torch.equal(
-                    found_sentence[0][:expected_length], 
-                    torch.tensor(expected_sentence[0])
-                ))
-
-                # Heads are as expected
-                self.assertTrue(torch.equal(
-                    found_sentence[1][:expected_length],
-                    torch.tensor(expected_sentence[1])
-                ))
-
-                # Arc types are as expected.
-                self.assertTrue(torch.equal(
-                    found_sentence[2][:expected_length],
-                    torch.tensor(expected_sentence[2])
-                ))
-
-                # The first token shoudl be root
-                self.assertEqual(found_sentence[0][0], 1)
-
-                # Sentence should be padded.
-                expected_padded = expected_sentence[0] + [h.CONSTANTS.PAD] * (
-                    expected_max_length - expected_length
-                ).item()
-                self.assertTrue(torch.equal(
-                    found_sentence[0],
-                    torch.tensor(expected_padded)
-                ))
+    def test_CPU_gibbs_sampler(self):
+        sampler = self.initialization()
+        print(sampler.Nxx_data)
 
 
-                # The root has no head (indicated by padding)
-                self.assertEqual(found_sentence[1][0].item(), h.dependency.PAD)
 
-                # The list of heads for the sentence is padded.
-                expected_head_padded = expected_sentence[1]+[h.CONSTANTS.PAD]*(
-                    expected_max_length - expected_length
-                ).item()
-
-                self.assertTrue(torch.equal(
-                    found_sentence[1],
-                    torch.tensor(expected_head_padded)
-                ))
-                
-                # The root has no incoming arc_type (has padding)
-                self.assertEqual(found_sentence[2][0].item(), h.CONSTANTS.PAD)
-
-                # The list of arc-types should be padded.
-                expected_arc_types_padded = expected_sentence[2] + (
-                    [h.CONSTANTS.PAD] * (expected_max_length - expected_length
-                ).item())
-
-                self.assertTrue(torch.equal(
-                    found_sentence[2],
-                    torch.tensor(expected_arc_types_padded)
-                ))
-
-
+if __name__ == '__main__':
+    main()

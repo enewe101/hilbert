@@ -1,10 +1,11 @@
-import hilbert as h
-import torch
 import os
-import sys
+import torch
+
+import hilbert as h
 
 MAX_SENTENCE_LENGTH = 30
 PAD = h.CONSTANTS.PAD
+
 
 class DependencyCorpus:
 
@@ -18,7 +19,6 @@ class DependencyCorpus:
             corpus_path, 'arc-dictionary'
         ))
         self.sentences, self.sentence_lengths, self.sort_idxs = self.read_all()
-
 
     def read_all(self):
         sentences = []
@@ -35,8 +35,6 @@ class DependencyCorpus:
         sort_idxs = torch.argsort(sentence_lengths)
         return sentences, sentence_lengths, sort_idxs
 
-
-
     def iter_sentence_rows(self):
         lines = []
         with open(self.corpus_text_path) as corpus_file:
@@ -49,14 +47,11 @@ class DependencyCorpus:
                     lines.append(line)
             if len(lines) > 0:
                 yield lines
-        
-
 
     def compile_arc_types(self, lines):
         for line in lines:
             fields = line.strip().split('\t')
             self.arc_dictionary.add_token(fields[7])
-
 
     def compile_sentence(self, lines):
 
@@ -69,10 +64,10 @@ class DependencyCorpus:
         root_arc = (self.dictionary.get_id('[ROOT]'), PAD, PAD)
         encoded_arcs = [root_arc] + [
             (
-                self.dictionary.get_id_safe(arc[0], 0), 
-                int(arc[1]), 
+                self.dictionary.get_id_safe(arc[0], 0),
+                int(arc[1]),
                 self.arc_dictionary.get_id(arc[2])
-            ) 
+            )
             for arc in arcs if arc[1] != '_' and arc[2] != '_'
         ]
 
@@ -86,4 +81,3 @@ class DependencyCorpus:
         assert len(modifiers) == len(arc_types)
 
         return (modifiers, heads, arc_types), len(modifiers)
-

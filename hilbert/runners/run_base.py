@@ -71,9 +71,10 @@ class ModelArgumentParser(ArgumentParser):
             h.CONSTANTS.RC['embeddings_dir'], args['save_embeddings_dir'])
         args['cooccurrence_path'] = os.path.join(
             h.CONSTANTS.RC['cooccurrence_dir'], args['cooccurrence_path'])
-        if args['init_embeddings_path'] is not None:
-            args['init_embeddings_path'] = os.path.join(
-                h.CONSTANTS.RC['embeddings_dir'], args['init_embeddings_path'])
+        # if args['init_embeddings_path'] is not None:
+            # args['init_embeddings_path'] = os.path.join(
+            #     h.CONSTANTS.RC['embeddings_dir'], args['init_embeddings_path'])
+
         return args
 
 
@@ -214,7 +215,7 @@ def add_common_constructor_args(parser):
     )
     parser.add_argument(
         '--init', '-i', dest="init_embeddings_path", default=None,
-        help="Name of embeddings subdirectory to use as initialization"
+        help="Name of embeddings directory to use as initialization"
     )
     parser.add_argument(
         '--seed', '-S', type=int, default=1917, help="Random seed"

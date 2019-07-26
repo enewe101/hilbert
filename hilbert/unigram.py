@@ -1,5 +1,6 @@
 import os
 from copy import deepcopy
+
 try:
     import numpy as np
 except ImportError:
@@ -11,10 +12,10 @@ class Unigram(object):
     """Represents unigram statistics."""
 
     def __init__(
-        self,
-        dictionary=None,
-        Nx=None,
-        verbose=True
+            self,
+            dictionary=None,
+            Nx=None,
+            verbose=True
     ):
         """
         ``dictionary`` -- A hilbert.dictionary.Dictionary instance mapping token
@@ -43,7 +44,6 @@ class Unigram(object):
         self.check_sorted()
         self.smoothed = False
 
-
     def check_sorted(self):
         """
         Check whether the dictionary tokens are sorted in decreasing order of 
@@ -58,7 +58,6 @@ class Unigram(object):
         self.sorted = True
         return self.sorted
 
-
     def apply_smoothing(self, alpha):
         if alpha == 1 or alpha is None:
             return
@@ -66,14 +65,12 @@ class Unigram(object):
             raise ValueError(
                 "Attempting to apply unigram smoothing multiple times!")
         self.smoothed = True
-        self.Nx = [count**alpha for count in self.Nx]
+        self.Nx = [count ** alpha for count in self.Nx]
         self.N = sum(self.Nx)
-
 
     def __getitem__(self, shard):
         return self.load_shard(shard)
 
-        
     def load_shard(self, shard=None, device=None):
 
         if shard is None:
@@ -82,26 +79,22 @@ class Unigram(object):
         device = h.utils.get_device(device)
 
         loaded_Nx = h.utils.load_shard(
-            self.Nx, shard[0], device=device).view(-1,1)
+            self.Nx, shard[0], device=device).view(-1, 1)
         loaded_Nxt = h.utils.load_shard(
-            self.Nx, shard[1], device=device).view(1,-1)
+            self.Nx, shard[1], device=device).view(1, -1)
         loaded_N = h.utils.load_shard(self.N, device=device)
 
         return loaded_Nx, loaded_Nxt, loaded_N
 
-
     def __len__(self):
         return len(self.Nx)
-
 
     @property
     def shape(self):
         return (len(self),)
 
-
     def __copy__(self):
         return deepcopy(self)
-
 
     def __deepcopy__(self, memo):
         result = Unigram(
@@ -112,7 +105,6 @@ class Unigram(object):
         memo[id(self)] = result
         return result
 
-
     def __iter__(self):
         """
         Returns (Nx, N). So that the Unigram instance easily unpacks
@@ -120,7 +112,6 @@ class Unigram(object):
         """
         return iter(self[h.shards.whole])
 
-    
     def __add__(self, other):
         """
         Create a new Unigram that has counts from both operands.
@@ -132,7 +123,6 @@ class Unigram(object):
         result = deepcopy(self)
         result.__iadd__(other)
         return result
-
 
     def __iadd__(self, other):
         """
@@ -152,7 +142,6 @@ class Unigram(object):
 
         return self
 
-
     # Converted
     def validate_args(self, dictionary, Nx):
         # Dictionaries are mandatory.
@@ -162,20 +151,16 @@ class Unigram(object):
                 'Unigram object.'
             )
 
-
     def count(self, token):
         token_id = self.dictionary.get_id(token)
         return self.Nx[token_id]
 
-
     def freq(self, token):
         return self.freq_id(self.dictionary.get_id(token))
-
 
     def freq_id(self, token_idx):
         return self.Nx[token_idx] / self.N
 
-        
     def add(self, token, count=1):
         idx = self.dictionary.add_token(token)
         if idx == len(self.Nx):
@@ -185,12 +170,11 @@ class Unigram(object):
         else:
             raise ValueError(
                 'Unigram out of sync with Dictionary: got ID %d for token %s, '
-                'out of bounds for Nx of length %d' 
+                'out of bounds for Nx of length %d'
                 % (idx, token, len(self.Nx))
             )
         self.N += count
         self.sorted = False
-
 
     def sort_by_tokens(self, token_order):
         """
@@ -210,7 +194,6 @@ class Unigram(object):
         # We are no longer sorted according to unigram frequencies.
         self.sorted = False
 
-
     def sort_by_idxs(self, idx_order):
         """
         Re-assign indexes.  Assumes that there is no change in vocabulary.  If
@@ -223,7 +206,6 @@ class Unigram(object):
 
         # We are no longer sorted according to unigram frequencies.
         self.sorted = False
-
 
     def sort(self):
         """
@@ -242,7 +224,6 @@ class Unigram(object):
 
         return top_indices
 
-
     def save(self, path, save_dictionary=True):
         """
         Save the count data and dictionary to disk.  A new directory will be
@@ -258,7 +239,6 @@ class Unigram(object):
         if save_dictionary:
             self.dictionary.save(os.path.join(path, 'dictionary'))
 
-
     def truncate(self, k):
         """Drop all but the `k` most common words."""
         if not self.sorted:
@@ -266,7 +246,6 @@ class Unigram(object):
         self.Nx = self.Nx[:k]
         self.N = sum(self.Nx)
         self.dictionary = h.dictionary.Dictionary(self.dictionary.tokens[:k])
-
 
     def prune(self, min_count):
         """Drop tokens occurring fewer than `min_count` times."""
@@ -276,7 +255,6 @@ class Unigram(object):
             if count < min_count:
                 self.truncate(k)
                 break
-
 
     @staticmethod
     def load(path, verbose=True):
@@ -289,6 +267,3 @@ class Unigram(object):
         with open(os.path.join(path, 'Nx.txt')) as f_counts:
             Nx = [int(count) for count in f_counts]
         return Unigram(dictionary=dictionary, Nx=Nx, verbose=verbose)
-
-
-

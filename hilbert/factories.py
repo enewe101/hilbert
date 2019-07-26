@@ -1,8 +1,9 @@
-import os
 import numpy as np
+import os
 import torch
-import hilbert as h
 import warnings
+
+import hilbert as h
 
 
 def get_constructor(model_str):
@@ -66,14 +67,17 @@ def get_lr_scheduler(
     }
     # error handling for unrecognized learning rate scheduler string.
     if scheduler_str not in scheduler_options:
-        valid_scheduler_strs = ["{}".format(k) for k in scheduler_options.keys()]
+        valid_scheduler_strs = ["{}".format(k) for k in
+                                scheduler_options.keys()]
         valid_scheduler_strs[-1] = "or " + valid_scheduler_strs[-1]
         raise ValueError("Scheduler choice be one of '{}'. Got '{}'.".format(
             ', '.join(valid_scheduler_strs), scheduler_str
         ))
 
     if start_lr < 0:
-        raise ValueError("Learning rate must be non-negative, got start_lr={} < 0".format(start_lr))
+        raise ValueError(
+            "Learning rate must be non-negative, got start_lr={} < 0".format(
+                start_lr))
 
     if end_learning_rate < 0:
         end_learning_rate = 0
@@ -96,10 +100,12 @@ def get_lr_scheduler(
         elif lr_scheduler_constant_fraction > 1 or lr_scheduler_constant_fraction <= 0:
             lr_scheduler_constant_fraction = 1
             if verbose:
-                print("Constant fraction should be a number betweeen 0 and 1. \n Setting constant fraction to 1..")
+                print(
+                    "Constant fraction should be a number betweeen 0 and 1. \n Setting constant fraction to 1..")
         else:
             pass
-        return [scheduler(optimizer, start_lr, num_updates * lr_scheduler_constant_fraction)]
+        return [scheduler(optimizer, start_lr,
+                          num_updates * lr_scheduler_constant_fraction)]
     else:
         raise ValueError("Scheduler string not found!")
 

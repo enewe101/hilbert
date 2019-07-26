@@ -1,21 +1,22 @@
+import torch
+
 import hilbert as h
 from hilbert.tracer import tracer
-import torch
 
 
 class Solver(object):
 
     def __init__(
-        self,
-        loader,
-        loss,
-        learner,
-        optimizer,
-        schedulers=None,
-        dictionary=None,
-        verbose=True,
-        gradient_accumulation=1,
-        gradient_clipping=None
+            self,
+            loader,
+            loss,
+            learner,
+            optimizer,
+            schedulers=None,
+            dictionary=None,
+            verbose=True,
+            gradient_accumulation=1,
+            gradient_clipping=None
     ):
 
         """
@@ -99,11 +100,13 @@ class Solver(object):
                 grad_accumulation_step = grad_accumulation_step - 1
 
                 if self.gradient_clipping is not None:
-                    torch.nn.utils.clip_grad_norm_(self.learner.parameters(), max_norm=self.gradient_clipping)
+                    torch.nn.utils.clip_grad_norm_(self.learner.parameters(),
+                                                   max_norm=self.gradient_clipping)
 
                 if monitor_closely:
                     if self.cur_loss.item() > 1e4:
-                        pos_pairs, neg_pairs = self.loader.get_batch_words(batch_id, self.dictionary)
+                        pos_pairs, neg_pairs = self.loader.get_batch_words(
+                            batch_id, self.dictionary)
 
                         UserWarning(
                             "Extreme loss value is detected. current loss is greater than 1e4,\n"
@@ -131,10 +134,9 @@ class Solver(object):
 
                 if monitor_closely:
                     tracer.declare('loss', self.cur_loss.item())
-
+                tracer.declare('loss', self.cur_loss.item())
         # don't waste the gradient!
         self.optimizer.step()
         self.optimizer.zero_grad()
-        tracer.declare('loss', self.cur_loss.item())
 
         return self.cur_loss.item()

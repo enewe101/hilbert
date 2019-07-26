@@ -1,11 +1,12 @@
-import hilbert as h
 import torch
 import torch.nn as nn
+
+import hilbert as h
+
 
 # noinspection PyCallingNonCallable
 def xavier(shape, device):
     return nn.init.xavier_uniform_(torch.zeros(shape, device=device))
-
 
 
 class EmbeddingLearner(nn.Module):
@@ -18,7 +19,7 @@ class EmbeddingLearner(nn.Module):
             bias=False,
             init=None,
             device=None
-        ):
+    ):
 
         super(EmbeddingLearner, self).__init__()
 
@@ -36,11 +37,10 @@ class EmbeddingLearner(nn.Module):
             self.reset()
         else:
             self.V = nn.Parameter(init[0], True)
-            self.W = nn.Parameter(init[1], True) 
+            self.W = nn.Parameter(init[1], True)
             self.vb = None if init[2] is None else nn.Parameter(init[2], True)
             self.wb = None if init[3] is None else nn.Parameter(init[3], True)
             self._validate_initialization()
-
 
     def _validate_initialization(self):
         """Raise an error if the caller passed in bad inits."""
@@ -54,7 +54,6 @@ class EmbeddingLearner(nn.Module):
                 "Got {}, but expected {}.".format(self.V.shape, self.V_shape)
             )
 
-
     def reset(self):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
         self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
@@ -65,11 +64,9 @@ class EmbeddingLearner(nn.Module):
             self.wb = nn.Parameter(
                 xavier(self.wb_shape, self.device).squeeze(), True)
 
-
     def get_embedding_params(self):
         """Return just the model parameters that constitute "embeddings"."""
         return self.V, self.W, self.vb, self.wb
-
 
     # TODO: this shouldn't be necessary, self.parameters will automatically
     # collect all tensors that are Parameters.
@@ -77,10 +74,8 @@ class EmbeddingLearner(nn.Module):
         """Return *all* the model params."""
         return self.V, self.W, self.vb, self.wb
 
-
     def forward(self, *input):
         raise NotImplementedError('Not implemented!')
-
 
 
 class DenseLearner(EmbeddingLearner):
@@ -94,16 +89,14 @@ class DenseLearner(EmbeddingLearner):
         return response
 
 
-
 class SampleLearner(EmbeddingLearner):
     def forward(self, IJ):
         # term-wise multiplication
-        response = torch.sum(self.V[IJ[:,0]] * self.W[IJ[:,1]], dim=1)
+        response = torch.sum(self.V[IJ[:, 0]] * self.W[IJ[:, 1]], dim=1)
         if self.bias:
-            response += self.vb[IJ[:,0]]
-            response += self.wb[IJ[:,1]]
+            response += self.vb[IJ[:, 0]]
+            response += self.wb[IJ[:, 1]]
         return response
-
 
 
 class MultisenseLearner(nn.Module):
@@ -117,7 +110,7 @@ class MultisenseLearner(nn.Module):
             bias=False,
             init=None,
             device=None
-        ):
+    ):
 
         super(MultisenseLearner, self).__init__()
 
@@ -138,11 +131,10 @@ class MultisenseLearner(nn.Module):
             self.reset()
         else:
             self.V = nn.Parameter(init[0], True)
-            self.W = nn.Parameter(init[1], True) 
+            self.W = nn.Parameter(init[1], True)
             self.vb = None if init[2] is None else nn.Parameter(init[2], True)
             self.wb = None if init[3] is None else nn.Parameter(init[3], True)
             self._validate_initialization()
-
 
     def _validate_initialization(self):
         """Raise an error if the caller passed in bad inits."""
@@ -156,7 +148,6 @@ class MultisenseLearner(nn.Module):
                 "Got {}, but expected {}.".format(self.V.shape, self.V_shape)
             )
 
-
     def reset(self):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
         self.W = nn.Parameter(xavier(self.W_shape, self.device), True)
@@ -166,11 +157,9 @@ class MultisenseLearner(nn.Module):
             self.wb = nn.Parameter(
                 xavier(self.wb_shape, self.device).squeeze(), True)
 
-
     def get_embedding_params(self):
         """Return just the model parameters that constitute "embeddings"."""
         return self.V, self.W, self.vb, self.wb
-
 
     # TODO: this shouldn't be necessary, self.parameters will automatically
     # collect all tensors that are Parameters.
@@ -178,21 +167,20 @@ class MultisenseLearner(nn.Module):
         """Return *all* the model params."""
         return self.V, self.W, self.vb, self.wb
 
-
     def forward(self, IJ):
 
         # Sum the bias terms for each sense combination in each sample.
         bias = 0
         if self.bias:
             bias = (
-                self.wb[IJ[:,1]].view(IJ.shape[0], self.num_senses, 1)
-                + self.vb[IJ[:,0]].view(IJ.shape[0], 1, self.num_senses)
+                    self.wb[IJ[:, 1]].view(IJ.shape[0], self.num_senses, 1)
+                    + self.vb[IJ[:, 0]].view(IJ.shape[0], 1, self.num_senses)
             )
 
         # Calculate the inner product of each sense combination in each sample.
         mat_muls = torch.bmm(
-            self.W[IJ[:,1]].transpose(dim0=1, dim1=2),
-            self.V[IJ[:,0]]
+            self.W[IJ[:, 1]].transpose(dim0=1, dim1=2),
+            self.V[IJ[:, 0]]
         )
         # mat_muls.shape = (vocab, num_senses, num_senses)
 
@@ -204,9 +192,6 @@ class MultisenseLearner(nn.Module):
         return response
 
 
-
-
-
 class DependencyLearner(nn.Module):
 
     def __init__(
@@ -216,7 +201,7 @@ class DependencyLearner(nn.Module):
             d=None,
             init=None,
             device=None
-        ):
+    ):
 
         super(DependencyLearner, self).__init__()
         if init is not None:
@@ -236,11 +221,10 @@ class DependencyLearner(nn.Module):
             self.reset()
         else:
             self.V = nn.Parameter(init[0], True)
-            self.W = nn.Parameter(init[1], True) 
+            self.W = nn.Parameter(init[1], True)
             self.vb = None if init[2] is None else nn.Parameter(init[2], True)
             self.wb = None if init[3] is None else nn.Parameter(init[3], True)
             self._validate_initialization()
-
 
     def _validate_initialization(self):
         if self.V.shape != self.V_shape or self.W.shape != self.W_shape:
@@ -248,7 +232,6 @@ class DependencyLearner(nn.Module):
                 "Model parameters have initialized with incorrect shape. "
                 "Got {}, but expected {}.".format(self.V.shape, self.V_shape)
             )
-
 
     def reset(self):
         self.V = nn.Parameter(xavier(self.V_shape, self.device), True)
@@ -258,18 +241,15 @@ class DependencyLearner(nn.Module):
         self.wb = nn.Parameter(
             xavier(self.wb_shape, self.device).squeeze(), True)
 
-
     def get_embedding_params(self):
         """Return just the model parameters that constitute "embeddings"."""
         return self.V, self.W, self.vb, self.wb
-
 
     # TODO: this shouldn't be necessary, self.parameters will automatically
     # collect all tensors that are Parameters.
     def get_params(self):
         """Return *all* the model params."""
         return self.V, self.W, self.vb, self.wb
-
 
     def forward(self, positives, mask):
         """
@@ -286,16 +266,17 @@ class DependencyLearner(nn.Module):
         # positives is a (batch-size, 2, T) tensor, where T is the max
         # sentence length
         batch_size, _, max_sentence_length = positives.shape
-        words = positives[:,0,:]
+        words = positives[:, 0, :]
 
         idx0 = [
-            i for i in range(batch_size) 
+            i for i in range(batch_size)
             for j in range(max_sentence_length)
         ]
-        head_ids = positives[:,1,:].contiguous().view(-1)
-        heads = positives[idx0,0,head_ids].view(-1, max_sentence_length)
+        head_ids = positives[:, 1, :].contiguous().view(-1)
+        heads = positives[idx0, 0, head_ids].view(-1, max_sentence_length)
 
-        import pdb; pdb.set_trace()
+        import pdb;
+        pdb.set_trace()
 
         covectors = self.W[words]
         vectors = self.V[heads]
@@ -303,10 +284,9 @@ class DependencyLearner(nn.Module):
         dotted = covectors * vectors
 
         # Mask contributions from the root choosing a head
-        dotted[:,0,:] = 0
+        dotted[:, 0, :] = 0
         scores = dotted.sum(1).sum(1)
         return scores
-
 
     def negative_sweep(self, positives, mask):
 
@@ -315,18 +295,18 @@ class DependencyLearner(nn.Module):
         assert mask.dtype == torch.uint8
 
         # Drop tags for now
-        positives = positives[:,0:2,:] 
+        positives = positives[:, 0:2, :]
         negatives = torch.zeros_like(positives)
-        negatives[:,0,:] = positives[:,0,:]
+        negatives[:, 0, :] = positives[:, 0, :]
         batch_size, _, sentence_length = positives.shape
 
         # Access the vectors and covectors
-        words = positives[:,0,:]
+        words = positives[:, 0, :]
         vectors = self.V[words]
         covectors = self.W[words]
 
         # Calculate energies
-        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        energies = torch.bmm(covectors, vectors.transpose(1, 2))
 
         # Block out prohibited states:
         #   Don't choose self as a head
@@ -336,10 +316,9 @@ class DependencyLearner(nn.Module):
 
         # Don't choose padding as a head
         reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        energies[1-reflected_mask] = torch.tensor(-float('inf'))
-        import pdb; pdb.set_trace()
-
-
+        energies[1 - reflected_mask] = torch.tensor(-float('inf'))
+        import pdb;
+        pdb.set_trace()
 
     def negative_sample(self, positives, mask):
 
@@ -348,24 +327,24 @@ class DependencyLearner(nn.Module):
         assert mask.dtype == torch.uint8
 
         # Drop tags for now
-        positives = positives[:,0:2,:] 
+        positives = positives[:, 0:2, :]
         negatives = torch.zeros_like(positives)
-        negatives[:,0,:] = positives[:,0,:]
+        negatives[:, 0, :] = positives[:, 0, :]
         batch_size, _, sentence_length = positives.shape
 
         reflected_mask = (mask.unsqueeze(1) * mask.unsqueeze(2)).byte()
-        words = positives[:,0,:]
+        words = positives[:, 0, :]
         vectors = self.V[words]
         covectors = self.W[words]
-        energies = torch.bmm(covectors, vectors.transpose(1,2))
+        energies = torch.bmm(covectors, vectors.transpose(1, 2))
         diag_mask = (
             slice(None), range(sentence_length), range(sentence_length))
         energies[diag_mask] = torch.tensor(-float('inf'))
-        energies[1-reflected_mask] = torch.tensor(-float('inf'))
+        energies[1 - reflected_mask] = torch.tensor(-float('inf'))
 
         unnormalized_probs = torch.exp(energies)
         unnormalized_probs_2d = unnormalized_probs.view(-1, sentence_length)
-        unnormalized_probs_2d[1-mask.reshape(-1),:] = 1
+        unnormalized_probs_2d[1 - mask.reshape(-1), :] = 1
         totals = unnormalized_probs_2d.sum(dim=1, keepdim=True)
         probs = unnormalized_probs_2d / totals
 
@@ -375,18 +354,8 @@ class DependencyLearner(nn.Module):
         idx1 = [i for i in range(batch_size) for j in range(sentence_length)]
         idx2 = [j for i in range(batch_size) for j in range(sentence_length)]
 
-        negatives[idx1,1,idx2] = sample
+        negatives[idx1, 1, idx2] = sample
 
-        negatives[:,1,:][1-mask] = 0
+        negatives[:, 1, :][1 - mask] = 0
 
         return negatives
-
-
-
-
-
-
-
-
-
-

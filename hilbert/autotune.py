@@ -1,7 +1,8 @@
-from math import log10, floor
 import argparse
+
 import torch
-from progress.bar import IncrementalBar
+from math import log10, floor
+
 import hilbert as h
 
 """
@@ -22,6 +23,7 @@ Note that Glove only implicitly diverges due to the fact that
 it does not use exponents, so we "loss_check" just in case.
 """
 
+
 # https://stackoverflow.com/questions/3410976/
 # how-to-round-a-number-to-significant-figures-in-python
 def round_sig(x, sig=4):
@@ -29,7 +31,7 @@ def round_sig(x, sig=4):
 
 
 def next_lr(divs, unmovings, goods, crt, D=False):
-    if D and len(goods) == 0 and len(unmovings)==0:
+    if D and len(goods) == 0 and len(unmovings) == 0:
         val = crt / 10
     else:
         lowest_div = min(divs)
@@ -37,7 +39,7 @@ def next_lr(divs, unmovings, goods, crt, D=False):
         val = (lowest_div + highest_conv) / 2
 
     oriented_lr = round_sig(val)
-    if oriented_lr == crt: # we have converged the learning rate
+    if oriented_lr == crt:  # we have converged the learning rate
         return None
     return oriented_lr
 
@@ -56,7 +58,7 @@ def loss_check(losses):
 def loss_is_stationary(loss_values, minimum_rate=0.1):
     # relative improvement in loss must be at least at
     # a ratio corresponding to the minimum_rate level (10% when it=0.1)
-    start = loss_values[0] # not the max
+    start = loss_values[0]  # not the max
     end = min(loss_values)
     improvement_rate = abs(1 - (end / start))
     return improvement_rate < minimum_rate
@@ -81,8 +83,7 @@ def autotune(
         n_iters=100,
         head_lr=1e5,
         n_goods=10
-    ):
-
+):
     div_lrs = []
     stationary_lrs = []
     good_lrs = []
@@ -93,7 +94,7 @@ def autotune(
     while len(good_lrs) < n_goods and crt_lr is not None:
         print('\nNext test...')
 
-        kwargs = {**constr_kwargs, 'learning_rate':crt_lr}
+        kwargs = {**constr_kwargs, 'learning_rate': crt_lr}
         solver = constructor(**kwargs)
         print(solver.describe())
         losses = []
@@ -130,9 +131,7 @@ def autotune(
     return good_lrs
 
 
-
 def make_parser():
-
     # Make an argument parser; add some arguments that are always applicable.
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -158,9 +157,7 @@ def make_parser():
     return parser
 
 
-
 def main():
-
     # Build a parser based on the command-line parsers for each model.
     parser = make_parser()
 
@@ -178,7 +175,7 @@ def main():
     constructor = h.factories.get_constructor(model)
     autotune(
         constructor,
-        args, 
+        args,
         head_lr=head_lr,
         n_iters=n_iters
     )

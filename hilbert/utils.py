@@ -1,8 +1,9 @@
-import os
-import hilbert as h
 import numpy as np
+import os
 import torch
 from scipy import sparse
+
+import hilbert as h
 
 
 def cooc_path(args, key):
@@ -29,14 +30,14 @@ def get_dtype(dtype=None):
 
 
 def pmi(Nxx, Nx, Nxt, N):
-    return torch.log((Nxx/N) * (N/Nx) * (N/Nxt))
+    return torch.log((Nxx / N) * (N / Nx) * (N / Nxt))
+
 
 def load_shard(
-    source,
-    shard=None,
-    dtype=h.CONSTANTS.DEFAULT_DTYPE,
-    device=None):
-
+        source,
+        shard=None,
+        dtype=h.CONSTANTS.DEFAULT_DTYPE,
+        device=None):
     # Handle Scipy sparse matrix types
     if isinstance(source, (sparse.csr_matrix, sparse.lil_matrix)):
         shard = shard or slice(None)
@@ -56,7 +57,6 @@ def load_shard(
 
 
 def norm(array_or_tensor, ord=2, axis=None, keepdims=False):
-
     if isinstance(array_or_tensor, np.ndarray):
         return np.linalg.norm(array_or_tensor, ord, axis, keepdims)
     elif isinstance(array_or_tensor, torch.Tensor):
@@ -75,6 +75,3 @@ def normalize(array_or_tensor, ord=2, axis=None):
         raise ValueError('axis must be specifiec (int)')
 
     return array_or_tensor / norm(array_or_tensor, ord, axis, keepdims=True)
-
-
-

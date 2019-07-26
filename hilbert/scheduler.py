@@ -1,5 +1,3 @@
-
-
 class TempScheduler:
 
     def __init__(self, tempered_loss, milestones, temperatures):
@@ -75,7 +73,7 @@ class LinearLRScheduler(LearningRateScheduler):
         self.cur_epoch += 1
         if self.cur_epoch < self.num_epochs:
             fraction_left = 1 - self.cur_epoch / self.num_epochs
-            cur_lr = self.end_lr+(self.start_lr-self.end_lr)*fraction_left
+            cur_lr = self.end_lr + (self.start_lr - self.end_lr) * fraction_left
         else:
             cur_lr = self.end_lr
 
@@ -102,7 +100,7 @@ class InverseLRScheduler(LearningRateScheduler):
 
     def step(self):
         self.cur_epoch += 1
-        cur_lr = self.start_lr * self.num_epochs/max(self.cur_epoch, self.num_epochs)
+        cur_lr = self.start_lr * self.num_epochs / max(self.cur_epoch,
+                                                       self.num_epochs)
         for param_group in self.opt.param_groups:
             param_group['lr'] = cur_lr
-

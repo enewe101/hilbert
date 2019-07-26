@@ -1,4 +1,3 @@
-
 def absolutize(self, base_shard):
     """
     Converts a `self` spec, defined relative to `base_shard` spec
@@ -66,20 +65,19 @@ def on_diag(shard):
 
 def serialize(shard):
     if shard is None:
-        return 0,0,1
+        return 0, 0, 1
 
     if not isinstance(shard, tuple) or len(shard) != 2:
         raise ValueError('Value cannot be interpreted as a shard')
 
     if shard == (None, None):
-        return 0,0,1
+        return 0, 0, 1
 
     shard0, shard1 = shard
-    if not(isinstance(shard0, slice)) or not(isinstance(shard1, slice)):
+    if not (isinstance(shard0, slice)) or not (isinstance(shard1, slice)):
         raise ValueError('Value cannot be interpreted as a shard')
 
     return shard0.start, shard1.start, shard0.step
-
 
 
 class Shard(tuple):
@@ -118,10 +116,8 @@ class Shard(tuple):
 
     """
 
-
     def __new__(self, slices):
         return tuple.__new__(Shard, slices)
-
 
     def __init__(self, slices):
         slice1, slice2 = slices
@@ -132,49 +128,47 @@ class Shard(tuple):
         self.i = self[0].start
         self.j = self[1].start
 
-
     def __rmul__(self, other):
         if not isinstance(other, Shard):
             try:
                 other = Shard(other)
-            except TypeError: 
+            except TypeError:
                 return NotImplemented
         return other.absolutize(self)
-
 
     def __mul__(self, other):
         if not isinstance(other, Shard):
             try:
                 other = Shard(other)
-            except TypeError: 
+            except TypeError:
                 return NotImplemented
         return self.absolutize(other)
 
-
     def __truediv__(self, other):
         if not isinstance(other, Shard):
             try:
                 other = Shard(other)
-            except TypeError: 
+            except TypeError:
                 return NotImplemented
         return other.relativize(self)
 
-
     def __truediv__(self, other):
         if not isinstance(other, Shard):
             try:
                 other = Shard(other)
-            except TypeError: 
+            except TypeError:
                 return NotImplemented
         return self.relativize(other)
 
-
     def absolutize(self, base_shard):
         return absolutize(self, base_shard)
+
     def relativize(self, base_shard):
         return relativize(self, base_shard)
+
     def serialize(shard):
         return serialize(shard)
+
     def on_diag(shard):
         return on_diag(shard)
 
@@ -183,7 +177,7 @@ class Shard(tuple):
 
 
 # A "shard" representing the whole array
-whole = Shard((slice(0,None,1), slice(0,None,1)))
+whole = Shard((slice(0, None, 1), slice(0, None, 1)))
 
 
 class Shards:
@@ -236,7 +230,7 @@ class Shards:
         shard_i = shard_num // self.shard_factor
         shard_j = shard_num % self.shard_factor
         return Shard((
-            slice(shard_i, None, self.shard_factor), 
+            slice(shard_i, None, self.shard_factor),
             slice(shard_j, None, self.shard_factor)
         ))
 
@@ -255,6 +249,3 @@ class Shards:
 
     def copy(self):
         return Shards(self.shard_factor)
-
-
-
