@@ -171,7 +171,7 @@ def yields_recallable(f):
 
 
 def build_mle_sample_solver(
-        cooccurrence_path,
+        corpus_stats_path,
         temperature=2,  # MLE option
         batch_size=10000,
         balanced=True,
@@ -206,7 +206,7 @@ def build_mle_sample_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(cooccurrence_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     if balanced:
         print('Keep your balance.')
@@ -228,7 +228,7 @@ def build_mle_sample_solver(
     if gibbs:
         print("Using Gibbs sampling.")
         loader = h.loader.GibbsSampleLoader(
-            cooccurrence_path=cooccurrence_path,
+            cooccurrence_path=corpus_stats_path,
             learner=learner,
             gibbs_iteration=gibbs_iteration,
             get_distr=get_distr,
@@ -246,7 +246,7 @@ def build_mle_sample_solver(
             loader_class = h.loader.GPUSampleLoader
 
         loader = loader_class(
-            cooccurrence_path=cooccurrence_path,
+            cooccurrence_path=corpus_stats_path,
             temperature=temperature,
             batch_size=batch_size,
             device=device,
@@ -288,7 +288,7 @@ def build_mle_sample_solver(
 
 
 def build_dependency_solver(
-        dependency_path,
+        corpus_stats_path,
         batch_size=10000,
         init_embeddings_path=None,
         dimensions=300,
@@ -308,7 +308,7 @@ def build_dependency_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(dependency_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     loss = h.loss.NegativeSampleLoss()
 
@@ -322,7 +322,7 @@ def build_dependency_solver(
     )
 
     loader = h.loader.DependencyLoader(
-        dependency_path,
+        corpus_stats_path,
         batch_size=batch_size,
         device=device,
         verbose=verbose
@@ -344,7 +344,7 @@ def build_dependency_solver(
 
 
 def build_multisense_solver(
-        cooccurrence_path,
+        corpus_stats_path,
         temperature=2,  # MLE option
         batch_size=10000,
         bias=False,
@@ -366,7 +366,7 @@ def build_multisense_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(cooccurrence_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     loss = h.loss.BalancedSampleMLELoss()
 
@@ -381,7 +381,7 @@ def build_multisense_solver(
     )
 
     loader = h.loader.CPUSampleLoader(
-        cooccurrence_path=cooccurrence_path,
+        cooccurrence_path=corpus_stats_path,
         temperature=temperature,
         batch_size=batch_size,
         device=device,
@@ -404,7 +404,7 @@ def build_multisense_solver(
 
 
 def build_mle_solver(
-        cooccurrence_path,
+        corpus_stats_path,
         temperature=2,  # MLE option
         shard_factor=1,  # Dense option
         bias=False,
@@ -420,7 +420,7 @@ def build_mle_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(cooccurrence_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     loss = h.loss.MLELoss(ncomponents=len(dictionary) ** 2)
 
@@ -434,7 +434,7 @@ def build_mle_solver(
     )
 
     loader = h.loader.DenseLoader(
-        cooccurrence_path,
+        corpus_stats_path,
         shard_factor,
         include_unigrams=loss.REQUIRES_UNIGRAMS,
         device=device,
@@ -456,7 +456,7 @@ def build_mle_solver(
 
 
 def build_sgns_solver(
-        cooccurrence_path,
+        corpus_stats_path,
         k=15,  # SGNS option
         undersampling=2.45e-5,  # SGNS option
         smoothing=0.75,  # SGNS option
@@ -474,7 +474,7 @@ def build_sgns_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(cooccurrence_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     loss = h.loss.SGNSLoss(ncomponents=len(dictionary) ** 2, k=k)
 
@@ -488,7 +488,7 @@ def build_sgns_solver(
     )
 
     loader = h.loader.DenseLoader(
-        cooccurrence_path,
+        corpus_stats_path,
         shard_factor,
         include_unigrams=loss.REQUIRES_UNIGRAMS,
         undersampling=undersampling,
@@ -512,7 +512,7 @@ def build_sgns_solver(
 
 
 def build_glove_solver(
-        cooccurrence_path,
+        corpus_stats_path,
         X_max=100,  # Glove option
         alpha=3 / 4,  # Glove option
         shard_factor=1,  # Dense option
@@ -529,7 +529,7 @@ def build_glove_solver(
     torch.random.manual_seed(seed)
 
     dictionary = h.dictionary.Dictionary.load(
-        os.path.join(cooccurrence_path, 'dictionary'))
+        os.path.join(corpus_stats_path, 'dictionary'))
 
     learner = h.learner.DenseLearner(
         vocab=len(dictionary),
@@ -544,7 +544,7 @@ def build_glove_solver(
         ncomponents=len(dictionary) ** 2, X_max=100, alpha=3 / 4)
 
     loader = h.loader.DenseLoader(
-        cooccurrence_path,
+        corpus_stats_path,
         shard_factor,
         include_unigrams=loss.REQUIRES_UNIGRAMS,
         device=device,

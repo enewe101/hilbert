@@ -54,6 +54,11 @@ class TestDependencyCorpus(TestCase):
                 for orig_head_id in sent_heads
             ]
 
+            # Don't inclue sentences with degenerate trees
+            has_degenerate_tree = (None in sent_heads)
+            if has_degenerate_tree:
+                continue
+
             # Don't include too long sentences.
             if len(sent_words) > h.dependency.MAX_SENTENCE_LENGTH:
                 continue
