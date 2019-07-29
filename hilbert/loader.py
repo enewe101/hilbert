@@ -554,10 +554,13 @@ class DependencyLoader:
         sentence_lengths = self.dependency.sentence_lengths[idxs]
         max_length = torch.max(sentence_lengths).item()
 
-        positives = torch.tensor([
-            pad_sentence(self.dependency.sentences[idx], max_length)
-            for idx in idxs
-        ])
+        try:
+            positives = torch.tensor([
+                pad_sentence(self.dependency.sentences[idx], max_length)
+                for idx in idxs
+            ])
+        except RuntimeError:
+            import pdb; pdb.set_trace()
         mask = self.generate_mask(sentence_lengths, max_length)
 
         return positives, mask

@@ -24,10 +24,18 @@ class DependencyCorpus:
         sentences = []
         sentence_lengths = []
         for sent_id, sentence_rows in enumerate(self.iter_sentence_rows()):
+            if sent_id % 100 == 0:
+                print('reading sentence', sent_id)
 
             sentence_data, sentence_len = self.compile_sentence(sentence_rows)
+
+            was_degenerate_tree = (sentence_data == None)
+            if was_degenerate_tree:
+                continue
+
             if sentence_len > MAX_SENTENCE_LENGTH:
                 continue
+
             sentence_lengths.append(sentence_len)
             sentences.append(sentence_data)
 
@@ -123,11 +131,17 @@ class DependencyCorpus:
             PAD if head_id == PAD else filtered_token_ids[head_id] 
             for head_id in head_ids
         ]
+        if None in head_ids:
+            return None, None
+
 
         assert len(modifiers) == len(head_ids)
         assert len(modifiers) == len(arc_types)
 
         return (modifiers, head_ids, arc_types), len(modifiers)
+
+
+
 
         # Every sentence has first token [ROOT].
         root_arc = (self.dictionary.get_id('[ROOT]'), PAD, PAD)

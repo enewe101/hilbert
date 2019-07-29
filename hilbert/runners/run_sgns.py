@@ -2,7 +2,7 @@ import hilbert as h
 
 
 def add_model_args(parser):
-    h.runners.run_base.add_common_constructor_args(parser)
+    #h.runners.run_base.add_common_constructor_args(parser)
     h.runners.run_base.add_bias_arg(parser)
     h.runners.run_base.add_shard_factor_arg(parser)
     parser.add_argument(

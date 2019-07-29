@@ -19,7 +19,6 @@ def run(solver_factory, **args):
     Use run the solver for many updates, and periodically write the model 
     parameters to disk.
     """
-
     # Do some unpacking
     monitor_closely = args['monitor_closely']
     num_writes = args['num_writes']
@@ -69,12 +68,11 @@ class ModelArgumentParser(ArgumentParser):
         args = vars(super(ModelArgumentParser, self).parse_args())
         args['save_embeddings_dir'] = os.path.join(
             h.CONSTANTS.RC['embeddings_dir'], args['save_embeddings_dir'])
-        args['cooccurrence_path'] = os.path.join(
-            h.CONSTANTS.RC['cooccurrence_dir'], args['cooccurrence_path'])
-        # if args['init_embeddings_path'] is not None:
-            # args['init_embeddings_path'] = os.path.join(
-            #     h.CONSTANTS.RC['embeddings_dir'], args['init_embeddings_path'])
-
+        args['corpus_stats_path'] = os.path.join(
+            h.CONSTANTS.RC['cooccurrence_dir'], args['corpus_stats_path'])
+        if args['init_embeddings_path'] is not None:
+            args['init_embeddings_path'] = os.path.join(
+                h.CONSTANTS.RC['embeddings_dir'], args['init_embeddings_path'])
         return args
 
 
@@ -97,6 +95,17 @@ def add_temperature_arg(parser):
         )
     )
 
+def add_num_negative_samples_arg(parser):
+    parser.add_argument(
+        '--num-negative-samples', '-N', type=int, default=1,
+        help=(
+            "Number of negative samples to draw for each positive sample.  "
+            "Drawing more negative samples can improve the estimate of the "
+            "gradient.  The contribution of negative samples to the gradient "
+            "is divided by N hence an average across negative samples is used."
+        )
+    )
+
 
 def add_balanced_arg(parser):
     parser.add_argument(
@@ -111,8 +120,9 @@ def add_gibbs_arg(parser):
     parser.add_argument(
         '--gibbs', '-G', action='store_true', default=False,
         help=(
-            "Sample positive and negative samples together, using Gibbs sampler to sample "
-            "negative samples from the model distribution. Get actual samples by default."
+            "Sample positive and negative samples together, using Gibbs "
+            "sampler to sample negative samples from the model distribution. "
+            "Get actual samples by default."
         )
     )
     parser.add_argument(
@@ -124,8 +134,8 @@ def add_gibbs_arg(parser):
     parser.add_argument(
         '--get_distr', action='store_true',
         help=(
-            "Rather than getting actual samples drawn from the model distribution, "
-            "get the model distribution instead."
+            "Rather than getting actual samples drawn from the model "
+            "distribution, get the model distribution instead."
         )
     )
 
@@ -156,9 +166,12 @@ def add_shard_factor_arg(parser):
 
 def add_remove_cooc_arg(parser):
     parser.add_argument(
-        '--remove-threshold', '-thres', type=int, default=10, dest='min_cooccurrence_count',
-        help="A small number threshold of cooc counts to be removed to fit into the "
-             "GPU memory."
+        '--remove-threshold', '-thres', type=int, default=10, 
+        dest='min_cooccurrence_count',
+        help=(
+            "A small number threshold of cooc counts to be removed to fit "
+            "into the GPU memory."
+        )
     )
 
 def add_gradient_clipping_arg(parser):
@@ -170,65 +183,72 @@ def add_gradient_clipping_arg(parser):
 def add_LR_scheduler_arg(parser):
     # can't have both LR and LR scheduler??
     parser.add_argument(
-        '--LR-scheduler', default=None, choices=['linear', 'inverse', 'None'], dest='scheduler_str',
-        help="Type of learning rate scheduler"
+        '--LR-scheduler', default=None, choices=['linear', 'inverse', 'None'],
+        dest='scheduler_str', help="Type of learning rate scheduler"
     )
     parser.add_argument(
-        '--LR-scheduler-endLR', '-le', type=float, default=0.0, dest='end_learning_rate',
+        '--LR-scheduler-endLR', '-le', type=float, default=0.0,
+        dest='end_learning_rate',
         help="The end learning rate for linear learning rate scheduler"
     )
     parser.add_argument(
-        '--lr_scheduler_fraction', '-frac', type=float, default=0.1, dest='lr_scheduler_constant_fraction',
-        help="Required for inverse LR scheduler. Control the number of updates for which learning rate stays constant."
+        '--lr_scheduler_fraction', '-frac', type=float, default=0.1,
+        dest='lr_scheduler_constant_fraction',
+        help=(
+            "Required for inverse LR scheduler. Control the number of updates "
+            "for which learning rate stays constant."
+        )
     )
 
 def add_gradient_accumulation_arg(parser):
     parser.add_argument(
-        '--gradient-accumulation', '-ga', type=int, default=1, dest='gradient_accumulation',
+        '--gradient-accumulation', '-ga', type=int, default=1,
+        dest='gradient_accumulation',
         help="Accumulate gradients for number of updates."
     )
 
 
 
-def add_common_constructor_args(parser):
-    """
-    Add the arguments that are common to all model constructors.
-    """
-    parser.add_argument(
-        '--cooccurrence', '-b', required=True, dest='cooccurrence_path',
-        help=(
-            "Name of the cooccurrence subdirectory containing cooccurrence "
-            "statistics"
-        )
-    )
-    parser.add_argument(
-        '--optimizer', '-s', default='adam', help="Type of optimizer to use",
-        dest='opt_str'
-    )
-    parser.add_argument(
-        '--learning-rate', '-l', type=float, default=0.01,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        '--device', default='cuda:0', dest='device',
-        help="Name of the processor we want to use for math (default is cuda:0)"
-    )
-    parser.add_argument(
-        '--init', '-i', dest="init_embeddings_path", default=None,
-        help="Name of embeddings directory to use as initialization"
-    )
-    parser.add_argument(
-        '--seed', '-S', type=int, default=1917, help="Random seed"
-    )
-    parser.add_argument(
-        '--dimensions', '-d', type=int, default=300, dest='dimensions',
-        help='desired dimensionality of the embeddings being produced'
-    )
-    parser.add_argument(
-        '--quiet', '-q', action='store_false', dest='verbose',
-        help="Don't print the trace to stdout."
-    )
-
+#def add_common_constructor_args(parser):
+#    """
+#    Add the arguments that are common to all model constructors.
+#    """
+#    parser.add_argument(
+#        '--corpus-stats-path', '-c', required=True, dest='corpus_stats_path',
+#        help=(
+#            "path to corpus statistics to be used for training. "
+#            "E.g. for window-based embedding models, this is the path to the "
+#            "cooccurrence statistics.  For models that make use of the "
+#            "dependency parse, this is the path to the dependency data."
+#        )
+#    )
+#    parser.add_argument(
+#        '--optimizer', '-s', default='adam', help="Type of optimizer to use",
+#        dest='opt_str'
+#    )
+#    parser.add_argument(
+#        '--learning-rate', '-l', type=float, default=0.01,
+#        help="Learning rate",
+#    )
+#    parser.add_argument(
+#        '--device', default='cuda:0', dest='device',
+#        help="Name of the processor we want to use for math (default is cuda:0)"
+#    )
+#    parser.add_argument(
+#        '--init', '-i', dest="init_embeddings_path", default=None,
+#        help="Name of embeddings subdirectory to use as initialization"
+#    )
+#    parser.add_argument(
+#        '--seed', '-S', type=int, default=1917, help="Random seed"
+#    )
+#    parser.add_argument(
+#        '--dimensions', '-d', type=int, default=300, dest='dimensions',
+#        help='desired dimensionality of the embeddings being produced'
+#    )
+#    parser.add_argument(
+#        '--quiet', '-q', action='store_false', dest='verbose',
+#        help="Don't print the trace to stdout."
+#    )
 
 
 
@@ -260,8 +280,49 @@ def get_argparser(**kwargs):
         help="After making the solver, go into interactive debugger"
     )
 
+    # MOVED FROM COMMON CONSTRUCTOR ARGS
+
+    parser.add_argument(
+        '--corpus-stats-path', '-c', required=True, dest='corpus_stats_path',
+        help=(
+            "path to corpus statistics to be used for training. "
+            "E.g. for window-based embedding models, this is the path to the "
+            "cooccurrence statistics.  For models that make use of the "
+            "dependency parse, this is the path to the dependency data."
+        )
+    )
+    parser.add_argument(
+        '--optimizer', '-s', default='adam', help="Type of optimizer to use",
+        dest='opt_str'
+    )
+    parser.add_argument(
+        '--learning-rate', '-l', type=float, default=0.01,
+        help="Learning rate",
+    )
+    parser.add_argument(
+        '--device', default='cuda:0', dest='device',
+        help="Name of the processor we want to use for math (default is cuda:0)"
+    )
+    parser.add_argument(
+        '--init', '-i', dest="init_embeddings_path", default=None,
+        help="Name of embeddings subdirectory to use as initialization"
+    )
+    parser.add_argument(
+        '--seed', '-S', type=int, default=1917, help="Random seed"
+    )
+    parser.add_argument(
+        '--dimensions', '-d', type=int, default=300, dest='dimensions',
+        help='desired dimensionality of the embeddings being produced'
+    )
+    parser.add_argument(
+        '--quiet', '-q', action='store_false', dest='verbose',
+        help="Don't print the trace to stdout."
+    )
+
+
     #parser.add_argument(
     #    '--dtype', choices=(64, 32, 16), default=32, dest='dtype',
     #    help="Bit depth of floats used in the model."
     #)
     return parser
+
