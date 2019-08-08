@@ -208,6 +208,7 @@ class DependencyLearner(nn.Module):
             d=None,
             init=None,
             num_negative_samples=1,
+            enforce_constraints=True,
             device=None
     ):
 
@@ -232,6 +233,7 @@ class DependencyLearner(nn.Module):
         self.wb_shape = (covocab, 1)
         self.device = h.utils.get_device(device)
         self.num_negative_samples = num_negative_samples
+        self.enforce_constraints = enforce_constraints
 
         # Initialize the model parameters.
         if init is None:
@@ -420,7 +422,7 @@ class DependencyLearner(nn.Module):
         return probs
 
 
-    def do_inference(self, words, mask, enforce_constraints=True):
+    def do_inference(self, words, mask):
 
 
         batch_size, sentence_length = words.shape
@@ -434,13 +436,13 @@ class DependencyLearner(nn.Module):
         inferred_heads[mask] = 0
         inferred_heads[:,0] = 0
 
-        if enforce_constraints:
-            inferred_heads = self.enforce_constraints(inferred_heads, probs)
+        if self.enforce_constraints:
+            inferred_heads = self.apply_constraints(inferred_heads, probs)
 
         return inferred_heads
 
 
-    def enforce_constraints(self, heads, probs):
+    def apply_constraints(self, heads, probs):
         """
         Detect when a parse tree contains cycles.  For each sentence containing
         a cycle, select a single implicated node and resample it.
@@ -460,6 +462,7 @@ class DependencyLearner(nn.Module):
             resampled = torch.distributions.Categorical(re_probs).sample()
             heads[nz, modifiers_to_resample[nz]] = resampled
             modifiers_to_resample = self.detect_cycles(heads)
+            print(torch.nonzero(modifiers_to_resample).shape)
         return heads
 
 
@@ -484,7 +487,8 @@ class DependencyLearner(nn.Module):
         # For each sentence, write the implicated tokens into a single
         # slot.  Only the last one in the permutation survives.  This in effect
         # randomly selects one cycle-implicated token per sentence
-        chosen_implicated = torch.zeros(batch_size, dtype=torch.int64)
+        chosen_implicated = torch.zeros(
+            batch_size, dtype=torch.int64, device=self.device)
         chosen_implicated[implicated[:,0]] = (
             parents[implicated[:,0],implicated[:,1]]
         )

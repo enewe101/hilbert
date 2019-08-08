@@ -3,6 +3,7 @@ import hilbert as h
 def add_model_args(parser):
     h.runners.run_base.add_batch_size_arg(parser)
     h.runners.run_base.add_num_negative_samples_arg(parser)
+    h.runners.run_base.add_constraint_enforcement_arg(parser)
     return parser
 
 

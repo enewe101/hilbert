@@ -79,8 +79,10 @@ class Solver(object):
             verbose=self.verbose
         )
 
+
     def get_params(self):
         return self.learner.get_params()
+
 
     def cycle(self, updates_per_cycle=1, monitor_closely=False):
         grad_accumulation_step = self.gradient_accumulation

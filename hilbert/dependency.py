@@ -24,7 +24,7 @@ class DependencyCorpus:
         sentences = []
         sentence_lengths = []
         for sent_id, sentence_rows in enumerate(self.iter_sentence_rows()):
-            if sent_id % 100 == 0:
+            if sent_id % 10000 == 0:
                 print('reading sentence', sent_id)
 
             sentence_data, sentence_len = self.compile_sentence(sentence_rows)
@@ -58,7 +58,6 @@ class DependencyCorpus:
             if len(lines) > 0:
                 yield lines
         
-
 
     def compile_arc_types(self, lines):
         for line in lines:

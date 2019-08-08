@@ -293,6 +293,7 @@ def build_dependency_solver(
         opt_str='adam',
         num_updates=1,
         num_negative_samples=1,
+        enforce_constraints=True,
         seed=1917,
         device=None,
         verbose=True,
@@ -315,6 +316,7 @@ def build_dependency_solver(
         d=dimensions,
         init=get_init_embs(init_embeddings_path, device),
         num_negative_samples=num_negative_samples,
+        enforce_constraints=enforce_constraints,
         device=device
     )
 

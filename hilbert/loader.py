@@ -535,7 +535,7 @@ class DependencyLoader:
     ):
         self.dependency_path = dependency_path
         self.batch_size = batch_size
-        self.device = device
+        self.device = h.utils.get_device(device)
         self.verbose = verbose
         self.dependency = h.dependency.DependencyCorpus(dependency_path)
 
@@ -563,7 +563,7 @@ class DependencyLoader:
             import pdb; pdb.set_trace()
         mask = self.generate_mask(sentence_lengths, max_length)
 
-        return positives, mask
+        return positives.to(self.device), mask.to(self.device)
 
     def generate_mask(self, sentence_lengths, max_length):
         mask = torch.ones(

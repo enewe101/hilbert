@@ -207,6 +207,13 @@ def add_gradient_accumulation_arg(parser):
         help="Accumulate gradients for number of updates."
     )
 
+def add_constraint_enforcement_arg(parser):
+    parser.add_argument(
+        '--no-constraints', '-E', action='store_false',
+        dest='enforce_constraints',
+        help="Accumulate gradients for number of updates."
+    )
+
 
 
 #def add_common_constructor_args(parser):

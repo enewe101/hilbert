@@ -122,12 +122,10 @@ class GibbsSampleMLELoss(nn.Module):
         return -(term1 - term2) / float(boundary)
 
 
-
 class NegativeSampleLoss(nn.Module):
     def forward(self, response, batch_data):
         positive_scores, negative_scores = response
         batch_size = positive_scores.shape[0]
         return -(positive_scores.sum() - negative_scores.sum()) / batch_size
-
 
 
